@@ -1,6 +1,8 @@
-import { StyleSheet, View, Text, Image, ScrollView, Dimensions } from 'react-native';
+import { StyleSheet, View, Text, Image, ScrollView, Dimensions, TouchableOpacity, Modal } from 'react-native';
+import { useState } from 'react';
 import groupImageRegistry from './groupImageRegistry';
 import groupTextRegistry from './groupTextRegistry';
+import IndividualPost from './individualPost';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
@@ -14,6 +16,9 @@ export default function GroupPost({ groupPath }: Props) {
   // Group data from registry
   const data = groupTextRegistry[groupPath];
   const images: any[] = groupImageRegistry[groupPath] ?? [];
+
+  // State
+  const [selectedMember, setSelectedMember] = useState<string | null>(null);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -55,9 +60,31 @@ export default function GroupPost({ groupPath }: Props) {
       {/* Group members */}
       <View style={styles.card}>
         {data?.members.map((path, i) => (
-          <Text key={i} style={styles.memberPath}>{path}</Text>
+          <TouchableOpacity key={i} style={styles.memberRow} onPress={() => setSelectedMember(path)}>
+            <View style={styles.memberCircle} />
+            <Text style={styles.memberName}>{path.split('/').pop()}</Text>
+          </TouchableOpacity>
         ))}
       </View>
+
+      {/* Member profile modal */}
+      <Modal
+        visible={selectedMember !== null}
+        animationType="slide"
+        onRequestClose={() => setSelectedMember(null)}
+      >
+        <View style={styles.modalContainer}>
+
+          {/* Back arrow */}
+          <TouchableOpacity style={styles.backButton} onPress={() => setSelectedMember(null)}>
+            <Text style={styles.backArrow}>←</Text>
+          </TouchableOpacity>
+
+          {/* Individual profile */}
+          {selectedMember && <IndividualPost personPath={selectedMember} />}
+
+        </View>
+      </Modal>
 
     </ScrollView>
   );
@@ -121,11 +148,42 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  // Group members
-  memberPath: {
-    fontSize: 14,
-    color: '#555',
-    marginBottom: 8,
+  // Member row
+  memberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+
+  memberCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#ccc',
+    marginRight: 12,
+  },
+
+  memberName: {
+    fontSize: 16,
+    color: '#000',
+  },
+
+  // Modal
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+
+  backButton: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    zIndex: 10,
+  },
+
+  backArrow: {
+    fontSize: 28,
+    color: '#000',
   },
 
 });
