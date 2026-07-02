@@ -1,5 +1,5 @@
-import { StyleSheet, View } from 'react-native';
 import GroupPost from '@/components/groupPost';
+import { StyleSheet, View } from 'react-native';
 
 export default function Test2Screen() {
   return (
