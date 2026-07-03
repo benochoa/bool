@@ -2,7 +2,7 @@ const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
 
-const serviceAccount = require('C:/Users/jackv/OneDrive/Desktop/key.json');
+const serviceAccount = require('../key.json');
 
 initializeApp({
   credential: cert(serviceAccount),
