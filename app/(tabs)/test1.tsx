@@ -5,7 +5,7 @@ export default function TestScreen() {
   return (
     <View style={styles.container}>
 
-      <IndividualPost personPath="Data/People/Voelk" />
+      <IndividualPost personId="Person-1" />
 
     </View>
   );
