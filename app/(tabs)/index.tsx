@@ -1,20 +1,28 @@
-import { StyleSheet, View, Text, TouchableOpacity, ScrollView } from 'react-native';
-import { useState } from 'react';
+import { StyleSheet, View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import { useState, useEffect } from 'react';
 import GroupPost from '@/components/groupPost';
-import groupTextRegistry from '@/components/groupTextRegistry';
-
-const groupPaths = Object.keys(groupTextRegistry);
+import { fetchAllGroupIds } from '@/lib/fetchAllGroupIds';
 
 export default function ExploreScreen() {
 
   // State
   const [activeTab, setActiveTab] = useState<'Personal' | 'Group'>('Personal');
+  const [groupIds, setGroupIds] = useState<string[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [checkedPaths, setCheckedPaths] = useState<string[]>([]);
+  const [checkedIds, setCheckedIds] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch all group IDs from Firebase on mount
+  useEffect(() => {
+    fetchAllGroupIds().then(ids => {
+      setGroupIds(ids);
+      setLoading(false);
+    });
+  }, []);
 
   // Actions
   function handleCheck() {
-    setCheckedPaths(prev => [...prev, groupPaths[currentIndex]]);
+    setCheckedIds(prev => [...prev, groupIds[currentIndex]]);
     setCurrentIndex(i => i + 1);
   }
 
@@ -23,7 +31,7 @@ export default function ExploreScreen() {
   }
 
   // Derived
-  const done = currentIndex >= groupPaths.length;
+  const done = currentIndex >= groupIds.length;
 
   // Tab row (reused in both feeds)
   const tabRow = (
@@ -44,6 +52,10 @@ export default function ExploreScreen() {
     </View>
   );
 
+  if (loading) {
+    return <ActivityIndicator style={styles.loader} />;
+  }
+
   return (
     <View style={styles.container}>
 
@@ -60,7 +72,7 @@ export default function ExploreScreen() {
             </View>
           ) : (
             <>
-              <GroupPost groupPath={groupPaths[currentIndex]} />
+              <GroupPost groupId={groupIds[currentIndex]} />
 
               {/* Check / X buttons */}
               <View style={styles.buttonRow}>
@@ -79,7 +91,7 @@ export default function ExploreScreen() {
       {/* Group feed */}
       {activeTab === 'Group' && (
         <View style={styles.feedContainer}>
-          {checkedPaths.length === 0 ? (
+          {checkedIds.length === 0 ? (
             <>
               {tabRow}
               <View style={styles.doneContainer}>
@@ -92,8 +104,8 @@ export default function ExploreScreen() {
               {/* Personal / Group toggle - scrolls off with content */}
               {tabRow}
 
-              {checkedPaths.map((path, i) => (
-                <GroupPost key={i} groupPath={path} />
+              {checkedIds.map((id, i) => (
+                <GroupPost key={i} groupId={id} />
               ))}
             </ScrollView>
           )}
@@ -105,6 +117,12 @@ export default function ExploreScreen() {
 }
 
 const styles = StyleSheet.create({
+
+  loader: {
+    flex: 1,
+    alignSelf: 'center',
+    marginTop: 100,
+  },
 
   // Page layout
   container: {

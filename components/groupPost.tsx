@@ -1,24 +1,49 @@
-import { StyleSheet, View, Text, Image, ScrollView, Dimensions, TouchableOpacity, Modal } from 'react-native';
-import { useState } from 'react';
-import groupImageRegistry from './groupImageRegistry';
-import groupTextRegistry from './groupTextRegistry';
+import { StyleSheet, View, Text, Image, ScrollView, Dimensions, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
+import { useEffect, useState } from 'react';
+import { fetchGroup, GroupData } from '../lib/fetchGroup';
+import { fetchPerson } from '../lib/fetchPerson';
 import IndividualPost from './individualPost';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
 
 interface Props {
-  groupPath: string;
+  groupId: string;
 }
 
-export default function GroupPost({ groupPath }: Props) {
+function MemberRow({ personId, onPress }: { personId: string; onPress: () => void }) {
+  const [name, setName] = useState('...');
 
-  // Group data from registry
-  const data = groupTextRegistry[groupPath];
-  const images: any[] = groupImageRegistry[groupPath] ?? [];
+  useEffect(() => {
+    fetchPerson(personId).then(p => { if (p) setName(p.name); });
+  }, [personId]);
+
+  return (
+    <TouchableOpacity style={styles.memberRow} onPress={onPress}>
+      <View style={styles.memberCircle} />
+      <Text style={styles.memberName}>{name}</Text>
+    </TouchableOpacity>
+  );
+}
+
+export default function GroupPost({ groupId }: Props) {
 
   // State
+  const [data, setData] = useState<GroupData | null>(null);
+  const [loading, setLoading] = useState(true);
   const [selectedMember, setSelectedMember] = useState<string | null>(null);
+
+  // Fetch group data from Firebase
+  useEffect(() => {
+    fetchGroup(groupId).then(result => {
+      setData(result);
+      setLoading(false);
+    });
+  }, [groupId]);
+
+  if (loading) {
+    return <ActivityIndicator style={styles.loader} />;
+  }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -28,26 +53,18 @@ export default function GroupPost({ groupPath }: Props) {
         <Text style={styles.name}>{data?.name}</Text>
       </View>
 
-      {/* Group pic - horizontal scroll */}
+      {/* Group pics - horizontal scroll */}
       <View style={styles.card}>
-        <ScrollView
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-        >
-          {images.map((src, i) => (
-            <Image key={i} source={src} style={styles.image} />
+        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
+          {data?.imageUrls.map((url, i) => (
+            <Image key={i} source={{ uri: url }} style={styles.image} />
           ))}
         </ScrollView>
       </View>
 
       {/* Group Q&A - horizontal swipe one at a time */}
       <View style={styles.card}>
-        <ScrollView
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-        >
+        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
           {data?.qa.map((item, i) => (
             <View key={i} style={styles.qaItem}>
               <Text style={styles.question}>{item.question}</Text>
@@ -59,11 +76,8 @@ export default function GroupPost({ groupPath }: Props) {
 
       {/* Group members */}
       <View style={styles.card}>
-        {data?.members.map((path, i) => (
-          <TouchableOpacity key={i} style={styles.memberRow} onPress={() => setSelectedMember(path)}>
-            <View style={styles.memberCircle} />
-            <Text style={styles.memberName}>{path.split('/').pop()}</Text>
-          </TouchableOpacity>
+        {data?.members.map((personId, i) => (
+          <MemberRow key={i} personId={personId} onPress={() => setSelectedMember(personId)} />
         ))}
       </View>
 
@@ -81,7 +95,7 @@ export default function GroupPost({ groupPath }: Props) {
           </TouchableOpacity>
 
           {/* Individual profile */}
-          {selectedMember && <IndividualPost personPath={selectedMember} />}
+          {selectedMember && <IndividualPost personId={selectedMember} />}
 
         </View>
       </Modal>
@@ -91,6 +105,12 @@ export default function GroupPost({ groupPath }: Props) {
 }
 
 const styles = StyleSheet.create({
+
+  loader: {
+    flex: 1,
+    alignSelf: 'center',
+    marginTop: 100,
+  },
 
   container: {
     flex: 1,
@@ -123,7 +143,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // Group pic
+  // Group pics
   image: {
     width: CARD_WIDTH - 32,
     height: 300,

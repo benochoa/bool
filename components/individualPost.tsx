@@ -1,19 +1,31 @@
-import { StyleSheet, View, Text, Image, ScrollView, Dimensions } from 'react-native';
-import individualImageRegistry from './individualImageRegistry';
-import individualTextRegistry from './individualTextRegistry';
+import { StyleSheet, View, Text, Image, ScrollView, Dimensions, ActivityIndicator } from 'react-native';
+import { useEffect, useState } from 'react';
+import { fetchPerson, PersonData } from '../lib/fetchPerson';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
 
 interface Props {
-  personPath: string;
+  personId: string;
 }
 
-export default function IndividualPost({ personPath }: Props) {
+export default function IndividualPost({ personId }: Props) {
 
-  // Individual data from registry
-  const data = individualTextRegistry[personPath];
-  const images: any[] = individualImageRegistry[personPath] ?? [];
+  // State
+  const [data, setData] = useState<PersonData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch person data from Firebase
+  useEffect(() => {
+    fetchPerson(personId).then(result => {
+      setData(result);
+      setLoading(false);
+    });
+  }, [personId]);
+
+  if (loading) {
+    return <ActivityIndicator style={styles.loader} />;
+  }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -25,24 +37,16 @@ export default function IndividualPost({ personPath }: Props) {
 
       {/* Photos - horizontal scroll */}
       <View style={styles.card}>
-        <ScrollView
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-        >
-          {images.map((src, i) => (
-            <Image key={i} source={src} style={styles.image} />
+        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
+          {data?.imageUrls.map((url, i) => (
+            <Image key={i} source={{ uri: url }} style={styles.image} />
           ))}
         </ScrollView>
       </View>
 
       {/* Q&A - horizontal swipe one at a time */}
       <View style={styles.card}>
-        <ScrollView
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-        >
+        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
           {data?.qa.map((item, i) => (
             <View key={i} style={styles.qaItem}>
               <Text style={styles.question}>{item.question}</Text>
@@ -57,6 +61,12 @@ export default function IndividualPost({ personPath }: Props) {
 }
 
 const styles = StyleSheet.create({
+
+  loader: {
+    flex: 1,
+    alignSelf: 'center',
+    marginTop: 100,
+  },
 
   container: {
     flex: 1,
