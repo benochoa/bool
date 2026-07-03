@@ -1,7 +1,7 @@
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../firebaseConfig';
+import { supabase } from '@/supabaseClient';
 
 export async function fetchAllGroupIds(): Promise<string[]> {
-  const snapshot = await getDocs(collection(db, 'groups'));
-  return snapshot.docs.map(doc => doc.id);
+  const { data, error } = await supabase.from('groups').select('id');
+  if (error || !data) return [];
+  return data.map(row => row.id);
 }

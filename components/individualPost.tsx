@@ -15,7 +15,7 @@ export default function IndividualPost({ personId }: Props) {
   const [data, setData] = useState<PersonData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Fetch person data from Firebase
+  // Fetch person data from Supabase
   useEffect(() => {
     fetchPerson(personId).then(result => {
       setData(result);

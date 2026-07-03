@@ -12,7 +12,7 @@ export default function ExploreScreen() {
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Fetch all group IDs from Firebase on mount
+  // Fetch all group IDs from Supabase on mount
   useEffect(() => {
     fetchAllGroupIds().then(ids => {
       setGroupIds(ids);

@@ -4,11 +4,9 @@ import {
 } from 'react-native';
 import { useEffect, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
-import { collection, doc, getDocs, getDoc, setDoc } from 'firebase/firestore';
-import { ref, uploadBytes } from 'firebase/storage';
+import { supabase } from '@/supabaseClient';
 import { fetchGroup, GroupData } from '../lib/fetchGroup';
 import { fetchPerson } from '../lib/fetchPerson';
-import { db, storage } from '../firebaseConfig';
 import IndividualPost from './individualPost';
 
 const { width } = Dimensions.get('window');
@@ -16,9 +14,9 @@ const CARD_WIDTH = width - 40;
 
 // Helpers (editable mode only)
 async function getNextGroupId(): Promise<string> {
-  const snapshot = await getDocs(collection(db, 'groups'));
-  const nums = snapshot.docs
-    .map(d => d.id)
+  const { data } = await supabase.from('groups').select('id');
+  const nums = (data ?? [])
+    .map(row => row.id as string)
     .filter(id => /^Group-\d+$/.test(id))
     .map(id => parseInt(id.split('-')[1]));
   const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
@@ -26,9 +24,12 @@ async function getNextGroupId(): Promise<string> {
 }
 
 async function fetchRandomGroupQuestions(): Promise<string[]> {
-  const snapshot = await getDoc(doc(db, 'questions', 'group'));
-  if (!snapshot.exists()) return [];
-  const all: string[] = snapshot.data().questions;
+  const { data } = await supabase
+    .from('questions')
+    .select('questions')
+    .eq('category', 'group')
+    .single();
+  const all: string[] = data?.questions ?? [];
   return [...all].sort(() => Math.random() - 0.5).slice(0, 3);
 }
 
@@ -103,23 +104,19 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
     }
     setSaving(true);
     const newGroupId = await getNextGroupId();
-    const storageFolder = `Groups/${newGroupId}`;
 
     for (let i = 0; i < photos.length; i++) {
       const uri = photos[i];
       if (!uri) continue;
       const response = await fetch(uri);
       const blob = await response.blob();
-      await uploadBytes(ref(storage, `${storageFolder}/img${i + 1}.png`), blob);
+      await supabase.storage
+        .from('groups')
+        .upload(`${newGroupId}/img${i + 1}.png`, blob, { contentType: 'image/png' });
     }
 
     const qa = questions.map((q, i) => ({ question: q, answer: answers[i] }));
-    await setDoc(doc(db, 'groups', newGroupId), {
-      name: groupName.trim(),
-      qa,
-      members: [],
-      storageFolder,
-    });
+    await supabase.from('groups').insert({ id: newGroupId, name: groupName.trim(), qa });
 
     setSaving(false);
     setSaved(true);

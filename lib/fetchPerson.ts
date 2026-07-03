@@ -1,6 +1,4 @@
-import { doc, getDoc } from 'firebase/firestore';
-import { ref, listAll, getDownloadURL } from 'firebase/storage';
-import { db, storage } from '../firebaseConfig';
+import { supabase } from '@/supabaseClient';
 
 export interface PersonData {
   name: string;
@@ -10,15 +8,19 @@ export interface PersonData {
 
 export async function fetchPerson(personId: string): Promise<PersonData | null> {
 
-  // Fetch text data from Firestore
-  const snapshot = await getDoc(doc(db, 'people', personId));
-  if (!snapshot.exists()) return null;
-  const data = snapshot.data();
+  // Fetch text data from Postgres
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('name, qa')
+    .eq('id', personId)
+    .single();
+  if (error || !data) return null;
 
   // List images from Storage
-  const folderRef = ref(storage, data.storageFolder);
-  const result = await listAll(folderRef);
-  const imageUrls = await Promise.all(result.items.map(item => getDownloadURL(item)));
+  const { data: files } = await supabase.storage.from('people').list(personId);
+  const imageUrls = (files ?? []).map(
+    file => supabase.storage.from('people').getPublicUrl(`${personId}/${file.name}`).data.publicUrl
+  );
 
   return {
     name: data.name,
