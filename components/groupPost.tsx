@@ -1,16 +1,38 @@
-import { StyleSheet, View, Text, Image, ScrollView, Dimensions, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
+import {
+  StyleSheet, View, Text, Image, ScrollView, Dimensions,
+  TouchableOpacity, Modal, ActivityIndicator, TextInput, Alert
+} from 'react-native';
 import { useEffect, useState } from 'react';
+import * as ImagePicker from 'expo-image-picker';
+import { collection, doc, getDocs, getDoc, setDoc } from 'firebase/firestore';
+import { ref, uploadBytes } from 'firebase/storage';
 import { fetchGroup, GroupData } from '../lib/fetchGroup';
 import { fetchPerson } from '../lib/fetchPerson';
+import { db, storage } from '../firebaseConfig';
 import IndividualPost from './individualPost';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
 
-interface Props {
-  groupId: string;
+// Helpers (editable mode only)
+async function getNextGroupId(): Promise<string> {
+  const snapshot = await getDocs(collection(db, 'groups'));
+  const nums = snapshot.docs
+    .map(d => d.id)
+    .filter(id => /^Group-\d+$/.test(id))
+    .map(id => parseInt(id.split('-')[1]));
+  const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+  return `Group-${next}`;
 }
 
+async function fetchRandomGroupQuestions(): Promise<string[]> {
+  const snapshot = await getDoc(doc(db, 'questions', 'group'));
+  if (!snapshot.exists()) return [];
+  const all: string[] = snapshot.data().questions;
+  return [...all].sort(() => Math.random() - 0.5).slice(0, 3);
+}
+
+// Member row subcomponent
 function MemberRow({ personId, onPress }: { personId: string; onPress: () => void }) {
   const [name, setName] = useState('...');
 
@@ -26,20 +48,82 @@ function MemberRow({ personId, onPress }: { personId: string; onPress: () => voi
   );
 }
 
-export default function GroupPost({ groupId }: Props) {
+interface Props {
+  groupId?: string;
+  editable?: boolean;
+  onClose?: () => void;
+}
 
-  // State
+export default function GroupPost({ groupId, editable = false, onClose }: Props) {
+
+  // State - read mode
   const [data, setData] = useState<GroupData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!editable);
   const [selectedMember, setSelectedMember] = useState<string | null>(null);
 
-  // Fetch group data from Firebase
+  // State - editable mode
+  const [groupName, setGroupName] = useState('');
+  const [photos, setPhotos] = useState<(string | null)[]>([null, null, null]);
+  const [questions, setQuestions] = useState<string[]>(['', '', '']);
+  const [answers, setAnswers] = useState<string[]>(['', '', '']);
+  const [editingName, setEditingName] = useState(false);
+  const [editingAnswerIndex, setEditingAnswerIndex] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  // Fetch data (read mode) or questions (editable mode)
   useEffect(() => {
-    fetchGroup(groupId).then(result => {
-      setData(result);
-      setLoading(false);
+    if (editable) {
+      fetchRandomGroupQuestions().then(qs => setQuestions(qs));
+    } else if (groupId) {
+      fetchGroup(groupId).then(result => {
+        setData(result);
+        setLoading(false);
+      });
+    }
+  }, [groupId, editable]);
+
+  async function pickPhoto(index: number) {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      quality: 0.8,
     });
-  }, [groupId]);
+    if (!result.canceled) {
+      const updated = [...photos];
+      updated[index] = result.assets[0].uri;
+      setPhotos(updated);
+    }
+  }
+
+  async function handleSave() {
+    if (!groupName.trim()) {
+      Alert.alert('Missing name', 'Please enter a group name.');
+      return;
+    }
+    setSaving(true);
+    const newGroupId = await getNextGroupId();
+    const storageFolder = `Groups/${newGroupId}`;
+
+    for (let i = 0; i < photos.length; i++) {
+      const uri = photos[i];
+      if (!uri) continue;
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      await uploadBytes(ref(storage, `${storageFolder}/img${i + 1}.png`), blob);
+    }
+
+    const qa = questions.map((q, i) => ({ question: q, answer: answers[i] }));
+    await setDoc(doc(db, 'groups', newGroupId), {
+      name: groupName.trim(),
+      qa,
+      members: [],
+      storageFolder,
+    });
+
+    setSaving(false);
+    setSaved(true);
+  }
 
   if (loading) {
     return <ActivityIndicator style={styles.loader} />;
@@ -48,57 +132,141 @@ export default function GroupPost({ groupId }: Props) {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
 
-      {/* Group name */}
+      {/* Back arrow (editable mode) */}
+      {editable && onClose && (
+        <TouchableOpacity style={styles.backButton} onPress={onClose}>
+          <Text style={styles.backArrow}>←</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* Name card */}
       <View style={styles.card}>
-        <Text style={styles.name}>{data?.name}</Text>
-      </View>
-
-      {/* Group pics - horizontal scroll */}
-      <View style={styles.card}>
-        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
-          {data?.imageUrls.map((url, i) => (
-            <Image key={i} source={{ uri: url }} style={styles.image} />
-          ))}
-        </ScrollView>
-      </View>
-
-      {/* Group Q&A - horizontal swipe one at a time */}
-      <View style={styles.card}>
-        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
-          {data?.qa.map((item, i) => (
-            <View key={i} style={styles.qaItem}>
-              <Text style={styles.question}>{item.question}</Text>
-              <Text style={styles.answer}>{item.answer}</Text>
-            </View>
-          ))}
-        </ScrollView>
-      </View>
-
-      {/* Group members */}
-      <View style={styles.card}>
-        {data?.members.map((personId, i) => (
-          <MemberRow key={i} personId={personId} onPress={() => setSelectedMember(personId)} />
-        ))}
-      </View>
-
-      {/* Member profile modal */}
-      <Modal
-        visible={selectedMember !== null}
-        animationType="slide"
-        onRequestClose={() => setSelectedMember(null)}
-      >
-        <View style={styles.modalContainer}>
-
-          {/* Back arrow */}
-          <TouchableOpacity style={styles.backButton} onPress={() => setSelectedMember(null)}>
-            <Text style={styles.backArrow}>←</Text>
+        {editable && (
+          <TouchableOpacity style={styles.pencilButton} onPress={() => setEditingName(e => !e)}>
+            <Text style={styles.pencil}>✏️</Text>
           </TouchableOpacity>
+        )}
+        {editable && editingName ? (
+          <TextInput
+            style={styles.nameInput}
+            placeholder="Group name"
+            placeholderTextColor="#aaa"
+            value={groupName}
+            onChangeText={setGroupName}
+            autoFocus
+          />
+        ) : (
+          <Text style={[styles.name, editable && !groupName && styles.placeholder]}>
+            {editable ? (groupName || 'Group name') : data?.name}
+          </Text>
+        )}
+      </View>
 
-          {/* Individual profile */}
-          {selectedMember && <IndividualPost personId={selectedMember} />}
+      {/* Photos card */}
+      <View style={styles.card}>
+        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
+          {editable ? (
+            photos.map((uri, i) => (
+              <View key={i} style={styles.photoSlot}>
+                <TouchableOpacity style={styles.pencilButton} onPress={() => pickPhoto(i)}>
+                  <Text style={styles.pencil}>✏️</Text>
+                </TouchableOpacity>
+                {uri ? (
+                  <Image source={{ uri }} style={styles.image} />
+                ) : (
+                  <View style={styles.photoPlaceholder}>
+                    <Text style={styles.photoPlaceholderText}>Tap to add photo</Text>
+                  </View>
+                )}
+              </View>
+            ))
+          ) : (
+            data?.imageUrls.map((url, i) => (
+              <Image key={i} source={{ uri: url }} style={styles.image} />
+            ))
+          )}
+        </ScrollView>
+      </View>
 
-        </View>
-      </Modal>
+      {/* Q&A card */}
+      <View style={styles.card}>
+        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
+          {editable ? (
+            questions.map((q, i) => (
+              <View key={i} style={styles.qaItem}>
+                <TouchableOpacity style={styles.pencilButton} onPress={() => setEditingAnswerIndex(editingAnswerIndex === i ? null : i)}>
+                  <Text style={styles.pencil}>✏️</Text>
+                </TouchableOpacity>
+                <Text style={styles.question}>{q}</Text>
+                {editingAnswerIndex === i ? (
+                  <TextInput
+                    style={styles.answerInput}
+                    placeholder="Your answer"
+                    placeholderTextColor="#aaa"
+                    value={answers[i]}
+                    onChangeText={text => {
+                      const updated = [...answers];
+                      updated[i] = text;
+                      setAnswers(updated);
+                    }}
+                    multiline
+                    autoFocus
+                  />
+                ) : (
+                  <Text style={[styles.answer, !answers[i] && styles.placeholder]}>
+                    {answers[i] || 'Tap to answer'}
+                  </Text>
+                )}
+              </View>
+            ))
+          ) : (
+            data?.qa.map((item, i) => (
+              <View key={i} style={styles.qaItem}>
+                <Text style={styles.question}>{item.question}</Text>
+                <Text style={styles.answer}>{item.answer}</Text>
+              </View>
+            ))
+          )}
+        </ScrollView>
+      </View>
+
+      {/* Members card */}
+      <View style={styles.card}>
+        {editable ? (
+          <Text style={styles.membersPlaceholder}>Members — coming soon</Text>
+        ) : (
+          data?.members.map((personId, i) => (
+            <MemberRow key={i} personId={personId} onPress={() => setSelectedMember(personId)} />
+          ))
+        )}
+      </View>
+
+      {/* Save button (editable mode) */}
+      {editable && !saved && (
+        <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving}>
+          {saving ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.saveButtonText}>✓</Text>
+          )}
+        </TouchableOpacity>
+      )}
+
+      {/* Member profile modal (read mode) */}
+      {!editable && (
+        <Modal
+          visible={selectedMember !== null}
+          animationType="slide"
+          onRequestClose={() => setSelectedMember(null)}
+        >
+          <View style={styles.modalContainer}>
+            <TouchableOpacity style={styles.backButton} onPress={() => setSelectedMember(null)}>
+              <Text style={styles.backArrow}>←</Text>
+            </TouchableOpacity>
+            {selectedMember && <IndividualPost personId={selectedMember} />}
+          </View>
+        </Modal>
+      )}
 
     </ScrollView>
   );
@@ -120,10 +288,10 @@ const styles = StyleSheet.create({
   content: {
     alignItems: 'center',
     paddingTop: 60,
-    paddingBottom: 40,
+    paddingBottom: 100,
   },
 
-  // Shared card box
+  // Shared card
   card: {
     width: CARD_WIDTH,
     backgroundColor: '#fff',
@@ -135,7 +303,18 @@ const styles = StyleSheet.create({
     padding: 16,
   },
 
-  // Group name
+  pencilButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    zIndex: 1,
+  },
+
+  pencil: {
+    fontSize: 18,
+  },
+
+  // Name
   name: {
     fontSize: 24,
     fontWeight: 'bold',
@@ -143,7 +322,25 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // Group pics
+  nameInput: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#000',
+    textAlign: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ccc',
+    paddingVertical: 4,
+  },
+
+  placeholder: {
+    color: '#aaa',
+  },
+
+  // Photos
+  photoSlot: {
+    width: CARD_WIDTH - 32,
+  },
+
   image: {
     width: CARD_WIDTH - 32,
     height: 300,
@@ -151,7 +348,21 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
 
-  // Group Q&A
+  photoPlaceholder: {
+    width: CARD_WIDTH - 32,
+    height: 300,
+    borderRadius: 8,
+    backgroundColor: '#f5f5f5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  photoPlaceholderText: {
+    color: '#aaa',
+    fontSize: 16,
+  },
+
+  // Q&A
   qaItem: {
     width: CARD_WIDTH - 32,
   },
@@ -168,7 +379,16 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  // Member row
+  answerInput: {
+    fontSize: 16,
+    color: '#000',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ccc',
+    marginTop: 4,
+    paddingVertical: 4,
+  },
+
+  // Members
   memberRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -188,7 +408,30 @@ const styles = StyleSheet.create({
     color: '#000',
   },
 
-  // Modal
+  membersPlaceholder: {
+    fontSize: 14,
+    color: '#aaa',
+    textAlign: 'center',
+  },
+
+  // Save button
+  saveButton: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#43a047',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 32,
+  },
+
+  saveButtonText: {
+    fontSize: 28,
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+
+  // Modal / back
   modalContainer: {
     flex: 1,
     backgroundColor: '#fff',
