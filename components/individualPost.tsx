@@ -1,6 +1,7 @@
 import {
   StyleSheet, View, Text, Image, ScrollView, Dimensions,
-  TouchableOpacity, ActivityIndicator, TextInput, Alert
+  TouchableOpacity, ActivityIndicator, TextInput, Alert,
+  KeyboardAvoidingView, Platform
 } from 'react-native';
 import { useEffect, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
@@ -136,7 +137,15 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+    >
 
       {/* Name card */}
       <View style={styles.card}>
@@ -163,7 +172,7 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
 
       {/* Photos card */}
       <View style={styles.card}>
-        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
+        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           {editable ? (
             photos.map((uri, i) => (
               <View key={i} style={styles.photoSlot}>
@@ -189,7 +198,7 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
 
       {/* Q&A card */}
       <View style={styles.card}>
-        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
+        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           {editable ? (
             questions.map((q, i) => (
               <View key={i} style={styles.qaItem}>
@@ -241,6 +250,7 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
       )}
 
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

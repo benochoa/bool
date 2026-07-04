@@ -1,6 +1,7 @@
 import {
   StyleSheet, View, Text, Image, ScrollView, Dimensions,
-  TouchableOpacity, Modal, ActivityIndicator, TextInput, Alert
+  TouchableOpacity, Modal, ActivityIndicator, TextInput, Alert,
+  KeyboardAvoidingView, Platform
 } from 'react-native';
 import { useEffect, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
@@ -127,7 +128,15 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+    >
 
       {/* Back arrow (editable mode) */}
       {editable && onClose && (
@@ -161,7 +170,7 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
 
       {/* Photos card */}
       <View style={styles.card}>
-        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
+        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           {editable ? (
             photos.map((uri, i) => (
               <View key={i} style={styles.photoSlot}>
@@ -187,7 +196,7 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
 
       {/* Q&A card */}
       <View style={styles.card}>
-        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
+        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           {editable ? (
             questions.map((q, i) => (
               <View key={i} style={styles.qaItem}>
@@ -266,6 +275,7 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
       )}
 
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
