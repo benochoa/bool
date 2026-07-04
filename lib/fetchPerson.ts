@@ -16,10 +16,12 @@ export async function fetchPerson(personId: string): Promise<PersonData | null> 
     .single();
   if (error || !data) return null;
 
-  // List images from Storage
+  // List images from Storage.
+  // '?v=' makes the URL change whenever the file changes, so caches
+  // (CDN, phone image cache) don't keep showing an overwritten photo.
   const { data: files } = await supabase.storage.from('people').list(personId);
   const imageUrls = (files ?? []).map(
-    file => supabase.storage.from('people').getPublicUrl(`${personId}/${file.name}`).data.publicUrl
+    file => supabase.storage.from('people').getPublicUrl(`${personId}/${file.name}`).data.publicUrl + '?v=' + file.updated_at
   );
 
   return {
