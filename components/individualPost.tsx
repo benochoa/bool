@@ -107,11 +107,13 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
       // Untouched slots hold https URLs already in storage; only upload
       // freshly picked local files. upsert overwrites a previous photo.
       if (!uri || uri.startsWith('http')) continue;
+      // arrayBuffer, not blob: RN blobs are native-side references that
+      // supabase-js can't read, which silently uploads 0-byte files.
       const response = await fetch(uri);
-      const blob = await response.blob();
+      const arrayBuffer = await response.arrayBuffer();
       const { error } = await supabase.storage
         .from('people')
-        .upload(`${personId}/img${i + 1}.png`, blob, { contentType: 'image/png', upsert: true });
+        .upload(`${personId}/img${i + 1}.png`, arrayBuffer, { contentType: 'image/png', upsert: true });
       if (error) {
         setSaving(false);
         Alert.alert('Photo upload failed', error.message);

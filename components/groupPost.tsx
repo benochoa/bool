@@ -109,11 +109,13 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
     for (let i = 0; i < photos.length; i++) {
       const uri = photos[i];
       if (!uri) continue;
+      // arrayBuffer, not blob: RN blobs are native-side references that
+      // supabase-js can't read, which silently uploads 0-byte files.
       const response = await fetch(uri);
-      const blob = await response.blob();
+      const arrayBuffer = await response.arrayBuffer();
       await supabase.storage
         .from('groups')
-        .upload(`${newGroupId}/img${i + 1}.png`, blob, { contentType: 'image/png' });
+        .upload(`${newGroupId}/img${i + 1}.png`, arrayBuffer, { contentType: 'image/png' });
     }
 
     const qa = questions.map((q, i) => ({ question: q, answer: answers[i] }));
