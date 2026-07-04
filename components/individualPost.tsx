@@ -1,27 +1,135 @@
-import { StyleSheet, View, Text, Image, ScrollView, Dimensions, ActivityIndicator } from 'react-native';
+import {
+  StyleSheet, View, Text, Image, ScrollView, Dimensions,
+  TouchableOpacity, ActivityIndicator, TextInput, Alert
+} from 'react-native';
 import { useEffect, useState } from 'react';
+import * as ImagePicker from 'expo-image-picker';
+import { supabase } from '@/supabaseClient';
 import { fetchPerson, PersonData } from '../lib/fetchPerson';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
 
-interface Props {
-  personId: string;
+// Helpers (editable mode only)
+const DEFAULT_QUESTIONS = [
+  "What's your favorite way to spend a weekend?",
+  "What's something you could talk about for hours?",
+  "What's the best meal you've ever had?",
+];
+
+async function fetchRandomPersonQuestions(): Promise<string[]> {
+  const { data } = await supabase
+    .from('questions')
+    .select('questions')
+    .eq('category', 'individual')
+    .single();
+  const all: string[] = data?.questions ?? [];
+  if (all.length < 3) return DEFAULT_QUESTIONS;
+  return [...all].sort(() => Math.random() - 0.5).slice(0, 3);
 }
 
-export default function IndividualPost({ personId }: Props) {
+interface Props {
+  personId: string;
+  editable?: boolean;
+  onSave?: () => void;
+}
 
-  // State
+export default function IndividualPost({ personId, editable = false, onSave }: Props) {
+
+  // State - read mode
   const [data, setData] = useState<PersonData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Fetch person data from Supabase
+  // State - editable mode
+  const [name, setName] = useState('');
+  const [photos, setPhotos] = useState<(string | null)[]>([null, null, null]);
+  const [questions, setQuestions] = useState<string[]>(['', '', '']);
+  const [answers, setAnswers] = useState<string[]>(['', '', '']);
+  const [editingName, setEditingName] = useState(false);
+  const [editingAnswerIndex, setEditingAnswerIndex] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // Fetch person data; in editable mode, pre-fill the form with it
   useEffect(() => {
-    fetchPerson(personId).then(result => {
-      setData(result);
+    fetchPerson(personId).then(async result => {
+      if (!editable) {
+        setData(result);
+        setLoading(false);
+        return;
+      }
+
+      if (result) {
+        setName(result.name ?? '');
+        // Place each photo in its slot by the imgN in its URL — the storage
+        // listing collapses gaps, so positions alone can't be trusted.
+        const slots: (string | null)[] = [null, null, null];
+        for (const url of result.imageUrls) {
+          const match = url.match(/img(\d)\.png/);
+          const slot = match ? parseInt(match[1]) - 1 : -1;
+          if (slot >= 0 && slot < 3) slots[slot] = url;
+        }
+        setPhotos(slots);
+      }
+
+      if (result && result.qa.length > 0) {
+        setQuestions(result.qa.map(item => item.question));
+        setAnswers(result.qa.map(item => item.answer));
+      } else {
+        setQuestions(await fetchRandomPersonQuestions());
+      }
       setLoading(false);
     });
-  }, [personId]);
+  }, [personId, editable]);
+
+  async function pickPhoto(index: number) {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      quality: 0.8,
+    });
+    if (!result.canceled) {
+      const updated = [...photos];
+      updated[index] = result.assets[0].uri;
+      setPhotos(updated);
+    }
+  }
+
+  async function handleSave() {
+    if (!name.trim()) {
+      Alert.alert('Missing name', 'Please enter your name.');
+      return;
+    }
+    setSaving(true);
+
+    for (let i = 0; i < photos.length; i++) {
+      const uri = photos[i];
+      // Untouched slots hold https URLs already in storage; only upload
+      // freshly picked local files. upsert overwrites a previous photo.
+      if (!uri || uri.startsWith('http')) continue;
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      const { error } = await supabase.storage
+        .from('people')
+        .upload(`${personId}/img${i + 1}.png`, blob, { contentType: 'image/png', upsert: true });
+      if (error) {
+        setSaving(false);
+        Alert.alert('Photo upload failed', error.message);
+        return;
+      }
+    }
+
+    const qa = questions.map((q, i) => ({ question: q, answer: answers[i] }));
+    const { error } = await supabase
+      .from('profiles')
+      .update({ name: name.trim(), qa })
+      .eq('id', personId);
+    setSaving(false);
+    if (error) {
+      Alert.alert('Save failed', error.message);
+      return;
+    }
+    onSave?.();
+  }
 
   if (loading) {
     return <ActivityIndicator style={styles.loader} />;
@@ -30,31 +138,107 @@ export default function IndividualPost({ personId }: Props) {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
 
-      {/* Name */}
+      {/* Name card */}
       <View style={styles.card}>
-        <Text style={styles.name}>{data?.name}</Text>
+        {editable && (
+          <TouchableOpacity style={styles.pencilButton} onPress={() => setEditingName(e => !e)}>
+            <Text style={styles.pencil}>✏️</Text>
+          </TouchableOpacity>
+        )}
+        {editable && editingName ? (
+          <TextInput
+            style={styles.nameInput}
+            placeholder="Your name"
+            placeholderTextColor="#aaa"
+            value={name}
+            onChangeText={setName}
+            autoFocus
+          />
+        ) : (
+          <Text style={[styles.name, editable && !name && styles.placeholder]}>
+            {editable ? (name || 'Your name') : data?.name}
+          </Text>
+        )}
       </View>
 
-      {/* Photos - horizontal scroll */}
+      {/* Photos card */}
       <View style={styles.card}>
         <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
-          {data?.imageUrls.map((url, i) => (
-            <Image key={i} source={{ uri: url }} style={styles.image} />
-          ))}
+          {editable ? (
+            photos.map((uri, i) => (
+              <View key={i} style={styles.photoSlot}>
+                <TouchableOpacity style={styles.pencilButton} onPress={() => pickPhoto(i)}>
+                  <Text style={styles.pencil}>✏️</Text>
+                </TouchableOpacity>
+                {uri ? (
+                  <Image source={{ uri }} style={styles.image} />
+                ) : (
+                  <View style={styles.photoPlaceholder}>
+                    <Text style={styles.photoPlaceholderText}>Tap to add photo</Text>
+                  </View>
+                )}
+              </View>
+            ))
+          ) : (
+            data?.imageUrls.map((url, i) => (
+              <Image key={i} source={{ uri: url }} style={styles.image} />
+            ))
+          )}
         </ScrollView>
       </View>
 
-      {/* Q&A - horizontal swipe one at a time */}
+      {/* Q&A card */}
       <View style={styles.card}>
         <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
-          {data?.qa.map((item, i) => (
-            <View key={i} style={styles.qaItem}>
-              <Text style={styles.question}>{item.question}</Text>
-              <Text style={styles.answer}>{item.answer}</Text>
-            </View>
-          ))}
+          {editable ? (
+            questions.map((q, i) => (
+              <View key={i} style={styles.qaItem}>
+                <TouchableOpacity style={styles.pencilButton} onPress={() => setEditingAnswerIndex(editingAnswerIndex === i ? null : i)}>
+                  <Text style={styles.pencil}>✏️</Text>
+                </TouchableOpacity>
+                <Text style={styles.question}>{q}</Text>
+                {editingAnswerIndex === i ? (
+                  <TextInput
+                    style={styles.answerInput}
+                    placeholder="Your answer"
+                    placeholderTextColor="#aaa"
+                    value={answers[i]}
+                    onChangeText={text => {
+                      const updated = [...answers];
+                      updated[i] = text;
+                      setAnswers(updated);
+                    }}
+                    multiline
+                    autoFocus
+                  />
+                ) : (
+                  <Text style={[styles.answer, !answers[i] && styles.placeholder]}>
+                    {answers[i] || 'Tap to answer'}
+                  </Text>
+                )}
+              </View>
+            ))
+          ) : (
+            data?.qa.map((item, i) => (
+              <View key={i} style={styles.qaItem}>
+                <Text style={styles.question}>{item.question}</Text>
+                <Text style={styles.answer}>{item.answer}</Text>
+              </View>
+            ))
+          )}
         </ScrollView>
       </View>
+
+      {/* Save button (editable mode) — stays visible so edits can be re-saved */}
+      {editable && (
+        <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving}>
+          {saving ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.saveButtonText}>✓</Text>
+          )}
+        </TouchableOpacity>
+      )}
 
     </ScrollView>
   );
@@ -91,6 +275,17 @@ const styles = StyleSheet.create({
     padding: 16,
   },
 
+  pencilButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    zIndex: 1,
+  },
+
+  pencil: {
+    fontSize: 18,
+  },
+
   // Name
   name: {
     fontSize: 24,
@@ -99,12 +294,44 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
+  nameInput: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#000',
+    textAlign: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ccc',
+    paddingVertical: 4,
+  },
+
+  placeholder: {
+    color: '#aaa',
+  },
+
   // Photos
+  photoSlot: {
+    width: CARD_WIDTH - 32,
+  },
+
   image: {
     width: CARD_WIDTH - 32,
     height: 300,
     resizeMode: 'cover',
     borderRadius: 8,
+  },
+
+  photoPlaceholder: {
+    width: CARD_WIDTH - 32,
+    height: 300,
+    borderRadius: 8,
+    backgroundColor: '#f5f5f5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  photoPlaceholderText: {
+    color: '#aaa',
+    fontSize: 16,
   },
 
   // Q&A
@@ -122,6 +349,32 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#000',
     marginTop: 4,
+  },
+
+  answerInput: {
+    fontSize: 16,
+    color: '#000',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ccc',
+    marginTop: 4,
+    paddingVertical: 4,
+  },
+
+  // Save button
+  saveButton: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#43a047',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 32,
+  },
+
+  saveButtonText: {
+    fontSize: 28,
+    color: '#fff',
+    fontWeight: 'bold',
   },
 
 });
