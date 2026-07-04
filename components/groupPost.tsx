@@ -1,11 +1,12 @@
 import {
   StyleSheet, View, Text, Image, ScrollView, Dimensions,
   TouchableOpacity, Modal, ActivityIndicator, TextInput, Alert,
-  KeyboardAvoidingView, Platform
+  KeyboardAvoidingView, Platform, Share
 } from 'react-native';
 import { useEffect, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '@/supabaseClient';
+import { useSession } from '@/hooks/use-session';
 import { fetchGroup, GroupData } from '../lib/fetchGroup';
 import { fetchPerson } from '../lib/fetchPerson';
 import IndividualPost from './individualPost';
@@ -22,6 +23,25 @@ async function getNextGroupId(): Promise<string> {
     .map(id => parseInt(id.split('-')[1]));
   const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
   return `Group-${next}`;
+}
+
+// No 0/O, 1/I/L: avoids ambiguous characters when codes are shared aloud.
+const INVITE_CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+function generateInviteCode(): string {
+  let code = '';
+  for (let i = 0; i < 6; i++) code += INVITE_CODE_CHARS[Math.floor(Math.random() * INVITE_CODE_CHARS.length)];
+  return code;
+}
+
+async function getUniqueInviteCode(): Promise<string> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const code = generateInviteCode();
+    const { data } = await supabase.from('groups').select('id').eq('invite_code', code).maybeSingle();
+    if (!data) return code;
+  }
+  // The unique constraint on groups.invite_code catches the leftover race.
+  return generateInviteCode();
 }
 
 async function fetchRandomGroupQuestions(): Promise<string[]> {
@@ -58,6 +78,8 @@ interface Props {
 
 export default function GroupPost({ groupId, editable = false, onClose }: Props) {
 
+  const { session } = useSession();
+
   // State - read mode
   const [data, setData] = useState<GroupData | null>(null);
   const [loading, setLoading] = useState(!editable);
@@ -72,18 +94,42 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
   const [editingAnswerIndex, setEditingAnswerIndex] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [isEditingExisting, setIsEditingExisting] = useState(false);
+
+  // editable = creation flow; isEditingExisting = leader editing a saved group
+  const isEditMode = editable || isEditingExisting;
+  const isLeader = !!(session?.user && data?.created_by && data.created_by === session.user.id);
 
   // Fetch data (read mode) or questions (editable mode)
   useEffect(() => {
     if (editable) {
       fetchRandomGroupQuestions().then(qs => setQuestions(qs));
     } else if (groupId) {
+      // The same instance can be reused for another group (explore feed),
+      // so don't carry an open edit session over to it.
+      setIsEditingExisting(false);
       fetchGroup(groupId).then(result => {
         setData(result);
         setLoading(false);
       });
     }
   }, [groupId, editable]);
+
+  // Pre-fill the edit form from fetched data; also used by Cancel to discard edits.
+  function prefillFromData(d: GroupData) {
+    setGroupName(d.name);
+    // Place each photo in its slot by the imgN in its URL — the storage
+    // listing collapses gaps, so positions alone can't be trusted.
+    const slots: (string | null)[] = [null, null, null];
+    for (const url of d.imageUrls) {
+      const match = url.match(/img(\d)\.png/);
+      const slot = match ? parseInt(match[1]) - 1 : -1;
+      if (slot >= 0 && slot < 3) slots[slot] = url;
+    }
+    setPhotos(slots);
+    setQuestions(d.qa.map(item => item.question));
+    setAnswers(d.qa.map(item => item.answer));
+  }
 
   async function pickPhoto(index: number) {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -104,6 +150,44 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
       return;
     }
     setSaving(true);
+    const qa = questions.map((q, i) => ({ question: q, answer: answers[i] }));
+
+    // Leader editing an existing group
+    if (isEditingExisting && groupId) {
+      for (let i = 0; i < photos.length; i++) {
+        const uri = photos[i];
+        // Untouched slots hold https URLs already in storage; only upload
+        // freshly picked local files. upsert overwrites a previous photo.
+        if (!uri || uri.startsWith('http')) continue;
+        const response = await fetch(uri);
+        const arrayBuffer = await response.arrayBuffer();
+        const { error } = await supabase.storage
+          .from('groups')
+          .upload(`${groupId}/img${i + 1}.png`, arrayBuffer, { contentType: 'image/png', upsert: true });
+        if (error) {
+          setSaving(false);
+          Alert.alert('Photo upload failed', error.message);
+          return;
+        }
+      }
+
+      const { error } = await supabase
+        .from('groups')
+        .update({ name: groupName.trim(), qa })
+        .eq('id', groupId);
+      if (error) {
+        setSaving(false);
+        Alert.alert('Save failed', error.message);
+        return;
+      }
+
+      setData(await fetchGroup(groupId));
+      setSaving(false);
+      setIsEditingExisting(false);
+      return;
+    }
+
+    // Creation
     const newGroupId = await getNextGroupId();
 
     for (let i = 0; i < photos.length; i++) {
@@ -118,8 +202,23 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
         .upload(`${newGroupId}/img${i + 1}.png`, arrayBuffer, { contentType: 'image/png' });
     }
 
-    const qa = questions.map((q, i) => ({ question: q, answer: answers[i] }));
-    await supabase.from('groups').insert({ id: newGroupId, name: groupName.trim(), qa });
+    const { error } = await supabase.from('groups').insert({
+      id: newGroupId,
+      name: groupName.trim(),
+      qa,
+      created_by: session?.user.id ?? null,
+      invite_code: await getUniqueInviteCode(),
+    });
+    if (error) {
+      setSaving(false);
+      Alert.alert('Save failed', error.message);
+      return;
+    }
+
+    // The creator is the group's first member.
+    if (session?.user) {
+      await supabase.from('group_members').insert({ group_id: newGroupId, person_id: session.user.id });
+    }
 
     setSaving(false);
     setSaved(true);
@@ -147,14 +246,27 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
         </TouchableOpacity>
       )}
 
+      {/* Edit / Cancel toggle (leader only, saved groups) */}
+      {!editable && isLeader && data && (
+        <TouchableOpacity
+          style={styles.editToggleButton}
+          onPress={() => {
+            prefillFromData(data);
+            setIsEditingExisting(e => !e);
+          }}
+        >
+          <Text style={styles.editToggleText}>{isEditingExisting ? 'Cancel' : 'Edit'}</Text>
+        </TouchableOpacity>
+      )}
+
       {/* Name card */}
       <View style={styles.card}>
-        {editable && (
+        {isEditMode && (
           <TouchableOpacity style={styles.pencilButton} onPress={() => setEditingName(e => !e)}>
             <Text style={styles.pencil}>✏️</Text>
           </TouchableOpacity>
         )}
-        {editable && editingName ? (
+        {isEditMode && editingName ? (
           <TextInput
             style={styles.nameInput}
             placeholder="Group name"
@@ -164,8 +276,8 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
             autoFocus
           />
         ) : (
-          <Text style={[styles.name, editable && !groupName && styles.placeholder]}>
-            {editable ? (groupName || 'Group name') : data?.name}
+          <Text style={[styles.name, isEditMode && !groupName && styles.placeholder]}>
+            {isEditMode ? (groupName || 'Group name') : data?.name}
           </Text>
         )}
       </View>
@@ -173,7 +285,7 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
       {/* Photos card */}
       <View style={styles.card}>
         <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-          {editable ? (
+          {isEditMode ? (
             photos.map((uri, i) => (
               <View key={i} style={styles.photoSlot}>
                 <TouchableOpacity style={styles.pencilButton} onPress={() => pickPhoto(i)}>
@@ -199,7 +311,7 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
       {/* Q&A card */}
       <View style={styles.card}>
         <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-          {editable ? (
+          {isEditMode ? (
             questions.map((q, i) => (
               <View key={i} style={styles.qaItem}>
                 <TouchableOpacity style={styles.pencilButton} onPress={() => setEditingAnswerIndex(editingAnswerIndex === i ? null : i)}>
@@ -240,17 +352,27 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
 
       {/* Members card */}
       <View style={styles.card}>
-        {editable ? (
-          <Text style={styles.membersPlaceholder}>Members — coming soon</Text>
+        {data ? (
+          <>
+            {data.members.map((personId, i) => (
+              <MemberRow key={i} personId={personId} onPress={() => setSelectedMember(personId)} />
+            ))}
+            {isLeader && data.invite_code && (
+              <View style={styles.inviteRow}>
+                <Text style={styles.inviteLabel}>Invite code: {data.invite_code}</Text>
+                <TouchableOpacity onPress={() => Share.share({ message: `Join my group on bool — use invite code ${data.invite_code}` })}>
+                  <Text style={styles.shareText}>Share</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </>
         ) : (
-          data?.members.map((personId, i) => (
-            <MemberRow key={i} personId={personId} onPress={() => setSelectedMember(personId)} />
-          ))
+          <Text style={styles.membersPlaceholder}>Members — coming soon</Text>
         )}
       </View>
 
-      {/* Save button (editable mode) */}
-      {editable && !saved && (
+      {/* Save button (edit mode) */}
+      {isEditMode && !saved && (
         <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving}>
           {saving ? (
             <ActivityIndicator color="#fff" />
@@ -260,21 +382,19 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
         </TouchableOpacity>
       )}
 
-      {/* Member profile modal (read mode) */}
-      {!editable && (
-        <Modal
-          visible={selectedMember !== null}
-          animationType="slide"
-          onRequestClose={() => setSelectedMember(null)}
-        >
-          <View style={styles.modalContainer}>
-            <TouchableOpacity style={styles.backButton} onPress={() => setSelectedMember(null)}>
-              <Text style={styles.backArrow}>←</Text>
-            </TouchableOpacity>
-            {selectedMember && <IndividualPost personId={selectedMember} />}
-          </View>
-        </Modal>
-      )}
+      {/* Member profile modal */}
+      <Modal
+        visible={selectedMember !== null}
+        animationType="slide"
+        onRequestClose={() => setSelectedMember(null)}
+      >
+        <View style={styles.modalContainer}>
+          <TouchableOpacity style={styles.backButton} onPress={() => setSelectedMember(null)}>
+            <Text style={styles.backArrow}>←</Text>
+          </TouchableOpacity>
+          {selectedMember && <IndividualPost personId={selectedMember} />}
+        </View>
+      </Modal>
 
     </ScrollView>
     </KeyboardAvoidingView>
@@ -421,6 +541,40 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#aaa',
     textAlign: 'center',
+  },
+
+  inviteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+
+  inviteLabel: {
+    fontSize: 14,
+    color: '#555',
+  },
+
+  shareText: {
+    fontSize: 14,
+    color: '#43a047',
+    fontWeight: 'bold',
+  },
+
+  // Edit / Cancel toggle
+  editToggleButton: {
+    alignSelf: 'flex-end',
+    marginRight: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#ccc',
+  },
+
+  editToggleText: {
+    fontSize: 15,
+    color: '#000',
   },
 
   // Save button

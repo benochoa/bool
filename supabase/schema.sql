@@ -46,3 +46,8 @@ create policy "authenticated read/write" on questions for all to authenticated u
 
 create policy "authenticated read/write" on storage.objects for all to authenticated
   using (bucket_id in ('groups', 'people')) with check (bucket_id in ('groups', 'people'));
+
+-- Migration (run separately — the statements above have already been run):
+-- group leader + invite codes. Nullable: pre-existing rows are not backfilled.
+alter table groups add column created_by uuid references profiles (id);
+alter table groups add column invite_code text unique;
