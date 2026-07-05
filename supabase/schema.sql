@@ -51,3 +51,17 @@ create policy "authenticated read/write" on storage.objects for all to authentic
 -- group leader + invite codes. Nullable: pre-existing rows are not backfilled.
 alter table groups add column created_by uuid references profiles (id);
 alter table groups add column invite_code text unique;
+
+-- Migration (run separately): group feed. One row per (suggesting group, target
+-- group) pair — the primary key doubling as the "already suggested" check.
+create table group_suggestions (
+  suggesting_group_id text not null references groups (id) on delete cascade,
+  target_group_id text not null references groups (id) on delete cascade,
+  suggested_by uuid not null references profiles (id),
+  created_at timestamptz not null default now(),
+  primary key (suggesting_group_id, target_group_id)
+);
+
+alter table group_suggestions enable row level security;
+
+create policy "authenticated read/write" on group_suggestions for all to authenticated using (true) with check (true);

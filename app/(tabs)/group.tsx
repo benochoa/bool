@@ -103,7 +103,7 @@ export default function GroupScreen() {
 
       {/* Active group switcher */}
       {myGroupIds.length > 0 && (
-        <View style={styles.switcherWrap}>
+        <View style={styles.switcherWrap} pointerEvents="box-none">
           <TouchableOpacity style={styles.switcherButton} onPress={() => setSwitcherOpen(o => !o)}>
             <Text style={styles.switcherButtonText} numberOfLines={1}>{activeGroupName || '...'}</Text>
           </TouchableOpacity>

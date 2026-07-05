@@ -2,15 +2,29 @@ import { StyleSheet, View, Text, TouchableOpacity, ScrollView, ActivityIndicator
 import { useState, useEffect } from 'react';
 import GroupPost from '@/components/groupPost';
 import { fetchAllGroupIds } from '@/lib/fetchAllGroupIds';
+import { fetchGroupSuggestions } from '@/lib/fetchGroupSuggestions';
+import { fetchPerson } from '@/lib/fetchPerson';
+import { useActiveGroup } from '@/hooks/use-active-group';
+import { useSession } from '@/hooks/use-session';
+import { supabase } from '@/supabaseClient';
+
+interface FeedSuggestion {
+  targetGroupId: string;
+  suggestedByName: string;
+}
 
 export default function ExploreScreen() {
+
+  const { session } = useSession();
+  const { activeGroupId } = useActiveGroup();
 
   // State
   const [activeTab, setActiveTab] = useState<'Personal' | 'Group'>('Personal');
   const [groupIds, setGroupIds] = useState<string[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [checkedIds, setCheckedIds] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<FeedSuggestion[]>([]);
   const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Fetch all group IDs from Supabase on mount
   useEffect(() => {
@@ -20,10 +34,37 @@ export default function ExploreScreen() {
     });
   }, []);
 
+  // Load the active group's feed whenever it's viewed or the active group changes
+  useEffect(() => {
+    if (activeTab !== 'Group' || !activeGroupId) return;
+    fetchGroupSuggestions(activeGroupId).then(async rows => {
+      const withNames = await Promise.all(rows.map(async row => {
+        const person = await fetchPerson(row.suggestedBy);
+        return { targetGroupId: row.targetGroupId, suggestedByName: person?.name ?? '...' };
+      }));
+      setSuggestions(withNames);
+    });
+  }, [activeTab, activeGroupId]);
+
+  function showNotice(text: string) {
+    setNotice(text);
+    setTimeout(() => setNotice(null), 2500);
+  }
+
   // Actions
-  function handleCheck() {
-    setCheckedIds(prev => [...prev, groupIds[currentIndex]]);
+  async function handleCheck() {
+    const targetGroupId = groupIds[currentIndex];
     setCurrentIndex(i => i + 1);
+
+    if (!activeGroupId || !session?.user) return;
+    const { error } = await supabase.from('group_suggestions').insert({
+      suggesting_group_id: activeGroupId,
+      target_group_id: targetGroupId,
+      suggested_by: session.user.id,
+    });
+    if (error?.code === '23505') {
+      showNotice('Someone in your group already recommended this.');
+    }
   }
 
   function handleX() {
@@ -91,7 +132,7 @@ export default function ExploreScreen() {
       {/* Group feed */}
       {activeTab === 'Group' && (
         <View style={styles.feedContainer}>
-          {checkedIds.length === 0 ? (
+          {suggestions.length === 0 ? (
             <>
               {tabRow}
               <View style={styles.doneContainer}>
@@ -104,11 +145,21 @@ export default function ExploreScreen() {
               {/* Personal / Group toggle - scrolls off with content */}
               {tabRow}
 
-              {checkedIds.map((id, i) => (
-                <GroupPost key={i} groupId={id} />
+              {suggestions.map((s, i) => (
+                <View key={i}>
+                  <GroupPost groupId={s.targetGroupId} />
+                  <Text style={styles.recommendedText}>Recommended by {s.suggestedByName}</Text>
+                </View>
               ))}
             </ScrollView>
           )}
+        </View>
+      )}
+
+      {/* Temporary notice */}
+      {notice && (
+        <View style={styles.noticeBanner} pointerEvents="none">
+          <Text style={styles.noticeText}>{notice}</Text>
         </View>
       )}
 
@@ -209,6 +260,30 @@ const styles = StyleSheet.create({
     fontSize: 28,
     color: '#fff',
     fontWeight: 'bold',
+  },
+
+  recommendedText: {
+    fontSize: 14,
+    color: '#555',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+
+  noticeBanner: {
+    position: 'absolute',
+    top: 110,
+    left: 24,
+    right: 24,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+
+  noticeText: {
+    color: '#fff',
+    fontSize: 14,
+    textAlign: 'center',
   },
 
 });
