@@ -5,7 +5,7 @@
 Social app built with Expo SDK 54, expo-router 6 (file-based routing), React Native 0.81, React 19, TypeScript. No backend yet — all content is mock data bundled with the app.
 
 - `app/_layout.tsx` — root stack; `app/(tabs)/_layout.tsx` — bottom tab bar
-- `app/(tabs)/` — screens: `index` (explore), `home`, `chats`, `group`, `received`, plus `test1`/`test2` scratch screens
+- `app/(tabs)/` — screens: `index` (explore), `home`, `chats`, `group`, `received`
 - `components/` — shared UI. `individualPost.tsx` / `groupPost.tsx` render feed posts; `themed-text` / `themed-view` handle light/dark theming
 - `components/*Registry.ts` — static registries mapping string keys (e.g. `Data/Groups/Group-1`) to `import`/`require`d JSON and images. Metro only bundles static imports, so **new Data entries must also be added to the matching registry file**
 - `Data/` — mock content: `People/<Name>/{Images,Text}` and `Groups/Group-<N>/{Images,Text}` with `name.json`, `qa.json`, and (groups only) `members.json`
