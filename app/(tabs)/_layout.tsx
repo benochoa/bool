@@ -6,6 +6,7 @@ import { HapticTab } from '@/components/haptic-tab';
 import IndividualPost from '@/components/individualPost';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
+import { ActiveGroupProvider } from '@/hooks/use-active-group';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/supabaseClient';
@@ -55,48 +56,50 @@ export default function TabLayout() {
   }
 
   return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        headerShown: false,
-        tabBarButton: HapticTab,
-      }}>
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="flame.fill" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="received"
-        options={{
-          title: 'Received',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="tray.fill" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="group"
-        options={{
-          title: 'Group',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.3.fill" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="chats"
-        options={{
-          title: 'Chats',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="bubble.left.and.bubble.right.fill" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="home"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.fill" color={color} />,
-        }}
-      />
-    </Tabs>
+    <ActiveGroupProvider>
+      <Tabs
+        screenOptions={{
+          tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
+          headerShown: false,
+          tabBarButton: HapticTab,
+        }}>
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: 'Explore',
+            tabBarIcon: ({ color }) => <IconSymbol size={28} name="flame.fill" color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="received"
+          options={{
+            title: 'Received',
+            tabBarIcon: ({ color }) => <IconSymbol size={28} name="tray.fill" color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="group"
+          options={{
+            title: 'Group',
+            tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.3.fill" color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="chats"
+          options={{
+            title: 'Chats',
+            tabBarIcon: ({ color }) => <IconSymbol size={28} name="bubble.left.and.bubble.right.fill" color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="home"
+          options={{
+            title: 'Home',
+            tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.fill" color={color} />,
+          }}
+        />
+      </Tabs>
+    </ActiveGroupProvider>
   );
 }
 

@@ -2,42 +2,49 @@ import {
   StyleSheet, View, Text, TouchableOpacity, Modal, TextInput,
   ActivityIndicator, ScrollView
 } from 'react-native';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import GroupPost from '@/components/groupPost';
 import { supabase } from '@/supabaseClient';
 import { useSession } from '@/hooks/use-session';
-import { fetchMyGroupIds } from '@/lib/fetchMyGroupIds';
+import { useActiveGroup } from '@/hooks/use-active-group';
+import { fetchGroup } from '@/lib/fetchGroup';
+
+// Dropdown option — resolves and shows a group's name from just its id.
+function GroupOption({ groupId, onPress }: { groupId: string; onPress: () => void }) {
+  const [name, setName] = useState('...');
+  useEffect(() => {
+    fetchGroup(groupId).then(g => { if (g) setName(g.name); });
+  }, [groupId]);
+  return (
+    <TouchableOpacity style={styles.switcherOption} onPress={onPress}>
+      <Text style={styles.switcherOptionText}>{name}</Text>
+    </TouchableOpacity>
+  );
+}
 
 export default function GroupScreen() {
 
-  const { session, loading: sessionLoading } = useSession();
+  const { session } = useSession();
+  const { myGroupIds, loadingGroups, activeGroupId, setActiveGroupId, refreshGroups } = useActiveGroup();
 
   // State
   const [menuOpen, setMenuOpen] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [myGroupIds, setMyGroupIds] = useState<string[]>([]);
-  const [loadingGroups, setLoadingGroups] = useState(true);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [activeGroupName, setActiveGroupName] = useState('');
   const [joining, setJoining] = useState(false);
   const [codeInput, setCodeInput] = useState('');
   const [joinError, setJoinError] = useState<string | null>(null);
   const [joinLoading, setJoinLoading] = useState(false);
 
-  const refreshGroups = useCallback(() => {
-    if (sessionLoading) return;
-    if (!session?.user) {
-      setMyGroupIds([]);
-      setLoadingGroups(false);
+  // Resolve the active group's name for the switcher label.
+  useEffect(() => {
+    if (!activeGroupId) {
+      setActiveGroupName('');
       return;
     }
-    fetchMyGroupIds(session.user.id).then(ids => {
-      setMyGroupIds(ids);
-      setLoadingGroups(false);
-    });
-  }, [session, sessionLoading]);
-
-  useEffect(() => {
-    refreshGroups();
-  }, [refreshGroups]);
+    fetchGroup(activeGroupId).then(g => setActiveGroupName(g?.name ?? ''));
+  }, [activeGroupId]);
 
   async function handleJoin() {
     const code = codeInput.trim().toUpperCase();
@@ -94,6 +101,26 @@ export default function GroupScreen() {
         </View>
       )}
 
+      {/* Active group switcher */}
+      {myGroupIds.length > 0 && (
+        <View style={styles.switcherWrap}>
+          <TouchableOpacity style={styles.switcherButton} onPress={() => setSwitcherOpen(o => !o)}>
+            <Text style={styles.switcherButtonText} numberOfLines={1}>{activeGroupName || '...'}</Text>
+          </TouchableOpacity>
+          {switcherOpen && (
+            <View style={styles.switcherMenu}>
+              {myGroupIds.map(id => (
+                <GroupOption
+                  key={id}
+                  groupId={id}
+                  onPress={() => { setActiveGroupId(id); setSwitcherOpen(false); }}
+                />
+              ))}
+            </View>
+          )}
+        </View>
+      )}
+
       {/* My groups */}
       {loadingGroups ? (
         <ActivityIndicator style={styles.loader} />
@@ -103,9 +130,7 @@ export default function GroupScreen() {
         </View>
       ) : (
         <ScrollView style={styles.groupsList} contentContainerStyle={styles.groupsListContent}>
-          {myGroupIds.map(id => (
-            <GroupPost key={id} groupId={id} />
-          ))}
+          {activeGroupId && <GroupPost groupId={activeGroupId} />}
         </ScrollView>
       )}
 
@@ -206,6 +231,57 @@ const styles = StyleSheet.create({
   menuText: {
     fontSize: 16,
     color: '#000',
+  },
+
+  // Active group switcher
+  switcherWrap: {
+    position: 'absolute',
+    top: 60,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 2,
+  },
+
+  switcherButton: {
+    maxWidth: '60%',
+    height: 44,
+    paddingHorizontal: 20,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  switcherButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#000',
+  },
+
+  switcherMenu: {
+    marginTop: 8,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+
+  switcherOption: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+  },
+
+  switcherOptionText: {
+    fontSize: 16,
+    color: '#000',
+    textAlign: 'center',
   },
 
   // Empty state
