@@ -1,7 +1,9 @@
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import GroupPost from '@/components/groupPost';
 import { fetchAllGroupIds } from '@/lib/fetchAllGroupIds';
+import { fetchAllGroupMembers, GroupMemberRow } from '@/lib/fetchAllGroupMembers';
 import { fetchGroupSuggestions } from '@/lib/fetchGroupSuggestions';
 import { fetchPerson } from '@/lib/fetchPerson';
 import { useActiveGroup } from '@/hooks/use-active-group';
@@ -21,50 +23,73 @@ export default function ExploreScreen() {
   // State
   const [activeTab, setActiveTab] = useState<'Personal' | 'Group'>('Personal');
   const [groupIds, setGroupIds] = useState<string[]>([]);
+  const [allMembers, setAllMembers] = useState<GroupMemberRow[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [suggestions, setSuggestions] = useState<FeedSuggestion[]>([]);
   const [loading, setLoading] = useState(true);
-  const [notice, setNotice] = useState<string | null>(null);
 
-  // Fetch all group IDs from Supabase on mount
-  useEffect(() => {
-    fetchAllGroupIds().then(ids => {
-      setGroupIds(ids);
-      setLoading(false);
+  // Fetch all group IDs and the full membership graph — on mount, and again
+  // every time this tab is focused, so external changes aren't left stale.
+  useFocusEffect(
+    useCallback(() => {
+      Promise.all([fetchAllGroupIds(), fetchAllGroupMembers()]).then(([ids, members]) => {
+        setGroupIds(ids);
+        setAllMembers(members);
+        setLoading(false);
+      });
+    }, [])
+  );
+
+  // Load the active group's suggestions — needed both to filter the Personal
+  // feed and to render the Group feed. Refetches on focus too, same reason.
+  useFocusEffect(
+    useCallback(() => {
+      if (!activeGroupId) {
+        setSuggestions([]);
+        return;
+      }
+      fetchGroupSuggestions(activeGroupId).then(async rows => {
+        const withNames = await Promise.all(rows.map(async row => {
+          const person = await fetchPerson(row.suggestedBy);
+          return { targetGroupId: row.targetGroupId, suggestedByName: person?.name ?? '...' };
+        }));
+        setSuggestions(withNames);
+      });
+    }, [activeGroupId])
+  );
+
+  // Groups a candidate should be hidden for: already suggested by my group,
+  // or already shares a member with my group (this also hides my own group,
+  // since its members are by definition 100% of "my group's members").
+  const feedGroupIds = useMemo(() => {
+    const myMemberIds = new Set(
+      allMembers.filter(m => m.groupId === activeGroupId).map(m => m.personId)
+    );
+    const alreadySuggested = new Set(suggestions.map(s => s.targetGroupId));
+
+    return groupIds.filter(id => {
+      if (alreadySuggested.has(id)) return false;
+      const candidateMemberIds = allMembers.filter(m => m.groupId === id).map(m => m.personId);
+      return !candidateMemberIds.some(personId => myMemberIds.has(personId));
     });
-  }, []);
+  }, [groupIds, allMembers, suggestions, activeGroupId]);
 
-  // Load the active group's feed whenever it's viewed or the active group changes
+  // Restart the deck whenever the active group changes — the filtered list means something different now.
   useEffect(() => {
-    if (activeTab !== 'Group' || !activeGroupId) return;
-    fetchGroupSuggestions(activeGroupId).then(async rows => {
-      const withNames = await Promise.all(rows.map(async row => {
-        const person = await fetchPerson(row.suggestedBy);
-        return { targetGroupId: row.targetGroupId, suggestedByName: person?.name ?? '...' };
-      }));
-      setSuggestions(withNames);
-    });
-  }, [activeTab, activeGroupId]);
-
-  function showNotice(text: string) {
-    setNotice(text);
-    setTimeout(() => setNotice(null), 2500);
-  }
+    setCurrentIndex(0);
+  }, [activeGroupId]);
 
   // Actions
   async function handleCheck() {
-    const targetGroupId = groupIds[currentIndex];
+    const targetGroupId = feedGroupIds[currentIndex];
     setCurrentIndex(i => i + 1);
 
     if (!activeGroupId || !session?.user) return;
-    const { error } = await supabase.from('group_suggestions').insert({
+    await supabase.from('group_suggestions').insert({
       suggesting_group_id: activeGroupId,
       target_group_id: targetGroupId,
       suggested_by: session.user.id,
     });
-    if (error?.code === '23505') {
-      showNotice('Someone in your group already recommended this.');
-    }
   }
 
   function handleX() {
@@ -72,7 +97,7 @@ export default function ExploreScreen() {
   }
 
   // Derived
-  const done = currentIndex >= groupIds.length;
+  const done = currentIndex >= feedGroupIds.length;
 
   // Tab row (reused in both feeds)
   const tabRow = (
@@ -113,7 +138,7 @@ export default function ExploreScreen() {
             </View>
           ) : (
             <>
-              <GroupPost groupId={groupIds[currentIndex]} />
+              <GroupPost groupId={feedGroupIds[currentIndex]} />
 
               {/* Check / X buttons */}
               <View style={styles.buttonRow}>
@@ -153,13 +178,6 @@ export default function ExploreScreen() {
               ))}
             </ScrollView>
           )}
-        </View>
-      )}
-
-      {/* Temporary notice */}
-      {notice && (
-        <View style={styles.noticeBanner} pointerEvents="none">
-          <Text style={styles.noticeText}>{notice}</Text>
         </View>
       )}
 
@@ -267,23 +285,6 @@ const styles = StyleSheet.create({
     color: '#555',
     textAlign: 'center',
     marginBottom: 16,
-  },
-
-  noticeBanner: {
-    position: 'absolute',
-    top: 110,
-    left: 24,
-    right: 24,
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-
-  noticeText: {
-    color: '#fff',
-    fontSize: 14,
-    textAlign: 'center',
   },
 
 });

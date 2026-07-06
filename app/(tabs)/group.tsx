@@ -2,7 +2,8 @@ import {
   StyleSheet, View, Text, TouchableOpacity, Modal, TextInput,
   ActivityIndicator, ScrollView
 } from 'react-native';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import GroupPost from '@/components/groupPost';
 import { supabase } from '@/supabaseClient';
 import { useSession } from '@/hooks/use-session';
@@ -45,6 +46,14 @@ export default function GroupScreen() {
     }
     fetchGroup(activeGroupId).then(g => setActiveGroupName(g?.name ?? ''));
   }, [activeGroupId]);
+
+  // Refetch "my groups" every time this tab is focused, so joins/leaves made
+  // elsewhere (or directly in Supabase) don't stay stale on screen.
+  useFocusEffect(
+    useCallback(() => {
+      refreshGroups();
+    }, [refreshGroups])
+  );
 
   async function handleJoin() {
     const code = codeInput.trim().toUpperCase();

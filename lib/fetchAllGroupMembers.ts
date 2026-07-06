@@ -1,0 +1,12 @@
+import { supabase } from '@/supabaseClient';
+
+export interface GroupMemberRow {
+  groupId: string;
+  personId: string;
+}
+
+export async function fetchAllGroupMembers(): Promise<GroupMemberRow[]> {
+  const { data, error } = await supabase.from('group_members').select('group_id, person_id');
+  if (error || !data) return [];
+  return data.map(row => ({ groupId: row.group_id, personId: row.person_id }));
+}
