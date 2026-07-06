@@ -65,3 +65,17 @@ create table group_suggestions (
 alter table group_suggestions enable row level security;
 
 create policy "authenticated read/write" on group_suggestions for all to authenticated using (true) with check (true);
+
+-- Migration (run separately): the Sent feed. 'pending' = shows in the Group
+-- feed; the leader's check flips it to 'sent'. The leader's X deletes the row
+-- outright (tentative exclusion, not permanent — see group_suggestions above).
+-- Received (not built yet) will read this same table filtered by
+-- target_group_id instead of suggesting_group_id — no schema change needed for that.
+alter table group_suggestions add column status text not null default 'pending' check (status in ('pending', 'sent'));
+
+-- Migration (run separately): the Received feed + Chats. The receiving
+-- leader's check flips status to 'matched' (a permanent record — unlike every
+-- other rejection in this table, this one is meant to last); their X deletes
+-- the row outright, same tentative pattern as everywhere else.
+alter table group_suggestions drop constraint group_suggestions_status_check;
+alter table group_suggestions add constraint group_suggestions_status_check check (status in ('pending', 'sent', 'matched'));

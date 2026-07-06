@@ -4,8 +4,11 @@ import { useFocusEffect } from '@react-navigation/native';
 import GroupPost from '@/components/groupPost';
 import { fetchAllGroupIds } from '@/lib/fetchAllGroupIds';
 import { fetchAllGroupMembers, GroupMemberRow } from '@/lib/fetchAllGroupMembers';
+import { fetchGroup } from '@/lib/fetchGroup';
 import { fetchGroupSuggestions } from '@/lib/fetchGroupSuggestions';
+import { fetchMatchedGroupIds } from '@/lib/fetchMatchedGroupIds';
 import { fetchPerson } from '@/lib/fetchPerson';
+import { fetchReceivedGroupIds } from '@/lib/fetchReceivedGroupIds';
 import { useActiveGroup } from '@/hooks/use-active-group';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/supabaseClient';
@@ -13,6 +16,7 @@ import { supabase } from '@/supabaseClient';
 interface FeedSuggestion {
   targetGroupId: string;
   suggestedByName: string;
+  status: 'pending' | 'sent' | 'matched';
 }
 
 export default function ExploreScreen() {
@@ -21,58 +25,85 @@ export default function ExploreScreen() {
   const { activeGroupId } = useActiveGroup();
 
   // State
-  const [activeTab, setActiveTab] = useState<'Personal' | 'Group'>('Personal');
+  const [activeTab, setActiveTab] = useState<'Personal' | 'Group' | 'Sent'>('Personal');
   const [groupIds, setGroupIds] = useState<string[]>([]);
   const [allMembers, setAllMembers] = useState<GroupMemberRow[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [suggestions, setSuggestions] = useState<FeedSuggestion[]>([]);
+  const [receivedGroupIds, setReceivedGroupIds] = useState<string[]>([]);
+  const [matchedGroupIds, setMatchedGroupIds] = useState<string[]>([]);
+  const [isLeader, setIsLeader] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Fetch all group IDs and the full membership graph — on mount, and again
-  // every time this tab is focused, so external changes aren't left stale.
+  // Pulls everything this screen needs fresh from Supabase. Called on focus
+  // (leaving/returning to the Explore tab) and again whenever the Personal/
+  // Group/Sent sub-tab changes, since switching between those never triggers
+  // a focus event — the screen itself never unmounts. Received/matched data
+  // is fetched here too even though it has no tab of its own on this screen —
+  // it's only used to keep already-related groups out of the Personal feed.
+  const refreshAll = useCallback(() => {
+    Promise.all([fetchAllGroupIds(), fetchAllGroupMembers()]).then(([ids, members]) => {
+      setGroupIds(ids);
+      setAllMembers(members);
+      setLoading(false);
+    });
+
+    if (!activeGroupId) {
+      setSuggestions([]);
+      setReceivedGroupIds([]);
+      setMatchedGroupIds([]);
+      setIsLeader(false);
+      return;
+    }
+
+    fetchGroupSuggestions(activeGroupId).then(async rows => {
+      const withNames = await Promise.all(rows.map(async row => {
+        const person = await fetchPerson(row.suggestedBy);
+        return { targetGroupId: row.targetGroupId, suggestedByName: person?.name ?? '...', status: row.status };
+      }));
+      setSuggestions(withNames);
+    });
+
+    fetchReceivedGroupIds(activeGroupId).then(setReceivedGroupIds);
+    fetchMatchedGroupIds(activeGroupId).then(setMatchedGroupIds);
+
+    if (session?.user) {
+      fetchGroup(activeGroupId).then(g => setIsLeader(g?.created_by === session.user.id));
+    }
+  }, [activeGroupId, session]);
+
+  // Refetch on focus (switching to Explore from another tab)...
   useFocusEffect(
     useCallback(() => {
-      Promise.all([fetchAllGroupIds(), fetchAllGroupMembers()]).then(([ids, members]) => {
-        setGroupIds(ids);
-        setAllMembers(members);
-        setLoading(false);
-      });
-    }, [])
+      refreshAll();
+    }, [refreshAll])
   );
 
-  // Load the active group's suggestions — needed both to filter the Personal
-  // feed and to render the Group feed. Refetches on focus too, same reason.
-  useFocusEffect(
-    useCallback(() => {
-      if (!activeGroupId) {
-        setSuggestions([]);
-        return;
-      }
-      fetchGroupSuggestions(activeGroupId).then(async rows => {
-        const withNames = await Promise.all(rows.map(async row => {
-          const person = await fetchPerson(row.suggestedBy);
-          return { targetGroupId: row.targetGroupId, suggestedByName: person?.name ?? '...' };
-        }));
-        setSuggestions(withNames);
-      });
-    }, [activeGroupId])
-  );
+  // ...and again whenever the sub-tab changes, since that never triggers focus.
+  useEffect(() => {
+    refreshAll();
+  }, [activeTab, refreshAll]);
 
   // Groups a candidate should be hidden for: already suggested by my group,
-  // or already shares a member with my group (this also hides my own group,
-  // since its members are by definition 100% of "my group's members").
+  // already shares a member with my group (this also hides my own group,
+  // since its members are by definition 100% of "my group's members"),
+  // already reached me (Received), or already matched with me.
   const feedGroupIds = useMemo(() => {
     const myMemberIds = new Set(
       allMembers.filter(m => m.groupId === activeGroupId).map(m => m.personId)
     );
-    const alreadySuggested = new Set(suggestions.map(s => s.targetGroupId));
+    const alreadyRelated = new Set([
+      ...suggestions.map(s => s.targetGroupId),
+      ...receivedGroupIds,
+      ...matchedGroupIds,
+    ]);
 
     return groupIds.filter(id => {
-      if (alreadySuggested.has(id)) return false;
+      if (alreadyRelated.has(id)) return false;
       const candidateMemberIds = allMembers.filter(m => m.groupId === id).map(m => m.personId);
       return !candidateMemberIds.some(personId => myMemberIds.has(personId));
     });
-  }, [groupIds, allMembers, suggestions, activeGroupId]);
+  }, [groupIds, allMembers, suggestions, receivedGroupIds, matchedGroupIds, activeGroupId]);
 
   // Restart the deck whenever the active group changes — the filtered list means something different now.
   useEffect(() => {
@@ -96,10 +127,45 @@ export default function ExploreScreen() {
     setCurrentIndex(i => i + 1);
   }
 
+  // Leader-only actions on a Group-feed card
+  async function handleLeaderSend(targetGroupId: string) {
+    if (!activeGroupId) return;
+    const { error } = await supabase
+      .from('group_suggestions')
+      .update({ status: 'sent' })
+      .eq('suggesting_group_id', activeGroupId)
+      .eq('target_group_id', targetGroupId);
+    if (!error) {
+      setSuggestions(prev => prev.map(s => s.targetGroupId === targetGroupId ? { ...s, status: 'sent' } : s));
+      // The target group may already have a stale, still-pending suggestion
+      // of us sitting in their own Group feed — this just made that redundant.
+      await supabase
+        .from('group_suggestions')
+        .delete()
+        .eq('suggesting_group_id', targetGroupId)
+        .eq('target_group_id', activeGroupId)
+        .eq('status', 'pending');
+    }
+  }
+
+  async function handleLeaderRemove(targetGroupId: string) {
+    if (!activeGroupId) return;
+    const { error } = await supabase
+      .from('group_suggestions')
+      .delete()
+      .eq('suggesting_group_id', activeGroupId)
+      .eq('target_group_id', targetGroupId);
+    if (!error) {
+      setSuggestions(prev => prev.filter(s => s.targetGroupId !== targetGroupId));
+    }
+  }
+
   // Derived
   const done = currentIndex >= feedGroupIds.length;
+  const groupFeedItems = suggestions.filter(s => s.status === 'pending');
+  const sentFeedItems = suggestions.filter(s => s.status === 'sent');
 
-  // Tab row (reused in both feeds)
+  // Tab row (reused in all three feeds)
   const tabRow = (
     <View style={styles.tabRow}>
       <TouchableOpacity
@@ -114,6 +180,13 @@ export default function ExploreScreen() {
         onPress={() => setActiveTab('Group')}
       >
         <Text style={[styles.tabText, activeTab === 'Group' && styles.tabTextActive]}>Group</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.tabButton, activeTab === 'Sent' && styles.tabButtonActive]}
+        onPress={() => setActiveTab('Sent')}
+      >
+        <Text style={[styles.tabText, activeTab === 'Sent' && styles.tabTextActive]}>Sent</Text>
       </TouchableOpacity>
     </View>
   );
@@ -157,7 +230,7 @@ export default function ExploreScreen() {
       {/* Group feed */}
       {activeTab === 'Group' && (
         <View style={styles.feedContainer}>
-          {suggestions.length === 0 ? (
+          {groupFeedItems.length === 0 ? (
             <>
               {tabRow}
               <View style={styles.doneContainer}>
@@ -167,10 +240,47 @@ export default function ExploreScreen() {
           ) : (
             <ScrollView>
 
-              {/* Personal / Group toggle - scrolls off with content */}
+              {/* Personal / Group / Sent toggle - scrolls off with content */}
               {tabRow}
 
-              {suggestions.map((s, i) => (
+              {groupFeedItems.map((s, i) => (
+                <View key={i}>
+                  <GroupPost groupId={s.targetGroupId} />
+                  <Text style={styles.recommendedText}>Recommended by {s.suggestedByName}</Text>
+                  {isLeader && (
+                    <View style={styles.leaderButtonRow}>
+                      <TouchableOpacity style={styles.leaderXButton} onPress={() => handleLeaderRemove(s.targetGroupId)}>
+                        <Text style={styles.buttonText}>✕</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.leaderCheckButton} onPress={() => handleLeaderSend(s.targetGroupId)}>
+                        <Text style={styles.buttonText}>✓</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      )}
+
+      {/* Sent feed — view only, for everyone */}
+      {activeTab === 'Sent' && (
+        <View style={styles.feedContainer}>
+          {sentFeedItems.length === 0 ? (
+            <>
+              {tabRow}
+              <View style={styles.doneContainer}>
+                <Text style={styles.doneText}>Nothing sent yet.</Text>
+              </View>
+            </>
+          ) : (
+            <ScrollView>
+
+              {/* Personal / Group / Sent toggle - scrolls off with content */}
+              {tabRow}
+
+              {sentFeedItems.map((s, i) => (
                 <View key={i}>
                   <GroupPost groupId={s.targetGroupId} />
                   <Text style={styles.recommendedText}>Recommended by {s.suggestedByName}</Text>
@@ -285,6 +395,32 @@ const styles = StyleSheet.create({
     color: '#555',
     textAlign: 'center',
     marginBottom: 16,
+  },
+
+  // Leader-only check/X on a Group-feed card
+  leaderButtonRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 24,
+    marginBottom: 24,
+  },
+
+  leaderXButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#e53935',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  leaderCheckButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#43a047',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
 });
