@@ -1,7 +1,6 @@
-import { StyleSheet, View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
 import GroupPost from '@/components/groupPost';
+import { useActiveGroup } from '@/hooks/use-active-group';
+import { useSession } from '@/hooks/use-session';
 import { fetchAllGroupIds } from '@/lib/fetchAllGroupIds';
 import { fetchAllGroupMembers, GroupMemberRow } from '@/lib/fetchAllGroupMembers';
 import { fetchGroup } from '@/lib/fetchGroup';
@@ -9,9 +8,10 @@ import { fetchGroupSuggestions } from '@/lib/fetchGroupSuggestions';
 import { fetchMatchedGroupIds } from '@/lib/fetchMatchedGroupIds';
 import { fetchPerson } from '@/lib/fetchPerson';
 import { fetchReceivedGroupIds } from '@/lib/fetchReceivedGroupIds';
-import { useActiveGroup } from '@/hooks/use-active-group';
-import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/supabaseClient';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface FeedSuggestion {
   targetGroupId: string;
