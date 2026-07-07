@@ -79,3 +79,30 @@ alter table group_suggestions add column status text not null default 'pending' 
 -- the row outright, same tentative pattern as everywhere else.
 alter table group_suggestions drop constraint group_suggestions_status_check;
 alter table group_suggestions add constraint group_suggestions_status_check check (status in ('pending', 'sent', 'matched'));
+
+-- Migration (run separately): group chat. A "conversation" is identified by
+-- an unordered pair of matched groups; group_1_id/group_2_id are always
+-- stored with group_1_id < group_2_id (enforced by the check constraint) so
+-- a thread can be queried with two plain .eq() filters instead of .or().
+-- sender_group_id is stored directly (not derived from group_members) so
+-- it's known without a join.
+create table messages (
+  id bigint generated always as identity primary key,
+  group_1_id text not null references groups (id) on delete cascade,
+  group_2_id text not null references groups (id) on delete cascade,
+  sender_group_id text not null references groups (id) on delete cascade,
+  sender_id uuid not null references profiles (id) on delete cascade,
+  body text not null,
+  created_at timestamptz not null default now(),
+  constraint messages_group_order check (group_1_id < group_2_id)
+);
+
+create index messages_conversation_idx on messages (group_1_id, group_2_id, created_at);
+
+alter table messages enable row level security;
+
+create policy "authenticated read/write" on messages for all to authenticated using (true) with check (true);
+
+-- Realtime does not stream changes for any table until it's added to this
+-- publication — easy to forget, and there is no error, just silence.
+alter publication supabase_realtime add table messages;

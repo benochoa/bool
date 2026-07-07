@@ -1,25 +1,26 @@
-import { StyleSheet, View, Text, ScrollView, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Modal } from 'react-native';
 import { useState, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import GroupPost from '@/components/groupPost';
+import ChatThread from '@/components/chatThread';
+import { fetchChatPreviews, ChatPreview } from '@/lib/fetchChatPreviews';
 import { useActiveGroup } from '@/hooks/use-active-group';
-import { fetchMatchedGroupIds } from '@/lib/fetchMatchedGroupIds';
 
 export default function ChatsScreen() {
 
   const { activeGroupId } = useActiveGroup();
-  const [matchedGroupIds, setMatchedGroupIds] = useState<string[]>([]);
+  const [previews, setPreviews] = useState<ChatPreview[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<ChatPreview | null>(null);
 
   useFocusEffect(
     useCallback(() => {
       if (!activeGroupId) {
-        setMatchedGroupIds([]);
+        setPreviews([]);
         setLoading(false);
         return;
       }
-      fetchMatchedGroupIds(activeGroupId).then(ids => {
-        setMatchedGroupIds(ids);
+      fetchChatPreviews(activeGroupId).then(rows => {
+        setPreviews(rows);
         setLoading(false);
       });
     }, [activeGroupId])
@@ -29,7 +30,7 @@ export default function ChatsScreen() {
     return <ActivityIndicator style={styles.loader} />;
   }
 
-  if (matchedGroupIds.length === 0) {
+  if (previews.length === 0) {
     return (
       <View style={styles.emptyContainer}>
         <Text style={styles.emptyText}>No matches yet.</Text>
@@ -38,11 +39,37 @@ export default function ChatsScreen() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {matchedGroupIds.map(id => (
-        <GroupPost key={id} groupId={id} />
-      ))}
-    </ScrollView>
+    <>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        {previews.map(preview => (
+          <TouchableOpacity
+            key={preview.otherGroupId}
+            style={styles.previewRow}
+            onPress={() => setSelected(preview)}
+          >
+            <Text style={styles.previewName}>{preview.otherGroupName}</Text>
+            <Text style={styles.previewMessage} numberOfLines={1}>
+              {preview.lastMessage ?? 'No messages yet'}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      <Modal
+        visible={selected !== null}
+        animationType="slide"
+        onRequestClose={() => setSelected(null)}
+      >
+        {selected && activeGroupId && (
+          <ChatThread
+            myGroupId={activeGroupId}
+            otherGroupId={selected.otherGroupId}
+            otherGroupName={selected.otherGroupName}
+            onClose={() => setSelected(null)}
+          />
+        )}
+      </Modal>
+    </>
   );
 }
 
@@ -69,5 +96,21 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 18,
     color: '#555',
+  },
+  previewRow: {
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  previewName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#000',
+    marginBottom: 4,
+  },
+  previewMessage: {
+    fontSize: 15,
+    color: '#777',
   },
 });

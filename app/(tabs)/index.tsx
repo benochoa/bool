@@ -28,7 +28,7 @@ export default function ExploreScreen() {
   const [activeTab, setActiveTab] = useState<'Personal' | 'Group' | 'Sent'>('Personal');
   const [groupIds, setGroupIds] = useState<string[]>([]);
   const [allMembers, setAllMembers] = useState<GroupMemberRow[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [seenGroupIds, setSeenGroupIds] = useState<Set<string>>(new Set());
   const [suggestions, setSuggestions] = useState<FeedSuggestion[]>([]);
   const [receivedGroupIds, setReceivedGroupIds] = useState<string[]>([]);
   const [matchedGroupIds, setMatchedGroupIds] = useState<string[]>([]);
@@ -105,15 +105,26 @@ export default function ExploreScreen() {
     });
   }, [groupIds, allMembers, suggestions, receivedGroupIds, matchedGroupIds, activeGroupId]);
 
+  // Cards already acted on this session (checked or X'd) but not yet reflected
+  // in feedGroupIds (a background refetch is what actually removes a checked
+  // card from feedGroupIds — this local set keeps the deck from re-showing or
+  // skipping past cards in the meantime, since it's keyed by group id rather
+  // than a position that shifts whenever feedGroupIds is recomputed).
+  const remainingGroupIds = useMemo(
+    () => feedGroupIds.filter(id => !seenGroupIds.has(id)),
+    [feedGroupIds, seenGroupIds]
+  );
+  const currentGroupId = remainingGroupIds[0];
+
   // Restart the deck whenever the active group changes — the filtered list means something different now.
   useEffect(() => {
-    setCurrentIndex(0);
+    setSeenGroupIds(new Set());
   }, [activeGroupId]);
 
   // Actions
   async function handleCheck() {
-    const targetGroupId = feedGroupIds[currentIndex];
-    setCurrentIndex(i => i + 1);
+    const targetGroupId = currentGroupId;
+    setSeenGroupIds(prev => new Set(prev).add(targetGroupId));
 
     if (!activeGroupId || !session?.user) return;
     await supabase.from('group_suggestions').insert({
@@ -124,7 +135,7 @@ export default function ExploreScreen() {
   }
 
   function handleX() {
-    setCurrentIndex(i => i + 1);
+    setSeenGroupIds(prev => new Set(prev).add(currentGroupId));
   }
 
   // Leader-only actions on a Group-feed card
@@ -161,7 +172,7 @@ export default function ExploreScreen() {
   }
 
   // Derived
-  const done = currentIndex >= feedGroupIds.length;
+  const done = remainingGroupIds.length === 0;
   const groupFeedItems = suggestions.filter(s => s.status === 'pending');
   const sentFeedItems = suggestions.filter(s => s.status === 'sent');
 
@@ -211,7 +222,7 @@ export default function ExploreScreen() {
             </View>
           ) : (
             <>
-              <GroupPost groupId={feedGroupIds[currentIndex]} />
+              <GroupPost groupId={currentGroupId} />
 
               {/* Check / X buttons */}
               <View style={styles.buttonRow}>
