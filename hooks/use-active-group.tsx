@@ -1,6 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
 import { useSession } from '@/hooks/use-session';
 import { fetchMyGroupIds } from '@/lib/fetchMyGroupIds';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
 
 interface ActiveGroupContextValue {
   myGroupIds: string[];
@@ -21,7 +21,7 @@ export function ActiveGroupProvider({ children }: { children: ReactNode }) {
   const refreshGroups = useCallback(() => {
     if (sessionLoading) return;
     if (!session?.user) {
-      setMyGroupIds([]);
+      setMyGroupIds([]); 
       setLoadingGroups(false);
       return;
     }
