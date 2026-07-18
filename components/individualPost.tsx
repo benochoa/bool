@@ -1,9 +1,11 @@
 import {
-  StyleSheet, View, Text, Image, ScrollView, Dimensions,
+  StyleSheet, View, Text, ScrollView, Dimensions,
   TouchableOpacity, ActivityIndicator, TextInput, Alert,
   KeyboardAvoidingView, Platform
 } from 'react-native';
 import { useEffect, useState } from 'react';
+import { Image } from 'expo-image';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '@/supabaseClient';
 import { fetchPerson, PersonData } from '../lib/fetchPerson';
@@ -65,7 +67,7 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
         // listing collapses gaps, so positions alone can't be trusted.
         const slots: (string | null)[] = [null, null, null];
         for (const url of result.imageUrls) {
-          const match = url.match(/img(\d)\.png/);
+          const match = url.match(/img(\d)\.jpg/);
           const slot = match ? parseInt(match[1]) - 1 : -1;
           if (slot >= 0 && slot < 3) slots[slot] = url;
         }
@@ -86,11 +88,18 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsEditing: true,
-      quality: 0.8,
+      quality: 1,
     });
     if (!result.canceled) {
+      // Downscale + JPEG-compress before upload: cards render at ~350px, so
+      // full-resolution camera photos are wasted bytes for every viewer.
+      const asset = result.assets[0];
+      const rendered = await ImageManipulator.manipulate(asset.uri)
+        .resize({ width: Math.min(asset.width, 1080) })
+        .renderAsync();
+      const saved = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.7 });
       const updated = [...photos];
-      updated[index] = result.assets[0].uri;
+      updated[index] = saved.uri;
       setPhotos(updated);
     }
   }
@@ -113,7 +122,7 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
       const arrayBuffer = await response.arrayBuffer();
       const { error } = await supabase.storage
         .from('people')
-        .upload(`${personId}/img${i + 1}.png`, arrayBuffer, { contentType: 'image/png', upsert: true });
+        .upload(`${personId}/img${i + 1}.jpg`, arrayBuffer, { contentType: 'image/jpeg', upsert: true });
       if (error) {
         setSaving(false);
         Alert.alert('Photo upload failed', error.message);
@@ -182,7 +191,7 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
                   <Text style={styles.pencil}>✏️</Text>
                 </TouchableOpacity>
                 {uri ? (
-                  <Image source={{ uri }} style={styles.image} />
+                  <Image source={{ uri }} style={styles.image} contentFit="cover" />
                 ) : (
                   <View style={styles.photoPlaceholder}>
                     <Text style={styles.photoPlaceholderText}>Tap to add photo</Text>
@@ -192,7 +201,7 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
             ))
           ) : (
             data?.imageUrls.map((url, i) => (
-              <Image key={i} source={{ uri: url }} style={styles.image} />
+              <Image key={i} source={{ uri: url }} style={styles.image} contentFit="cover" />
             ))
           )}
         </ScrollView>
@@ -328,7 +337,6 @@ const styles = StyleSheet.create({
   image: {
     width: CARD_WIDTH - 32,
     height: 300,
-    resizeMode: 'cover',
     borderRadius: 8,
   },
 
