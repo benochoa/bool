@@ -1,6 +1,6 @@
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import IndividualPost from '@/components/individualPost';
-import { Type } from '@/constants/theme';
+import { Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/supabaseClient';
 
@@ -29,7 +29,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: Palette.background,
   },
   header: {
     flexDirection: 'row',

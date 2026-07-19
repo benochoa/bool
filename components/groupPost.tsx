@@ -8,7 +8,7 @@ import { Image } from 'expo-image';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '@/supabaseClient';
-import { FontFamily, Type } from '@/constants/theme';
+import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { fetchGroup, GroupData } from '../lib/fetchGroup';
 import IndividualPost from './individualPost';
@@ -326,8 +326,9 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
         </ScrollView>
       </View>
 
-      {/* Q&A card */}
+      {/* Q&A card — header lives inside the box, never editable */}
       <View style={styles.card}>
+        <Text style={styles.qaHeader}>Talk to me...</Text>
         <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           {isEditMode ? (
             questions.map((q, i) => (
@@ -429,7 +430,7 @@ const styles = StyleSheet.create({
 
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: Palette.background,
   },
 
   content: {
@@ -524,6 +525,13 @@ const styles = StyleSheet.create({
   },
 
   // Q&A
+  qaHeader: {
+    ...Type.header,
+    color: '#000',
+    textAlign: 'left',
+    marginBottom: 8,
+  },
+
   qaItem: {
     width: CARD_WIDTH - 32,
   },
@@ -633,7 +641,7 @@ const styles = StyleSheet.create({
   // Modal / back
   modalContainer: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: Palette.background,
   },
 
   backButton: {

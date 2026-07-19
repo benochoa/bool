@@ -8,7 +8,7 @@ import { fetchGroupSuggestions } from '@/lib/fetchGroupSuggestions';
 import { fetchMatchedGroupIds } from '@/lib/fetchMatchedGroupIds';
 import { fetchReceivedGroupIds } from '@/lib/fetchReceivedGroupIds';
 import { supabase } from '@/supabaseClient';
-import { FontFamily, Type } from '@/constants/theme';
+import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -311,7 +311,7 @@ const styles = StyleSheet.create({
   // Page layout
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: Palette.background,
   },
 
   // Personal / Group toggle

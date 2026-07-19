@@ -4,7 +4,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import GroupPost from '@/components/groupPost';
 import { fetchGroup } from '@/lib/fetchGroup';
 import { fetchReceivedGroupIds } from '@/lib/fetchReceivedGroupIds';
-import { FontFamily, Type } from '@/constants/theme';
+import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useActiveGroup } from '@/hooks/use-active-group';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/supabaseClient';
@@ -101,7 +101,7 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: Palette.background,
   },
   content: {
     paddingTop: 60,
@@ -111,7 +111,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: Palette.background,
   },
   emptyText: {
     ...Type.header,

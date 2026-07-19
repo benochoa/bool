@@ -5,7 +5,7 @@ import {
 import { useState, useEffect, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import GroupPost from '@/components/groupPost';
-import { FontFamily, Type } from '@/constants/theme';
+import { FontFamily, Palette, Type } from '@/constants/theme';
 import { supabase } from '@/supabaseClient';
 import { useSession } from '@/hooks/use-session';
 import { useActiveGroup } from '@/hooks/use-active-group';
@@ -184,7 +184,7 @@ const styles = StyleSheet.create({
 
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: Palette.background,
   },
 
   loader: {

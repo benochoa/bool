@@ -3,6 +3,11 @@
  * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
  */
 
+// App palette — screens own the page background; cards sit on it in white.
+export const Palette = {
+  background: '#F5F5F7',
+};
+
 const tintColorLight = '#0a7ea4';
 const tintColorDark = '#fff';
 
