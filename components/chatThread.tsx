@@ -1,6 +1,7 @@
 import { StyleSheet, View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/supabaseClient';
+import { FontFamily, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { canonicalPair } from '@/lib/canonicalPair';
 import { fetchMessages, Message } from '@/lib/fetchMessages';
@@ -172,8 +173,7 @@ const styles = StyleSheet.create({
   },
 
   title: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    ...Type.header,
     color: '#000',
   },
 
@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
   },
 
   emptyText: {
-    fontSize: 16,
+    ...Type.body,
     color: '#555',
     textAlign: 'center',
     marginTop: 60,
@@ -225,21 +225,21 @@ const styles = StyleSheet.create({
   },
 
   senderName: {
-    fontSize: 12,
-    fontWeight: 'bold',
+    ...Type.caption,
+    fontFamily: FontFamily.semiBold,
     color: '#777',
     marginBottom: 2,
   },
 
   senderNameMine: {
-    fontSize: 12,
-    fontWeight: 'bold',
+    ...Type.caption,
+    fontFamily: FontFamily.semiBold,
     color: '#ccc',
     marginBottom: 2,
   },
 
   bubbleText: {
-    fontSize: 16,
+    ...Type.body,
     color: '#000',
   },
 
@@ -257,8 +257,8 @@ const styles = StyleSheet.create({
   },
 
   input: {
+    ...Type.body,
     flex: 1,
-    fontSize: 16,
     color: '#000',
     maxHeight: 100,
     paddingVertical: 8,

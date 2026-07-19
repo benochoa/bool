@@ -8,6 +8,7 @@ import { Image } from 'expo-image';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '@/supabaseClient';
+import { FontFamily, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { fetchGroup, GroupData } from '../lib/fetchGroup';
 import IndividualPost from './individualPost';
@@ -462,15 +463,13 @@ const styles = StyleSheet.create({
 
   // Name
   name: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    ...Type.title,
     color: '#000',
     textAlign: 'center',
   },
 
   nameInput: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    ...Type.title,
     color: '#000',
     textAlign: 'center',
     borderBottomWidth: 1,
@@ -503,8 +502,8 @@ const styles = StyleSheet.create({
   },
 
   photoPlaceholderText: {
+    ...Type.body,
     color: '#aaa',
-    fontSize: 16,
   },
 
   // Q&A
@@ -513,19 +512,18 @@ const styles = StyleSheet.create({
   },
 
   question: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    ...Type.bodyBold,
     color: '#000',
   },
 
   answer: {
-    fontSize: 16,
+    ...Type.body,
     color: '#000',
     marginTop: 4,
   },
 
   answerInput: {
-    fontSize: 16,
+    ...Type.body,
     color: '#000',
     borderBottomWidth: 1,
     borderBottomColor: '#ccc',
@@ -549,12 +547,13 @@ const styles = StyleSheet.create({
   },
 
   memberName: {
-    fontSize: 16,
+    ...Type.body,
     color: '#000',
   },
 
   membersPlaceholder: {
-    fontSize: 14,
+    ...Type.label,
+    fontFamily: FontFamily.regular,
     color: '#aaa',
     textAlign: 'center',
   },
@@ -567,14 +566,14 @@ const styles = StyleSheet.create({
   },
 
   inviteLabel: {
-    fontSize: 14,
+    ...Type.label,
     color: '#555',
   },
 
   shareText: {
-    fontSize: 14,
+    ...Type.label,
+    fontFamily: FontFamily.bold,
     color: '#43a047',
-    fontWeight: 'bold',
   },
 
   // Edit / Cancel toggle
@@ -589,7 +588,7 @@ const styles = StyleSheet.create({
   },
 
   editToggleText: {
-    fontSize: 15,
+    ...Type.label,
     color: '#000',
   },
 

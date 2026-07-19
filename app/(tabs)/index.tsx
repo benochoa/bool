@@ -8,6 +8,7 @@ import { fetchGroupSuggestions } from '@/lib/fetchGroupSuggestions';
 import { fetchMatchedGroupIds } from '@/lib/fetchMatchedGroupIds';
 import { fetchReceivedGroupIds } from '@/lib/fetchReceivedGroupIds';
 import { supabase } from '@/supabaseClient';
+import { FontFamily, Type } from '@/constants/theme';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -336,7 +337,7 @@ const styles = StyleSheet.create({
   },
 
   tabText: {
-    fontSize: 15,
+    ...Type.label,
     color: '#000',
   },
 
@@ -356,7 +357,8 @@ const styles = StyleSheet.create({
   },
 
   doneText: {
-    fontSize: 18,
+    ...Type.header,
+    fontFamily: FontFamily.regular,
     color: '#555',
   },
 
@@ -395,7 +397,7 @@ const styles = StyleSheet.create({
   },
 
   recommendedText: {
-    fontSize: 14,
+    ...Type.label,
     color: '#555',
     textAlign: 'center',
     marginBottom: 16,

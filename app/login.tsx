@@ -3,6 +3,7 @@ import {
   ActivityIndicator, KeyboardAvoidingView, Platform,
   StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
+import { FontFamily, Type } from '@/constants/theme';
 import { supabase } from '@/supabaseClient';
 
 export default function LoginScreen() {
@@ -109,24 +110,25 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   title: {
+    // Wordmark — deliberately off the type scale.
+    fontFamily: FontFamily.bold,
     fontSize: 40,
-    fontWeight: 'bold',
     color: '#FF6600',
     textAlign: 'center',
     marginBottom: 48,
   },
   label: {
-    fontSize: 16,
+    ...Type.body,
     color: '#000',
     marginBottom: 8,
   },
   input: {
+    ...Type.body,
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 8,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    fontSize: 16,
     color: '#000',
     marginBottom: 16,
   },
@@ -137,16 +139,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   buttonText: {
+    ...Type.bodyBold,
     color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
   },
   link: {
+    ...Type.label,
     color: '#43a047',
     textAlign: 'center',
     marginTop: 16,
   },
   error: {
+    ...Type.label,
+    fontFamily: FontFamily.regular,
     color: '#d32f2f',
     textAlign: 'center',
     marginTop: 16,

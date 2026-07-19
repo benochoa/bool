@@ -5,7 +5,7 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import { HapticTab } from '@/components/haptic-tab';
 import IndividualPost from '@/components/individualPost';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
+import { Colors, Type } from '@/constants/theme';
 import { ActiveGroupProvider } from '@/hooks/use-active-group';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useSession } from '@/hooks/use-session';
@@ -122,13 +122,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   gateTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    ...Type.header,
     color: '#000',
   },
   gateSignOut: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    ...Type.bodyBold,
     color: '#43a047',
   },
 });

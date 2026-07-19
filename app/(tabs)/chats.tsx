@@ -2,6 +2,7 @@ import { StyleSheet, View, Text, TouchableOpacity, ScrollView, ActivityIndicator
 import { useState, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import ChatThread from '@/components/chatThread';
+import { FontFamily, Type } from '@/constants/theme';
 import { fetchChatPreviews, ChatPreview } from '@/lib/fetchChatPreviews';
 import { useActiveGroup } from '@/hooks/use-active-group';
 
@@ -94,7 +95,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   emptyText: {
-    fontSize: 18,
+    ...Type.header,
+    fontFamily: FontFamily.regular,
     color: '#555',
   },
   previewRow: {
@@ -104,13 +106,13 @@ const styles = StyleSheet.create({
     borderBottomColor: '#eee',
   },
   previewName: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    ...Type.header,
     color: '#000',
     marginBottom: 4,
   },
   previewMessage: {
-    fontSize: 15,
+    ...Type.label,
+    fontFamily: FontFamily.regular,
     color: '#777',
   },
 });

@@ -5,6 +5,7 @@ import {
 import { useState, useEffect, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import GroupPost from '@/components/groupPost';
+import { FontFamily, Type } from '@/constants/theme';
 import { supabase } from '@/supabaseClient';
 import { useSession } from '@/hooks/use-session';
 import { useActiveGroup } from '@/hooks/use-active-group';
@@ -233,7 +234,7 @@ const styles = StyleSheet.create({
   },
 
   menuText: {
-    fontSize: 16,
+    ...Type.body,
     color: '#000',
   },
 
@@ -260,8 +261,7 @@ const styles = StyleSheet.create({
   },
 
   switcherButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    ...Type.bodyBold,
     color: '#000',
   },
 
@@ -283,7 +283,7 @@ const styles = StyleSheet.create({
   },
 
   switcherOptionText: {
-    fontSize: 16,
+    ...Type.body,
     color: '#000',
     textAlign: 'center',
   },
@@ -296,8 +296,7 @@ const styles = StyleSheet.create({
   },
 
   emptyText: {
-    fontSize: 22,
-    fontWeight: 'bold',
+    ...Type.title,
     color: '#000',
     textAlign: 'center',
     paddingHorizontal: 40,
@@ -331,14 +330,14 @@ const styles = StyleSheet.create({
   },
 
   joinTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    ...Type.header,
     color: '#000',
     textAlign: 'center',
   },
 
   joinInput: {
-    fontSize: 18,
+    ...Type.header,
+    fontFamily: FontFamily.regular,
     color: '#000',
     textAlign: 'center',
     borderBottomWidth: 1,
@@ -348,7 +347,8 @@ const styles = StyleSheet.create({
   },
 
   joinError: {
-    fontSize: 14,
+    ...Type.label,
+    fontFamily: FontFamily.regular,
     color: '#e53935',
     textAlign: 'center',
     marginTop: 8,
@@ -366,7 +366,7 @@ const styles = StyleSheet.create({
   },
 
   joinCancelText: {
-    fontSize: 16,
+    ...Type.body,
     color: '#555',
   },
 
@@ -380,9 +380,8 @@ const styles = StyleSheet.create({
   },
 
   joinButtonText: {
-    fontSize: 16,
+    ...Type.bodyBold,
     color: '#fff',
-    fontWeight: 'bold',
   },
 
 });

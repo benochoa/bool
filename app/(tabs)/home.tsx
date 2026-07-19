@@ -1,5 +1,6 @@
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import IndividualPost from '@/components/individualPost';
+import { Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/supabaseClient';
 
@@ -38,12 +39,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   phone: {
-    fontSize: 16,
+    ...Type.body,
     color: '#555',
   },
   signOutText: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    ...Type.bodyBold,
     color: '#000',
   },
 });

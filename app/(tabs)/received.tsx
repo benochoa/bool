@@ -4,6 +4,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import GroupPost from '@/components/groupPost';
 import { fetchGroup } from '@/lib/fetchGroup';
 import { fetchReceivedGroupIds } from '@/lib/fetchReceivedGroupIds';
+import { FontFamily, Type } from '@/constants/theme';
 import { useActiveGroup } from '@/hooks/use-active-group';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/supabaseClient';
@@ -113,7 +114,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   emptyText: {
-    fontSize: 18,
+    ...Type.header,
+    fontFamily: FontFamily.regular,
     color: '#555',
   },
   leaderButtonRow: {
