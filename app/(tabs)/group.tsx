@@ -8,14 +8,10 @@ import GroupPost from '@/components/groupPost';
 import { supabase } from '@/supabaseClient';
 import { useSession } from '@/hooks/use-session';
 import { useActiveGroup } from '@/hooks/use-active-group';
-import { fetchGroup } from '@/lib/fetchGroup';
+import { fetchGroupNames, GroupName } from '@/lib/fetchGroupNames';
 
-// Dropdown option — resolves and shows a group's name from just its id.
-function GroupOption({ groupId, onPress }: { groupId: string; onPress: () => void }) {
-  const [name, setName] = useState('...');
-  useEffect(() => {
-    fetchGroup(groupId).then(g => { if (g) setName(g.name); });
-  }, [groupId]);
+// Dropdown option — names arrive with the group-names fetch, no fetching here.
+function GroupOption({ name, onPress }: { name: string; onPress: () => void }) {
   return (
     <TouchableOpacity style={styles.switcherOption} onPress={onPress}>
       <Text style={styles.switcherOptionText}>{name}</Text>
@@ -32,20 +28,19 @@ export default function GroupScreen() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
-  const [activeGroupName, setActiveGroupName] = useState('');
+  const [groupNames, setGroupNames] = useState<GroupName[]>([]);
   const [joining, setJoining] = useState(false);
   const [codeInput, setCodeInput] = useState('');
   const [joinError, setJoinError] = useState<string | null>(null);
   const [joinLoading, setJoinLoading] = useState(false);
 
-  // Resolve the active group's name for the switcher label.
+  // One query resolves every switcher name — the menu rows and the active
+  // label both read from it.
   useEffect(() => {
-    if (!activeGroupId) {
-      setActiveGroupName('');
-      return;
-    }
-    fetchGroup(activeGroupId).then(g => setActiveGroupName(g?.name ?? ''));
-  }, [activeGroupId]);
+    fetchGroupNames(myGroupIds).then(setGroupNames);
+  }, [myGroupIds]);
+
+  const activeGroupName = groupNames.find(g => g.id === activeGroupId)?.name ?? '';
 
   // Refetch "my groups" every time this tab is focused, so joins/leaves made
   // elsewhere (or directly in Supabase) don't stay stale on screen.
@@ -118,11 +113,11 @@ export default function GroupScreen() {
           </TouchableOpacity>
           {switcherOpen && (
             <View style={styles.switcherMenu}>
-              {myGroupIds.map(id => (
+              {groupNames.map(g => (
                 <GroupOption
-                  key={id}
-                  groupId={id}
-                  onPress={() => { setActiveGroupId(id); setSwitcherOpen(false); }}
+                  key={g.id}
+                  name={g.name}
+                  onPress={() => { setActiveGroupId(g.id); setSwitcherOpen(false); }}
                 />
               ))}
             </View>

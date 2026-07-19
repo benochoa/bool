@@ -111,29 +111,37 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
     }
     setSaving(true);
 
+    // Every slot's final URL is recorded on the row (image_urls), so reads
+    // never have to ask Storage what exists. Untouched slots hold https URLs
+    // and keep them; fresh uploads get a new ?v= so caches refetch.
+    const imageUrls: string[] = [];
     for (let i = 0; i < photos.length; i++) {
       const uri = photos[i];
-      // Untouched slots hold https URLs already in storage; only upload
-      // freshly picked local files. upsert overwrites a previous photo.
-      if (!uri || uri.startsWith('http')) continue;
+      if (!uri) continue;
+      if (uri.startsWith('http')) {
+        imageUrls.push(uri);
+        continue;
+      }
       // arrayBuffer, not blob: RN blobs are native-side references that
       // supabase-js can't read, which silently uploads 0-byte files.
       const response = await fetch(uri);
       const arrayBuffer = await response.arrayBuffer();
+      const path = `${personId}/img${i + 1}.jpg`;
       const { error } = await supabase.storage
         .from('people')
-        .upload(`${personId}/img${i + 1}.jpg`, arrayBuffer, { contentType: 'image/jpeg', upsert: true });
+        .upload(path, arrayBuffer, { contentType: 'image/jpeg', upsert: true });
       if (error) {
         setSaving(false);
         Alert.alert('Photo upload failed', error.message);
         return;
       }
+      imageUrls.push(supabase.storage.from('people').getPublicUrl(path).data.publicUrl + '?v=' + Date.now());
     }
 
     const qa = questions.map((q, i) => ({ question: q, answer: answers[i] }));
     const { error } = await supabase
       .from('profiles')
-      .update({ name: name.trim(), qa })
+      .update({ name: name.trim(), qa, image_urls: imageUrls })
       .eq('id', personId);
     setSaving(false);
     if (error) {

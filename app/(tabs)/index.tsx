@@ -6,7 +6,6 @@ import { fetchAllGroupMembers, GroupMemberRow } from '@/lib/fetchAllGroupMembers
 import { fetchGroup } from '@/lib/fetchGroup';
 import { fetchGroupSuggestions } from '@/lib/fetchGroupSuggestions';
 import { fetchMatchedGroupIds } from '@/lib/fetchMatchedGroupIds';
-import { fetchPerson } from '@/lib/fetchPerson';
 import { fetchReceivedGroupIds } from '@/lib/fetchReceivedGroupIds';
 import { supabase } from '@/supabaseClient';
 import { useFocusEffect } from '@react-navigation/native';
@@ -56,13 +55,7 @@ export default function ExploreScreen() {
       return;
     }
 
-    fetchGroupSuggestions(activeGroupId).then(async rows => {
-      const withNames = await Promise.all(rows.map(async row => {
-        const person = await fetchPerson(row.suggestedBy);
-        return { targetGroupId: row.targetGroupId, suggestedByName: person?.name ?? '...', status: row.status };
-      }));
-      setSuggestions(withNames);
-    });
+    fetchGroupSuggestions(activeGroupId).then(setSuggestions);
 
     fetchReceivedGroupIds(activeGroupId).then(setReceivedGroupIds);
     fetchMatchedGroupIds(activeGroupId).then(setMatchedGroupIds);

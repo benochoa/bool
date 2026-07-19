@@ -1,6 +1,4 @@
 import { supabase } from '@/supabaseClient';
-import { canonicalPair } from './canonicalPair';
-import { fetchMatchedGroupIds } from './fetchMatchedGroupIds';
 
 export interface ChatPreview {
   otherGroupId: string;
@@ -10,28 +8,16 @@ export interface ChatPreview {
 }
 
 export async function fetchChatPreviews(myGroupId: string): Promise<ChatPreview[]> {
-  const otherGroupIds = await fetchMatchedGroupIds(myGroupId);
-
-  return Promise.all(otherGroupIds.map(async otherGroupId => {
-    const [g1, g2] = canonicalPair(myGroupId, otherGroupId);
-
-    const [{ data: group }, { data: lastMessage }] = await Promise.all([
-      supabase.from('groups').select('name').eq('id', otherGroupId).single(),
-      supabase
-        .from('messages')
-        .select('body, created_at')
-        .eq('group_1_id', g1)
-        .eq('group_2_id', g2)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-    ]);
-
-    return {
-      otherGroupId,
-      otherGroupName: group?.name ?? '...',
-      lastMessage: lastMessage?.body ?? null,
-      lastMessageAt: lastMessage?.created_at ?? null,
-    };
+  // One request: get_chat_previews runs server-side — it finds the matched
+  // groups, joins their names, and picks each pair's newest message. The
+  // per-pair "newest" is why this is an RPC: "limit 1 per pair" can't be
+  // expressed in the PostgREST query language.
+  const { data, error } = await supabase.rpc('get_chat_previews', { my_group_id: myGroupId });
+  if (error || !data) return [];
+  return (data as any[]).map(row => ({
+    otherGroupId: row.other_group_id,
+    otherGroupName: row.other_group_name,
+    lastMessage: row.last_message,
+    lastMessageAt: row.last_message_at,
   }));
 }

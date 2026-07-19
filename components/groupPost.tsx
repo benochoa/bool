@@ -10,7 +10,6 @@ import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '@/supabaseClient';
 import { useSession } from '@/hooks/use-session';
 import { fetchGroup, GroupData } from '../lib/fetchGroup';
-import { fetchPerson } from '../lib/fetchPerson';
 import IndividualPost from './individualPost';
 
 const { width } = Dimensions.get('window');
@@ -56,14 +55,8 @@ async function fetchRandomGroupQuestions(): Promise<string[]> {
   return [...all].sort(() => Math.random() - 0.5).slice(0, 3);
 }
 
-// Member row subcomponent
-function MemberRow({ personId, onPress }: { personId: string; onPress: () => void }) {
-  const [name, setName] = useState('...');
-
-  useEffect(() => {
-    fetchPerson(personId).then(p => { if (p) setName(p.name); });
-  }, [personId]);
-
+// Member row subcomponent — name arrives with the group fetch, no fetching here.
+function MemberRow({ name, onPress }: { name: string; onPress: () => void }) {
   return (
     <TouchableOpacity style={styles.memberRow} onPress={onPress}>
       <View style={styles.memberCircle} />
@@ -163,26 +156,34 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
 
     // Leader editing an existing group
     if (isEditingExisting && groupId) {
+      // Every slot's final URL is recorded on the row (image_urls), so reads
+      // never have to ask Storage what exists. Untouched slots hold https URLs
+      // and keep them; fresh uploads get a new ?v= so caches refetch.
+      const imageUrls: string[] = [];
       for (let i = 0; i < photos.length; i++) {
         const uri = photos[i];
-        // Untouched slots hold https URLs already in storage; only upload
-        // freshly picked local files. upsert overwrites a previous photo.
-        if (!uri || uri.startsWith('http')) continue;
+        if (!uri) continue;
+        if (uri.startsWith('http')) {
+          imageUrls.push(uri);
+          continue;
+        }
         const response = await fetch(uri);
         const arrayBuffer = await response.arrayBuffer();
+        const path = `${groupId}/img${i + 1}.jpg`;
         const { error } = await supabase.storage
           .from('groups')
-          .upload(`${groupId}/img${i + 1}.jpg`, arrayBuffer, { contentType: 'image/jpeg', upsert: true });
+          .upload(path, arrayBuffer, { contentType: 'image/jpeg', upsert: true });
         if (error) {
           setSaving(false);
           Alert.alert('Photo upload failed', error.message);
           return;
         }
+        imageUrls.push(supabase.storage.from('groups').getPublicUrl(path).data.publicUrl + '?v=' + Date.now());
       }
 
       const { error } = await supabase
         .from('groups')
-        .update({ name: groupName.trim(), qa })
+        .update({ name: groupName.trim(), qa, image_urls: imageUrls })
         .eq('id', groupId);
       if (error) {
         setSaving(false);
@@ -199,6 +200,7 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
     // Creation
     const newGroupId = await getNextGroupId();
 
+    const imageUrls: string[] = [];
     for (let i = 0; i < photos.length; i++) {
       const uri = photos[i];
       if (!uri) continue;
@@ -206,9 +208,11 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
       // supabase-js can't read, which silently uploads 0-byte files.
       const response = await fetch(uri);
       const arrayBuffer = await response.arrayBuffer();
+      const path = `${newGroupId}/img${i + 1}.jpg`;
       await supabase.storage
         .from('groups')
-        .upload(`${newGroupId}/img${i + 1}.jpg`, arrayBuffer, { contentType: 'image/jpeg' });
+        .upload(path, arrayBuffer, { contentType: 'image/jpeg' });
+      imageUrls.push(supabase.storage.from('groups').getPublicUrl(path).data.publicUrl + '?v=' + Date.now());
     }
 
     const { error } = await supabase.from('groups').insert({
@@ -217,6 +221,7 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
       qa,
       created_by: session?.user.id ?? null,
       invite_code: await getUniqueInviteCode(),
+      image_urls: imageUrls,
     });
     if (error) {
       setSaving(false);
@@ -363,8 +368,8 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
       <View style={styles.card}>
         {data ? (
           <>
-            {data.members.map((personId, i) => (
-              <MemberRow key={i} personId={personId} onPress={() => setSelectedMember(personId)} />
+            {data.members.map(m => (
+              <MemberRow key={m.id} name={m.name} onPress={() => setSelectedMember(m.id)} />
             ))}
             {isLeader && data.invite_code && (
               <View style={styles.inviteRow}>
