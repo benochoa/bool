@@ -326,9 +326,9 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
         </ScrollView>
       </View>
 
-      {/* Q&A card — header lives inside the box, never editable */}
+      {/* Q&A — static header above the box, never editable */}
+      <Text style={styles.qaHeader}>Talk to me...</Text>
       <View style={styles.card}>
-        <Text style={styles.qaHeader}>Talk to me...</Text>
         <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           {isEditMode ? (
             questions.map((q, i) => (
@@ -527,9 +527,12 @@ const styles = StyleSheet.create({
   // Q&A
   qaHeader: {
     ...Type.header,
+    width: CARD_WIDTH,
     color: '#000',
     textAlign: 'left',
-    marginBottom: 8,
+    // Ample breathing room between the photo above and this section label;
+    // the card below adds its own 16 on top of the label.
+    marginTop: 32,
   },
 
   qaItem: {
