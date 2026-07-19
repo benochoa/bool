@@ -101,8 +101,11 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
       fetchRandomGroupQuestions().then(qs => setQuestions(qs));
     } else if (groupId) {
       // The same instance can be reused for another group (explore feed),
-      // so don't carry an open edit session over to it.
+      // so don't carry an open edit session — or the previous group's data,
+      // which would flash on screen until the fetch lands — over to it.
       setIsEditingExisting(false);
+      setData(null);
+      setLoading(true);
       fetchGroup(groupId).then(result => {
         setData(result);
         setLoading(false);
