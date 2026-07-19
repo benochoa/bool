@@ -300,8 +300,8 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
         )}
       </View>
 
-      {/* Photos card */}
-      <View style={styles.card}>
+      {/* Photos — no card box, image bleeds to the same outer width as the cards below */}
+      <View style={styles.photoContainer}>
         <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           {isEditMode ? (
             photos.map((uri, i) => (
@@ -489,18 +489,23 @@ const styles = StyleSheet.create({
   },
 
   // Photos
+  photoContainer: {
+    width: CARD_WIDTH,
+    marginTop: 16,
+  },
+
   photoSlot: {
-    width: CARD_WIDTH - 32,
+    width: CARD_WIDTH,
   },
 
   image: {
-    width: CARD_WIDTH - 32,
+    width: CARD_WIDTH,
     height: 300,
     borderRadius: 8,
   },
 
   photoPlaceholder: {
-    width: CARD_WIDTH - 32,
+    width: CARD_WIDTH,
     height: 300,
     borderRadius: 8,
     backgroundColor: '#f5f5f5',
