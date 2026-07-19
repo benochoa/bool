@@ -253,7 +253,7 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
     >
     <ScrollView
       style={styles.container}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, editable && onClose && styles.contentWithBackButton]}
       keyboardShouldPersistTaps="handled"
     >
 
@@ -434,8 +434,15 @@ const styles = StyleSheet.create({
 
   content: {
     alignItems: 'center',
-    paddingTop: 60,
     paddingBottom: 100,
+  },
+
+  // Only the standalone creation flow needs this — it clears the absolutely
+  // positioned back button, since nothing else on screen provides top
+  // clearance there. Every other usage is embedded under a screen (tab row,
+  // list header) that already accounts for the status bar.
+  contentWithBackButton: {
+    paddingTop: 60,
   },
 
   // Shared card

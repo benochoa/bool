@@ -163,7 +163,7 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
     >
     <ScrollView
       style={styles.container}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, !editable && styles.contentStandalone]}
       keyboardShouldPersistTaps="handled"
     >
 
@@ -289,8 +289,14 @@ const styles = StyleSheet.create({
 
   content: {
     alignItems: 'center',
-    paddingTop: 60,
     paddingBottom: 40,
+  },
+
+  // Only the standalone member-profile modal needs this — nothing else on
+  // screen provides top clearance there. Home and the profile-setup gate
+  // are embedded under a header that already accounts for the status bar.
+  contentStandalone: {
+    paddingTop: 60,
   },
 
   // Shared card box
