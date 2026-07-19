@@ -167,8 +167,8 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
       keyboardShouldPersistTaps="handled"
     >
 
-      {/* Name card */}
-      <View style={styles.card}>
+      {/* Name — no card box */}
+      <View style={styles.nameContainer}>
         {editable && (
           <TouchableOpacity style={styles.pencilButton} onPress={() => setEditingName(e => !e)}>
             <Text style={styles.pencil}>✏️</Text>
@@ -323,16 +323,21 @@ const styles = StyleSheet.create({
   },
 
   // Name
+  nameContainer: {
+    width: CARD_WIDTH,
+    marginTop: 16,
+  },
+
   name: {
     ...Type.title,
     color: '#000',
-    textAlign: 'center',
+    textAlign: 'left',
   },
 
   nameInput: {
     ...Type.title,
     color: '#000',
-    textAlign: 'center',
+    textAlign: 'left',
     borderBottomWidth: 1,
     borderBottomColor: '#ccc',
     paddingVertical: 4,

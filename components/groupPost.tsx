@@ -277,8 +277,8 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
         </TouchableOpacity>
       )}
 
-      {/* Name card */}
-      <View style={styles.card}>
+      {/* Name — no card box */}
+      <View style={styles.nameContainer}>
         {isEditMode && (
           <TouchableOpacity style={styles.pencilButton} onPress={() => setEditingName(e => !e)}>
             <Text style={styles.pencil}>✏️</Text>
@@ -469,16 +469,21 @@ const styles = StyleSheet.create({
   },
 
   // Name
+  nameContainer: {
+    width: CARD_WIDTH,
+    marginTop: 16,
+  },
+
   name: {
     ...Type.title,
     color: '#000',
-    textAlign: 'center',
+    textAlign: 'left',
   },
 
   nameInput: {
     ...Type.title,
     color: '#000',
-    textAlign: 'center',
+    textAlign: 'left',
     borderBottomWidth: 1,
     borderBottomColor: '#ccc',
     paddingVertical: 4,
