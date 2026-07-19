@@ -5,7 +5,7 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import { HapticTab } from '@/components/haptic-tab';
 import IndividualPost from '@/components/individualPost';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors, Type } from '@/constants/theme';
+import { Colors, FontFamily, Type } from '@/constants/theme';
 import { ActiveGroupProvider } from '@/hooks/use-active-group';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useSession } from '@/hooks/use-session';
@@ -62,6 +62,7 @@ export default function TabLayout() {
           tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
           headerShown: false,
           tabBarButton: HapticTab,
+          tabBarLabelStyle: { fontFamily: FontFamily.medium },
         }}>
         <Tabs.Screen
           name="index"

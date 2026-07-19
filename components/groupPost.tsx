@@ -597,6 +597,10 @@ const styles = StyleSheet.create({
   editToggleButton: {
     alignSelf: 'flex-end',
     marginRight: 20,
+    // On the group screen this pill sits inside the absolute +/switcher header
+    // band (60–104pt). The margin pushes the name below that band with the
+    // same 24pt gap the explore tab row leaves above it.
+    marginBottom: 18,
     paddingVertical: 6,
     paddingHorizontal: 16,
     borderRadius: 16,
