@@ -57,10 +57,14 @@ async function fetchRandomGroupQuestions(): Promise<string[]> {
 }
 
 // Member row subcomponent — name arrives with the group fetch, no fetching here.
-function MemberRow({ name, onPress }: { name: string; onPress: () => void }) {
+function MemberRow({ name, profilePicUrl, onPress }: { name: string; profilePicUrl: string | null; onPress: () => void }) {
   return (
     <TouchableOpacity style={styles.memberRow} onPress={onPress}>
-      <View style={styles.memberCircle} />
+      {profilePicUrl ? (
+        <Image source={{ uri: profilePicUrl }} style={styles.memberCircle} contentFit="cover" />
+      ) : (
+        <View style={styles.memberCircle} />
+      )}
       <Text style={styles.memberName}>{name}</Text>
     </TouchableOpacity>
   );
@@ -374,7 +378,7 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
         {data ? (
           <>
             {data.members.map(m => (
-              <MemberRow key={m.id} name={m.name} onPress={() => setSelectedMember(m.id)} />
+              <MemberRow key={m.id} name={m.name} profilePicUrl={m.profilePicUrl} onPress={() => setSelectedMember(m.id)} />
             ))}
             {isLeader && data.invite_code && (
               <View style={styles.inviteRow}>

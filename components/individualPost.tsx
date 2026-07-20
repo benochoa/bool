@@ -46,6 +46,7 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
 
   // State - editable mode
   const [name, setName] = useState('');
+  const [profilePic, setProfilePic] = useState<string | null>(null);
   const [photos, setPhotos] = useState<(string | null)[]>([null, null, null]);
   const [questions, setQuestions] = useState<string[]>(['', '', '']);
   const [answers, setAnswers] = useState<string[]>(['', '', '']);
@@ -64,6 +65,7 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
 
       if (result) {
         setName(result.name ?? '');
+        setProfilePic(result.profilePicUrl);
         // Place each photo in its slot by the imgN in its URL — the storage
         // listing collapses gaps, so positions alone can't be trusted.
         const slots: (string | null)[] = [null, null, null];
@@ -105,12 +107,48 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
     }
   }
 
+  async function pickProfilePic() {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 1,
+    });
+    if (!result.canceled) {
+      // Rendered as a small circle, so far less resolution than card photos.
+      const asset = result.assets[0];
+      const rendered = await ImageManipulator.manipulate(asset.uri)
+        .resize({ width: Math.min(asset.width, 400) })
+        .renderAsync();
+      const saved = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.7 });
+      setProfilePic(saved.uri);
+    }
+  }
+
   async function handleSave() {
     if (!name.trim()) {
       Alert.alert('Missing name', 'Please enter your name.');
       return;
     }
     setSaving(true);
+
+    // Same rule as the card photos: an https URI is already uploaded and kept;
+    // a local URI is a fresh pick that gets uploaded now.
+    let profilePicUrl = profilePic;
+    if (profilePic && !profilePic.startsWith('http')) {
+      const response = await fetch(profilePic);
+      const arrayBuffer = await response.arrayBuffer();
+      const path = `${personId}/profile.jpg`;
+      const { error } = await supabase.storage
+        .from('people')
+        .upload(path, arrayBuffer, { contentType: 'image/jpeg', upsert: true });
+      if (error) {
+        setSaving(false);
+        Alert.alert('Photo upload failed', error.message);
+        return;
+      }
+      profilePicUrl = supabase.storage.from('people').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
+    }
 
     // Every slot's final URL is recorded on the row (image_urls), so reads
     // never have to ask Storage what exists. Untouched slots hold https URLs
@@ -142,7 +180,7 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
     const qa = questions.map((q, i) => ({ question: q, answer: answers[i] }));
     const { error } = await supabase
       .from('profiles')
-      .update({ name: name.trim(), qa, image_urls: imageUrls })
+      .update({ name: name.trim(), qa, image_urls: imageUrls, profile_pic_url: profilePicUrl })
       .eq('id', personId);
     setSaving(false);
     if (error) {
@@ -167,27 +205,43 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
       keyboardShouldPersistTaps="handled"
     >
 
-      {/* Name — no card box */}
-      <View style={styles.nameContainer}>
-        {editable && (
-          <TouchableOpacity style={styles.pencilButton} onPress={() => setEditingName(e => !e)}>
-            <Text style={styles.pencil}>✏️</Text>
+      {/* Header — circular profile picture, name to its right */}
+      <View style={styles.headerRow}>
+        {editable ? (
+          <TouchableOpacity onPress={pickProfilePic}>
+            {profilePic ? (
+              <Image source={{ uri: profilePic }} style={styles.profilePic} contentFit="cover" />
+            ) : (
+              <View style={styles.profilePicPlaceholder} />
+            )}
           </TouchableOpacity>
-        )}
-        {editable && editingName ? (
-          <TextInput
-            style={styles.nameInput}
-            placeholder="Your name"
-            placeholderTextColor="#aaa"
-            value={name}
-            onChangeText={setName}
-            autoFocus
-          />
+        ) : data?.profilePicUrl ? (
+          <Image source={{ uri: data.profilePicUrl }} style={styles.profilePic} contentFit="cover" />
         ) : (
-          <Text style={[styles.name, editable && !name && styles.placeholder]}>
-            {editable ? (name || 'Your name') : data?.name}
-          </Text>
+          <View style={styles.profilePicPlaceholder} />
         )}
+
+        <View style={styles.nameWrap}>
+          {editable && (
+            <TouchableOpacity style={styles.pencilButton} onPress={() => setEditingName(e => !e)}>
+              <Text style={styles.pencil}>✏️</Text>
+            </TouchableOpacity>
+          )}
+          {editable && editingName ? (
+            <TextInput
+              style={styles.nameInput}
+              placeholder="Your name"
+              placeholderTextColor="#aaa"
+              value={name}
+              onChangeText={setName}
+              autoFocus
+            />
+          ) : (
+            <Text style={[styles.name, editable && !name && styles.placeholder]}>
+              {editable ? (name || 'Your name') : data?.name}
+            </Text>
+          )}
+        </View>
       </View>
 
       {/* Photos — no card box, image bleeds to the same outer width as the cards below */}
@@ -323,10 +377,32 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
 
-  // Name
-  nameContainer: {
+  // Header (profile picture + name)
+  headerRow: {
     width: CARD_WIDTH,
     marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  profilePic: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+  },
+
+  profilePicPlaceholder: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#ddd',
+  },
+
+  nameWrap: {
+    flex: 1,
+    marginLeft: 12,
+    alignSelf: 'stretch',
+    justifyContent: 'center',
   },
 
   name: {

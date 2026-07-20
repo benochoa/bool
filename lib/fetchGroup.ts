@@ -3,6 +3,7 @@ import { supabase } from '@/supabaseClient';
 export interface GroupMember {
   id: string;
   name: string;
+  profilePicUrl: string | null;
 }
 
 export interface GroupData {
@@ -21,7 +22,7 @@ export async function fetchGroup(groupId: string): Promise<GroupData | null> {
   // needs to be asked what files exist.
   const { data, error } = await supabase
     .from('groups')
-    .select('name, qa, created_by, invite_code, image_urls, group_members(person_id, profiles(name))')
+    .select('name, qa, created_by, invite_code, image_urls, group_members(person_id, profiles(name, profile_pic_url))')
     .eq('id', groupId)
     .single();
   if (error || !data) return null;
@@ -30,8 +31,8 @@ export async function fetchGroup(groupId: string): Promise<GroupData | null> {
     // group_members.person_id -> profiles.id is many-to-one, so PostgREST
     // embeds profiles as a single object — the inferred array type here is
     // wrong (this client has no generated schema to tell it the cardinality).
-    const profile = row.profiles as unknown as { name: string } | null;
-    return { id: row.person_id, name: profile?.name ?? '...' };
+    const profile = row.profiles as unknown as { name: string; profile_pic_url: string | null } | null;
+    return { id: row.person_id, name: profile?.name ?? '...', profilePicUrl: profile?.profile_pic_url ?? null };
   });
 
   return {

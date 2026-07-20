@@ -4,6 +4,7 @@ export interface PersonData {
   name: string;
   qa: { question: string; answer: string }[];
   imageUrls: string[];
+  profilePicUrl: string | null;
 }
 
 export async function fetchPerson(personId: string): Promise<PersonData | null> {
@@ -12,7 +13,7 @@ export async function fetchPerson(personId: string): Promise<PersonData | null> 
   // never needs to be asked what files exist.
   const { data, error } = await supabase
     .from('profiles')
-    .select('name, qa, image_urls')
+    .select('name, qa, image_urls, profile_pic_url')
     .eq('id', personId)
     .single();
   if (error || !data) return null;
@@ -21,5 +22,6 @@ export async function fetchPerson(personId: string): Promise<PersonData | null> 
     name: data.name,
     qa: data.qa,
     imageUrls: data.image_urls ?? [],
+    profilePicUrl: data.profile_pic_url ?? null,
   };
 }
