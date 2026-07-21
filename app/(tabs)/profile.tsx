@@ -4,7 +4,7 @@ import { Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/supabaseClient';
 
-export default function HomeScreen() {
+export default function ProfileScreen() {
   const { session } = useSession();
 
   async function handleSignOut() {

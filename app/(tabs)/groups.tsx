@@ -20,7 +20,7 @@ function GroupOption({ name, onPress }: { name: string; onPress: () => void }) {
   );
 }
 
-export default function GroupScreen() {
+export default function GroupsScreen() {
 
   const { session } = useSession();
   const { myGroupIds, loadingGroups, activeGroupId, setActiveGroupId, refreshGroups } = useActiveGroup();

@@ -79,9 +79,9 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
-          name="group"
+          name="groups"
           options={{
-            title: 'Group',
+            title: 'Groups',
             tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.3.fill" color={color} />,
           }}
         />
@@ -93,9 +93,9 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
-          name="home"
+          name="profile"
           options={{
-            title: 'Home',
+            title: 'Profile',
             tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.fill" color={color} />,
           }}
         />
