@@ -223,9 +223,11 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
 
         <View style={styles.nameWrap}>
           {editable && (
-            <TouchableOpacity style={styles.pencilButton} onPress={() => setEditingName(e => !e)}>
-              <Text style={styles.pencil}>✏️</Text>
-            </TouchableOpacity>
+            <View style={styles.optionsWrapName}>
+              <TouchableOpacity style={styles.optionsButton} onPress={() => setEditingName(e => !e)}>
+                <Text style={styles.optionsDots}>···</Text>
+              </TouchableOpacity>
+            </View>
           )}
           {editable && editingName ? (
             <TextInput
@@ -250,8 +252,8 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
           {editable ? (
             photos.map((uri, i) => (
               <View key={i} style={styles.photoSlot}>
-                <TouchableOpacity style={styles.pencilButton} onPress={() => pickPhoto(i)}>
-                  <Text style={styles.pencil}>✏️</Text>
+                <TouchableOpacity style={[styles.optionsButton, styles.optionsPhotos]} onPress={() => pickPhoto(i)}>
+                  <Text style={styles.optionsDots}>···</Text>
                 </TouchableOpacity>
                 {uri ? (
                   <Image source={{ uri }} style={styles.image} contentFit="cover" />
@@ -277,8 +279,8 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
           {editable ? (
             questions.map((q, i) => (
               <View key={i} style={styles.qaItem}>
-                <TouchableOpacity style={styles.pencilButton} onPress={() => setEditingAnswerIndex(editingAnswerIndex === i ? null : i)}>
-                  <Text style={styles.pencil}>✏️</Text>
+                <TouchableOpacity style={[styles.optionsButton, styles.optionsQa]} onPress={() => setEditingAnswerIndex(editingAnswerIndex === i ? null : i)}>
+                  <Text style={styles.optionsDots}>···</Text>
                 </TouchableOpacity>
                 <Text style={styles.question}>{q}</Text>
                 {editingAnswerIndex === i ? (
@@ -368,15 +370,48 @@ const styles = StyleSheet.create({
     padding: 16,
   },
 
-  pencilButton: {
+  // "..." options pill — replaces the old pencil affordance
+  optionsButton: {
+    // Invisible tap target — no fill, no border, just the dots.
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  optionsDots: {
+    color: '#333',
+    fontSize: 24,
+    fontWeight: '700',
+    // Middle dots (·) sit at the em-box center (periods rest on the baseline),
+    // so "···" is vertically centered in the pill with no offset needed.
+    includeFontPadding: false,
+  },
+
+  // Name: full-height wrapper that flex-centers the pill against the name line.
+  optionsWrapName: {
+    position: 'absolute',
+    right: 8,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+
+  // Photos: same y as the old pencil.
+  optionsPhotos: {
     position: 'absolute',
     top: 8,
     right: 8,
     zIndex: 1,
   },
 
-  pencil: {
-    fontSize: 18,
+  // Q&A: nudged up from 8, still inside the card padding.
+  optionsQa: {
+    position: 'absolute',
+    top: 2,
+    right: 8,
+    zIndex: 1,
   },
 
   // Header (profile picture + name)
