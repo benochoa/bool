@@ -16,7 +16,6 @@ export default function ProfileScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.phone}>{session.user.phone}</Text>
         <TouchableOpacity onPress={handleSignOut}>
           <Text style={styles.signOutText}>Sign out</Text>
         </TouchableOpacity>
@@ -33,14 +32,10 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     alignItems: 'center',
     paddingTop: 60,
     paddingHorizontal: 20,
-  },
-  phone: {
-    ...Type.body,
-    color: '#555',
   },
   signOutText: {
     ...Type.bodyBold,

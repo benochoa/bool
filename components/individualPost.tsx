@@ -351,7 +351,9 @@ const styles = StyleSheet.create({
   // screen provides top clearance there. Home and the profile-setup gate
   // are embedded under a header that already accounts for the status bar.
   contentStandalone: {
-    paddingTop: 60,
+    // Clears the modal's floating back arrow (top: 60) — the header row is
+    // now a 64px circle + name, tall enough to collide with the arrow at 60.
+    paddingTop: 100,
   },
 
   // Shared card box
@@ -386,15 +388,15 @@ const styles = StyleSheet.create({
   },
 
   profilePic: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 74,
+    height: 74,
+    borderRadius: 37,
   },
 
   profilePicPlaceholder: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 74,
+    height: 74,
+    borderRadius: 37,
     backgroundColor: '#ddd',
   },
 
