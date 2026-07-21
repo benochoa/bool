@@ -388,15 +388,15 @@ const styles = StyleSheet.create({
   },
 
   profilePic: {
-    width: 74,
-    height: 74,
-    borderRadius: 37,
+    width: 79,
+    height: 79,
+    borderRadius: 39.5,
   },
 
   profilePicPlaceholder: {
-    width: 74,
-    height: 74,
-    borderRadius: 37,
+    width: 79,
+    height: 79,
+    borderRadius: 39.5,
     backgroundColor: '#ddd',
   },
 
