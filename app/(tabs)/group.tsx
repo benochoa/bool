@@ -308,7 +308,9 @@ const styles = StyleSheet.create({
   },
 
   groupsListContent: {
-    paddingTop: 60,
+    // Clears the absolute +/switcher band (60–104pt) so the group name lands
+    // at the same height as on the explore tab, for leaders and members alike.
+    paddingTop: 100,
     paddingBottom: 40,
   },
 

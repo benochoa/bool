@@ -94,29 +94,32 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
   const [editingAnswerIndex, setEditingAnswerIndex] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [isEditingExisting, setIsEditingExisting] = useState(false);
 
-  // editable = creation flow; isEditingExisting = leader editing a saved group
-  const isEditMode = editable || isEditingExisting;
+  // editable = creation flow; isLeader = editing your own saved group in place
   const isLeader = !!(session?.user && data?.created_by && data.created_by === session.user.id);
+  const isEditMode = editable || isLeader;
 
   // Fetch data (read mode) or questions (editable mode)
   useEffect(() => {
     if (editable) {
       fetchRandomGroupQuestions().then(qs => setQuestions(qs));
     } else if (groupId) {
-      // The same instance can be reused for another group (explore feed),
-      // so don't carry an open edit session — or the previous group's data,
-      // which would flash on screen until the fetch lands — over to it.
-      setIsEditingExisting(false);
+      // The same instance can be reused for another group (explore feed), so
+      // clear the previous group's data — which would otherwise flash on
+      // screen until the fetch lands — before loading the next.
       setData(null);
       setLoading(true);
       fetchGroup(groupId).then(result => {
         setData(result);
+        // Leaders edit in place (pencils always live), so prefill the form
+        // from the fetched data the moment it arrives.
+        if (result && session?.user && result.created_by === session.user.id) {
+          prefillFromData(result);
+        }
         setLoading(false);
       });
     }
-  }, [groupId, editable]);
+  }, [groupId, editable, session]);
 
   // Pre-fill the edit form from fetched data; also used by Cancel to discard edits.
   function prefillFromData(d: GroupData) {
@@ -163,7 +166,7 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
     const qa = questions.map((q, i) => ({ question: q, answer: answers[i] }));
 
     // Leader editing an existing group
-    if (isEditingExisting && groupId) {
+    if (isLeader && groupId) {
       // Every slot's final URL is recorded on the row (image_urls), so reads
       // never have to ask Storage what exists. Untouched slots hold https URLs
       // and keep them; fresh uploads get a new ?v= so caches refetch.
@@ -199,9 +202,11 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
         return;
       }
 
-      setData(await fetchGroup(groupId));
+      // Stay in edit mode; re-prefill so saved photos pick up their new ?v= URLs.
+      const fresh = await fetchGroup(groupId);
+      setData(fresh);
+      if (fresh) prefillFromData(fresh);
       setSaving(false);
-      setIsEditingExisting(false);
       return;
     }
 
@@ -265,19 +270,6 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
       {editable && onClose && (
         <TouchableOpacity style={styles.backButton} onPress={onClose}>
           <Text style={styles.backArrow}>←</Text>
-        </TouchableOpacity>
-      )}
-
-      {/* Edit / Cancel toggle (leader only, saved groups) */}
-      {!editable && isLeader && data && (
-        <TouchableOpacity
-          style={styles.editToggleButton}
-          onPress={() => {
-            prefillFromData(data);
-            setIsEditingExisting(e => !e);
-          }}
-        >
-          <Text style={styles.editToggleText}>{isEditingExisting ? 'Cancel' : 'Edit'}</Text>
         </TouchableOpacity>
       )}
 
@@ -606,26 +598,6 @@ const styles = StyleSheet.create({
     ...Type.label,
     fontFamily: FontFamily.bold,
     color: '#43a047',
-  },
-
-  // Edit / Cancel toggle
-  editToggleButton: {
-    alignSelf: 'flex-end',
-    marginRight: 20,
-    // On the group screen this pill sits inside the absolute +/switcher header
-    // band (60–104pt). The margin pushes the name below that band with the
-    // same 24pt gap the explore tab row leaves above it.
-    marginBottom: 18,
-    paddingVertical: 6,
-    paddingHorizontal: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#ccc',
-  },
-
-  editToggleText: {
-    ...Type.label,
-    color: '#000',
   },
 
   // Save button
