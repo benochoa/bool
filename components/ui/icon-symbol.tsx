@@ -19,6 +19,7 @@ const MAPPING = {
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
   'gearshape.fill': 'settings',
+  'book.fill': 'menu-book',
 } as IconMapping;
 
 /**
