@@ -367,7 +367,10 @@ const styles = StyleSheet.create({
     borderColor: '#ddd',
     marginTop: 16,
     overflow: 'hidden',
-    padding: 16,
+    // Horizontal padding lives on qaItem instead, so the "..." can sit flush
+    // at the card edge — aligned with the name/photo dots — without the
+    // scroll view clipping it.
+    paddingVertical: 16,
   },
 
   // "..." options pill — replaces the old pencil affordance
@@ -410,6 +413,8 @@ const styles = StyleSheet.create({
   optionsQa: {
     position: 'absolute',
     top: 2,
+    // qaItem is now full CARD_WIDTH (same box as headerRow/photoContainer),
+    // so the same right offset lands on the same edge as name/photo.
     right: 8,
     zIndex: 1,
   },
@@ -503,7 +508,8 @@ const styles = StyleSheet.create({
   },
 
   qaItem: {
-    width: CARD_WIDTH - 32,
+    width: CARD_WIDTH,
+    paddingHorizontal: 16,
   },
 
   question: {
