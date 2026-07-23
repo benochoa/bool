@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { useEffect, useState } from 'react';
 import { Image } from 'expo-image';
+import FontAwesome6 from '@expo/vector-icons/FontAwesome6';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '@/supabaseClient';
@@ -57,7 +58,9 @@ async function fetchRandomGroupQuestions(): Promise<string[]> {
 }
 
 // Member row subcomponent — name arrives with the group fetch, no fetching here.
-function MemberRow({ name, profilePicUrl, onPress }: { name: string; profilePicUrl: string | null; onPress: () => void }) {
+function MemberRow({ name, profilePicUrl, isGroupLeader, onPress }: {
+  name: string; profilePicUrl: string | null; isGroupLeader: boolean; onPress: () => void;
+}) {
   return (
     <TouchableOpacity style={styles.memberRow} onPress={onPress}>
       {profilePicUrl ? (
@@ -66,6 +69,13 @@ function MemberRow({ name, profilePicUrl, onPress }: { name: string; profilePicU
         <View style={styles.memberCircle} />
       )}
       <Text style={styles.memberName}>{name}</Text>
+      {isGroupLeader && (
+        <View style={styles.optionsWrapName}>
+          <View style={styles.optionsButton}>
+            <FontAwesome6 name="crown" size={14} color="#000" solid />
+          </View>
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
@@ -369,11 +379,17 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
 
       {/* Members card — unlike Q&A, this has no per-item padding, so it
           needs the card's horizontal inset restored directly. */}
-      <View style={[styles.card, styles.membersCard]}>
+      <View style={styles.card}>
         {data ? (
           <>
             {data.members.map(m => (
-              <MemberRow key={m.id} name={m.name} profilePicUrl={m.profilePicUrl} onPress={() => setSelectedMember(m.id)} />
+              <MemberRow
+                key={m.id}
+                name={m.name}
+                profilePicUrl={m.profilePicUrl}
+                isGroupLeader={m.id === data.created_by}
+                onPress={() => setSelectedMember(m.id)}
+              />
             ))}
             {isLeader && data.invite_code && (
               <View style={styles.inviteRow}>
@@ -458,12 +474,6 @@ const styles = StyleSheet.create({
     // at the card edge — aligned with the name/photo dots — without the
     // scroll view clipping it.
     paddingVertical: 16,
-  },
-
-  // Members has no per-item padding like qaItem does, so it needs its own
-  // horizontal inset restored on top of the shared card.
-  membersCard: {
-    paddingHorizontal: 16,
   },
 
   // "..." options pill — replaces the old pencil affordance
@@ -603,11 +613,14 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
 
-  // Members
+  // Members — per-row padding (not card-level) so the crown below can sit
+  // flush at right: 8 from the row's own border box, aligned with the
+  // "..." buttons elsewhere on the card.
   memberRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 12,
+    paddingHorizontal: 16,
   },
 
   memberCircle: {
@@ -635,6 +648,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginTop: 4,
+    paddingHorizontal: 16,
   },
 
   inviteLabel: {
