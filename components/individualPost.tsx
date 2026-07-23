@@ -207,19 +207,24 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
 
       {/* Header — circular profile picture, name to its right */}
       <View style={styles.headerRow}>
-        {editable ? (
-          <TouchableOpacity onPress={pickProfilePic}>
-            {profilePic ? (
+        <View style={styles.profilePicWrap}>
+          {editable ? (
+            profilePic ? (
               <Image source={{ uri: profilePic }} style={styles.profilePic} contentFit="cover" />
             ) : (
               <View style={styles.profilePicPlaceholder} />
-            )}
-          </TouchableOpacity>
-        ) : data?.profilePicUrl ? (
-          <Image source={{ uri: data.profilePicUrl }} style={styles.profilePic} contentFit="cover" />
-        ) : (
-          <View style={styles.profilePicPlaceholder} />
-        )}
+            )
+          ) : data?.profilePicUrl ? (
+            <Image source={{ uri: data.profilePicUrl }} style={styles.profilePic} contentFit="cover" />
+          ) : (
+            <View style={styles.profilePicPlaceholder} />
+          )}
+          {editable && (
+            <TouchableOpacity style={styles.profilePicEditBadge} onPress={pickProfilePic}>
+              <Text style={styles.profilePicEditPencil}>✎</Text>
+            </TouchableOpacity>
+          )}
+        </View>
 
         <View style={styles.nameWrap}>
           {editable && (
@@ -438,6 +443,40 @@ const styles = StyleSheet.create({
     height: 79,
     borderRadius: 39.5,
     backgroundColor: '#ddd',
+  },
+
+  // Wraps the circle so the edit badge can anchor to it directly — same
+  // 79px box as profilePic, no longer itself tappable.
+  profilePicWrap: {
+    width: 79,
+    height: 79,
+  },
+
+  // Sits at 45° below the positive x-axis of the profile pic, centered on
+  // its edge (half in, half out): offset = r*cos45 ≈ 27.9 from the pic's
+  // own center, then inset by the badge's own radius.
+  profilePicEditBadge: {
+    position: 'absolute',
+    top: 52,
+    left: 52,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
+  },
+
+  profilePicEditPencil: {
+    fontSize: 18,
+    color: '#000',
   },
 
   nameWrap: {
