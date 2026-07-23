@@ -1,3 +1,5 @@
+import { CheckMark } from '@/assets/symbols/CheckMark';
+import { XMark } from '@/assets/symbols/XMark';
 import GroupPost from '@/components/groupPost';
 import { useActiveGroup } from '@/hooks/use-active-group';
 import { useSession } from '@/hooks/use-session';
@@ -221,10 +223,10 @@ export default function ExploreScreen() {
               {/* Check / X buttons */}
               <View style={styles.buttonRow}>
                 <TouchableOpacity style={styles.xButton} onPress={handleX}>
-                  <Text style={styles.buttonText}>✕</Text>
+                  <XMark />
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.checkButton} onPress={handleCheck}>
-                  <Text style={styles.buttonText}>✓</Text>
+                  <CheckMark />
                 </TouchableOpacity>
               </View>
             </>
@@ -376,18 +378,28 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: '#e53935',
+    backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
 
   checkButton: {
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: '#43a047',
+    backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
 
   buttonText: {
