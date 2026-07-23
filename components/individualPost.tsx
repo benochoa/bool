@@ -1,14 +1,22 @@
-import {
-  StyleSheet, View, Text, ScrollView, Dimensions,
-  TouchableOpacity, ActivityIndicator, TextInput, Alert,
-  KeyboardAvoidingView, Platform
-} from 'react-native';
-import { useEffect, useState } from 'react';
+import { IconSymbol } from '@/components/ui/icon-symbol';
+import { Palette, Type } from '@/constants/theme';
+import { supabase } from '@/supabaseClient';
 import { Image } from 'expo-image';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
-import { supabase } from '@/supabaseClient';
-import { Palette, Type } from '@/constants/theme';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  KeyboardAvoidingView, Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native';
 import { fetchPerson, PersonData } from '../lib/fetchPerson';
 
 const { width } = Dimensions.get('window');
@@ -221,7 +229,7 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
           )}
           {editable && (
             <TouchableOpacity style={styles.profilePicEditBadge} onPress={pickProfilePic}>
-              <Text style={styles.profilePicEditPencil}>✎</Text>
+              <IconSymbol name="pencil" size={14} color="#000" weight="bold" />
             </TouchableOpacity>
           )}
         </View>
@@ -457,11 +465,11 @@ const styles = StyleSheet.create({
   // own center, then inset by the badge's own radius.
   profilePicEditBadge: {
     position: 'absolute',
-    top: 52,
-    left: 52,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    top: 53.5,
+    left: 53.5,
+    width: 27,
+    height: 27,
+    borderRadius: 13.5,
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#ddd',
@@ -472,11 +480,6 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     shadowOffset: { width: 0, height: 1 },
     elevation: 2,
-  },
-
-  profilePicEditPencil: {
-    fontSize: 18,
-    color: '#000',
   },
 
   nameWrap: {
