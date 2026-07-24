@@ -1,25 +1,21 @@
 import { CheckMark } from '@/assets/symbols/CheckMark';
+import { PaperPlane } from '@/assets/symbols/PaperPlane';
 import { XMark } from '@/assets/symbols/XMark';
 import GroupPost from '@/components/groupPost';
+import GroupPostPreview from '@/components/groupPostPreview';
 import { useActiveGroup } from '@/hooks/use-active-group';
 import { useSession } from '@/hooks/use-session';
 import { fetchAllGroupIds } from '@/lib/fetchAllGroupIds';
 import { fetchAllGroupMembers, GroupMemberRow } from '@/lib/fetchAllGroupMembers';
 import { fetchGroup } from '@/lib/fetchGroup';
-import { fetchGroupSuggestions } from '@/lib/fetchGroupSuggestions';
+import { fetchGroupSuggestions, GroupSuggestion } from '@/lib/fetchGroupSuggestions';
 import { fetchMatchedGroupIds } from '@/lib/fetchMatchedGroupIds';
 import { fetchReceivedGroupIds } from '@/lib/fetchReceivedGroupIds';
 import { supabase } from '@/supabaseClient';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-
-interface FeedSuggestion {
-  targetGroupId: string;
-  suggestedByName: string;
-  status: 'pending' | 'sent' | 'matched';
-}
+import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function ExploreScreen() {
 
@@ -27,11 +23,12 @@ export default function ExploreScreen() {
   const { activeGroupId } = useActiveGroup();
 
   // State
-  const [activeTab, setActiveTab] = useState<'Personal' | 'Group' | 'Sent'>('Personal');
+  const [activeTab, setActiveTab] = useState<'Personal' | 'Pending'>('Personal');
   const [groupIds, setGroupIds] = useState<string[]>([]);
   const [allMembers, setAllMembers] = useState<GroupMemberRow[]>([]);
   const [seenGroupIds, setSeenGroupIds] = useState<Set<string>>(new Set());
-  const [suggestions, setSuggestions] = useState<FeedSuggestion[]>([]);
+  const [suggestions, setSuggestions] = useState<GroupSuggestion[]>([]);
+  const [detail, setDetail] = useState<GroupSuggestion | null>(null);
   const [receivedGroupIds, setReceivedGroupIds] = useState<string[]>([]);
   const [matchedGroupIds, setMatchedGroupIds] = useState<string[]>([]);
   const [isLeader, setIsLeader] = useState(false);
@@ -183,17 +180,10 @@ export default function ExploreScreen() {
       </TouchableOpacity>
 
       <TouchableOpacity
-        style={[styles.tabButton, activeTab === 'Group' && styles.tabButtonActive]}
-        onPress={() => setActiveTab('Group')}
+        style={[styles.tabButton, activeTab === 'Pending' && styles.tabButtonActive]}
+        onPress={() => setActiveTab('Pending')}
       >
-        <Text style={[styles.tabText, activeTab === 'Group' && styles.tabTextActive]}>Group</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={[styles.tabButton, activeTab === 'Sent' && styles.tabButtonActive]}
-        onPress={() => setActiveTab('Sent')}
-      >
-        <Text style={[styles.tabText, activeTab === 'Sent' && styles.tabTextActive]}>Sent</Text>
+        <Text style={[styles.tabText, activeTab === 'Pending' && styles.tabTextActive]}>Pending</Text>
       </TouchableOpacity>
     </View>
   );
@@ -234,69 +224,53 @@ export default function ExploreScreen() {
         </View>
       )}
 
-      {/* Group feed */}
-      {activeTab === 'Group' && (
+      {/* Pending feed — suggested (color) on top, sent (B&W) below */}
+      {activeTab === 'Pending' && (
         <View style={styles.feedContainer}>
-          {groupFeedItems.length === 0 ? (
+          {groupFeedItems.length === 0 && sentFeedItems.length === 0 ? (
             <>
               {tabRow}
               <View style={styles.doneContainer}>
-                <Text style={styles.doneText}>No checked groups yet.</Text>
+                <Text style={styles.doneText}>Nothing here yet.</Text>
               </View>
             </>
           ) : (
-            <ScrollView>
-
-              {/* Personal / Group / Sent toggle - scrolls off with content */}
+            <ScrollView contentContainerStyle={styles.previewList}>
               {tabRow}
-
-              {groupFeedItems.map((s, i) => (
-                <View key={i}>
-                  <GroupPost groupId={s.targetGroupId} />
-                  <Text style={styles.recommendedText}>Recommended by {s.suggestedByName}</Text>
-                  {isLeader && (
-                    <View style={styles.leaderButtonRow}>
-                      <TouchableOpacity style={styles.leaderXButton} onPress={() => handleLeaderRemove(s.targetGroupId)}>
-                        <Text style={styles.buttonText}>✕</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.leaderCheckButton} onPress={() => handleLeaderSend(s.targetGroupId)}>
-                        <Text style={styles.buttonText}>✓</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                </View>
+              {[...groupFeedItems, ...sentFeedItems].map(s => (
+                <GroupPostPreview
+                  key={s.targetGroupId}
+                  groupName={s.groupName}
+                  firstImageUrl={s.firstImageUrl}
+                  suggesterPicUrl={s.suggestedByPicUrl}
+                  sent={s.status === 'sent'}
+                  onPress={() => setDetail(s)}
+                />
               ))}
             </ScrollView>
           )}
         </View>
       )}
 
-      {/* Sent feed — view only, for everyone */}
-      {activeTab === 'Sent' && (
-        <View style={styles.feedContainer}>
-          {sentFeedItems.length === 0 ? (
-            <>
-              {tabRow}
-              <View style={styles.doneContainer}>
-                <Text style={styles.doneText}>Nothing sent yet.</Text>
-              </View>
-            </>
-          ) : (
-            <ScrollView>
-
-              {/* Personal / Group / Sent toggle - scrolls off with content */}
-              {tabRow}
-
-              {sentFeedItems.map((s, i) => (
-                <View key={i}>
-                  <GroupPost groupId={s.targetGroupId} />
-                  <Text style={styles.recommendedText}>Recommended by {s.suggestedByName}</Text>
-                </View>
-              ))}
-            </ScrollView>
+      {/* Detail modal — full group, with leader Send/Remove for pending items */}
+      <Modal visible={detail !== null} animationType="slide" onRequestClose={() => setDetail(null)}>
+        <View style={styles.detailModal}>
+          <TouchableOpacity style={styles.detailBack} onPress={() => setDetail(null)}>
+            <Text style={styles.detailBackArrow}>←</Text>
+          </TouchableOpacity>
+          {detail && <GroupPost groupId={detail.targetGroupId} />}
+          {detail?.status === 'pending' && isLeader && (
+            <View style={styles.modalLeaderRow}>
+              <TouchableOpacity style={styles.xButton} onPress={() => { handleLeaderRemove(detail.targetGroupId); setDetail(null); }}>
+                <XMark />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.checkButton} onPress={() => { handleLeaderSend(detail.targetGroupId); setDetail(null); }}>
+                <PaperPlane />
+              </TouchableOpacity>
+            </View>
           )}
         </View>
-      )}
+      </Modal>
 
     </View>
   );
@@ -316,13 +290,19 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.background,
   },
 
-  // Personal / Group toggle
+  // Personal / Pending toggle
   tabRow: {
+    width: '100%',
     flexDirection: 'row',
     justifyContent: 'space-evenly',
     paddingHorizontal: 20,
     paddingTop: 60,
     paddingBottom: 8,
+  },
+
+  previewList: {
+    alignItems: 'center',
+    paddingBottom: 40,
   },
 
   tabButton: {
@@ -402,43 +382,34 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
 
-  buttonText: {
+  // Detail modal (opened by tapping a preview)
+  detailModal: {
+    flex: 1,
+    backgroundColor: Palette.background,
+    paddingTop: 100,
+  },
+
+  detailBack: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    zIndex: 10,
+  },
+
+  detailBackArrow: {
     fontSize: 28,
-    color: '#fff',
-    fontWeight: 'bold',
+    color: '#000',
   },
 
-  recommendedText: {
-    ...Type.label,
-    color: '#555',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-
-  // Leader-only check/X on a Group-feed card
-  leaderButtonRow: {
+  // Leader-only Send/Remove, floating at the bottom of the detail modal
+  modalLeaderRow: {
+    position: 'absolute',
+    bottom: 40,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 24,
-    marginBottom: 24,
-  },
-
-  leaderXButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#e53935',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  leaderCheckButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#43a047',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 
 });
