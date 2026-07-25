@@ -465,9 +465,7 @@ const styles = StyleSheet.create({
   card: {
     width: CARD_WIDTH,
     backgroundColor: '#fff',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#ddd',
+    borderRadius: 8,
     marginTop: 16,
     overflow: 'hidden',
     // Horizontal padding lives on qaItem instead, so the "..." can sit flush
