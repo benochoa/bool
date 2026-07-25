@@ -2,20 +2,36 @@
 
 ## Project Overview
 
-Social app built with Expo SDK 54, expo-router 6 (file-based routing), React Native 0.81, React 19, TypeScript. No backend yet — all content is mock data bundled with the app.
+Social matchmaking app for **groups** (not individuals): a group swipes on other groups; mutual interest → a match → a group chat. Built with Expo SDK 54, expo-router 6 (file-based routing), React Native 0.81, React 19, TypeScript. Backend is **Supabase** (Postgres + Auth + Storage + RPC).
 
-- `app/_layout.tsx` — root stack; `app/(tabs)/_layout.tsx` — bottom tab bar
-- `app/(tabs)/` — screens: `index` (explore), `home`, `chats`, `group`, `received`
-- `components/` — shared UI. `individualPost.tsx` / `groupPost.tsx` render feed posts; `themed-text` / `themed-view` handle light/dark theming
-- `components/*Registry.ts` — static registries mapping string keys (e.g. `Data/Groups/Group-1`) to `import`/`require`d JSON and images. Metro only bundles static imports, so **new Data entries must also be added to the matching registry file**
-- `Data/` — mock content: `People/<Name>/{Images,Text}` and `Groups/Group-<N>/{Images,Text}` with `name.json`, `qa.json`, and (groups only) `members.json`
-- `hooks/`, `constants/` — color scheme + theme helpers
+**The matching funnel:** a member swipes ✓ on another group in **Discover** → creates a `pending` `group_suggestion` → the group leader reviews it in **Pending** and Sends it (`sent`) → the target group sees it in **Received** and approves (`matched`) → both groups get a **Chat**.
+
+- `app/_layout.tsx` — root stack (login gate); `app/(tabs)/_layout.tsx` — bottom tabs, wraps everything in `CurrentGroupProvider`, and gates on profile completion
+- `app/(tabs)/` — `index` (Explore: Discover/Pending sub-tabs), `received`, `groups`, `chats`, `profile`
+- `components/` — `groupPost` / `individualPost` (full read+edit cards), `groupPostPreview` (photo tile), `chatThread`, `settings`, `history`, `ui/icon-symbol` (SF Symbols → MaterialIcons)
+- `lib/` — one small single-purpose Supabase fetcher per file (see conventions); plus `sendMessage`, `canonicalPair`, `supabaseClient` (at repo root)
+- `hooks/` — `use-current-group` (which group you're acting as), `use-session`, `use-color-scheme`
+- `constants/theme.ts` — `Type` scale, `Palette`, `FontFamily` (Manrope), `Colors`
+- `assets/symbols/` — custom SVG icons (`CheckMark`, `XMark`, `PaperPlane`) via `react-native-svg`; `assets/fonts/` — vendored Manrope `.ttf`s
+
+## Backend (Supabase) & data conventions
+
+- **Schema lives in the Supabase dashboard, NOT in the repo** (no migration files). Tables: `profiles`, `groups`, `group_members` (has `status` active|kicked|left + `status_at`), `group_suggestions` (status pending|sent|matched), `messages`, `questions`. Storage buckets: `people`, `groups`. RPCs: `get_chat_previews`, `delete_my_account`.
+- **Schema-before-code ordering is a real footgun:** if code selects/filters a column that doesn't exist yet, every such query errors and the app breaks. When a change needs both SQL and code, the SQL must be run in the dashboard **before the app reloads**. Always hand the user the SQL and say "run this first."
+- **Images:** resized + JPEG-compressed client-side (`expo-image-manipulator`) before upload; deterministic paths (`{id}/img1.jpg`, `profile.jpg`); the final public URL (with a `?v=timestamp` cache-buster) is written onto the row (`image_urls`, `profile_pic_url`) so reads **never call `storage.list()`**. Render with `expo-image` (disk-cached). Upload bytes via `arrayBuffer`, never RN `blob` (blobs upload 0 bytes).
+- **Fetchers** favor one PostgREST round trip: use FK embeds (e.g. `profiles:suggested_by(...)`, `groups!target_group_id(...)`) over N+1 loops.
+
+## Naming conventions (established, keep consistent)
+
+- **"current" = the group you're acting as** (`currentGroupId`, `useCurrentGroup`). **"active" = membership status** (`status='active'`, `fetchMyActiveGroupIds`). Keep these two senses distinct — do not reintroduce "active group" for the acting-as concept.
+- Membership fetchers: `fetchMyActiveGroupIds` (my current groups) vs `fetchMyAllTimeGroupIds` (ever, for History) vs `fetchAllGroupIds` (every group app-wide, for Discover).
+- Only `status='active'` members define a group — filter membership reads accordingly (`fetchGroup`, `fetchAllGroupMembers`, `fetchMyActiveGroupIds`).
 
 ## Commands
 
-- `npm start` — expo dev server (`npm run android` / `ios` / `web` for a specific platform)
-- `npm run lint` — expo lint (ESLint 9, eslint-config-expo)
-- No test runner is configured; verify changes by running the app
+- `npm start` — expo dev server (`npm run android` / `ios` / `web`); `npx expo start --tunnel` to test on a phone off the same network; `-c` clears cache (needed after adding a native module)
+- `npm run lint` — expo lint (ESLint 9). Verify types with `npx tsc --noEmit`. Two lint warnings in `index.tsx`/`login.tsx` are pre-existing and unrelated.
+- No test runner; verify by running the app.
 
 ## Expo HAS CHANGED
 
