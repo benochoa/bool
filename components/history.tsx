@@ -4,7 +4,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { fetchGroupNames, GroupName } from '@/lib/fetchGroupNames';
-import { fetchMyGroupIds } from '@/lib/fetchMyGroupIds';
+import { fetchMyAllTimeGroupIds } from '@/lib/fetchMyAllTimeGroupIds';
 
 interface Props {
   onClose: () => void;
@@ -17,7 +17,7 @@ export default function History({ onClose }: Props) {
 
   useEffect(() => {
     if (!session?.user) return;
-    fetchMyGroupIds(session.user.id).then(async ids => {
+    fetchMyAllTimeGroupIds(session.user.id).then(async ids => {
       setGroups(await fetchGroupNames(ids));
       setLoading(false);
     });

@@ -4,27 +4,27 @@ import { useFocusEffect } from '@react-navigation/native';
 import ChatThread from '@/components/chatThread';
 import { FontFamily, Type } from '@/constants/theme';
 import { fetchChatPreviews, ChatPreview } from '@/lib/fetchChatPreviews';
-import { useActiveGroup } from '@/hooks/use-active-group';
+import { useCurrentGroup } from '@/hooks/use-current-group';
 
 export default function ChatsScreen() {
 
-  const { activeGroupId } = useActiveGroup();
+  const { currentGroupId } = useCurrentGroup();
   const [previews, setPreviews] = useState<ChatPreview[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<ChatPreview | null>(null);
 
   useFocusEffect(
     useCallback(() => {
-      if (!activeGroupId) {
+      if (!currentGroupId) {
         setPreviews([]);
         setLoading(false);
         return;
       }
-      fetchChatPreviews(activeGroupId).then(rows => {
+      fetchChatPreviews(currentGroupId).then(rows => {
         setPreviews(rows);
         setLoading(false);
       });
-    }, [activeGroupId])
+    }, [currentGroupId])
   );
 
   if (loading) {
@@ -61,9 +61,9 @@ export default function ChatsScreen() {
         animationType="slide"
         onRequestClose={() => setSelected(null)}
       >
-        {selected && activeGroupId && (
+        {selected && currentGroupId && (
           <ChatThread
-            myGroupId={activeGroupId}
+            myGroupId={currentGroupId}
             otherGroupId={selected.otherGroupId}
             otherGroupName={selected.otherGroupName}
             onClose={() => setSelected(null)}

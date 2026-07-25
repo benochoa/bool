@@ -22,18 +22,22 @@ export async function fetchGroup(groupId: string): Promise<GroupData | null> {
   // needs to be asked what files exist.
   const { data, error } = await supabase
     .from('groups')
-    .select('name, qa, created_by, invite_code, image_urls, group_members(person_id, profiles(name, profile_pic_url))')
+    .select('name, qa, created_by, invite_code, image_urls, group_members(person_id, status, profiles(name, profile_pic_url))')
     .eq('id', groupId)
     .single();
   if (error || !data) return null;
 
-  const members = (data.group_members ?? []).map(row => {
-    // group_members.person_id -> profiles.id is many-to-one, so PostgREST
-    // embeds profiles as a single object — the inferred array type here is
-    // wrong (this client has no generated schema to tell it the cardinality).
-    const profile = row.profiles as unknown as { name: string; profile_pic_url: string | null } | null;
-    return { id: row.person_id, name: profile?.name ?? '...', profilePicUrl: profile?.profile_pic_url ?? null };
-  });
+  const members = (data.group_members ?? [])
+    // Only active members define the group; left/kicked rows are kept for
+    // history but excluded here.
+    .filter(row => (row as { status?: string }).status === 'active')
+    .map(row => {
+      // group_members.person_id -> profiles.id is many-to-one, so PostgREST
+      // embeds profiles as a single object — the inferred array type here is
+      // wrong (this client has no generated schema to tell it the cardinality).
+      const profile = row.profiles as unknown as { name: string; profile_pic_url: string | null } | null;
+      return { id: row.person_id, name: profile?.name ?? '...', profilePicUrl: profile?.profile_pic_url ?? null };
+    });
 
   return {
     name: data.name,

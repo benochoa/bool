@@ -6,7 +6,7 @@ import { HapticTab } from '@/components/haptic-tab';
 import IndividualPost from '@/components/individualPost';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, FontFamily, Palette, Type } from '@/constants/theme';
-import { ActiveGroupProvider } from '@/hooks/use-active-group';
+import { CurrentGroupProvider } from '@/hooks/use-current-group';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/supabaseClient';
@@ -56,7 +56,7 @@ export default function TabLayout() {
   }
 
   return (
-    <ActiveGroupProvider>
+    <CurrentGroupProvider>
       <Tabs
         screenOptions={{
           tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
@@ -100,7 +100,7 @@ export default function TabLayout() {
           }}
         />
       </Tabs>
-    </ActiveGroupProvider>
+    </CurrentGroupProvider>
   );
 }
 

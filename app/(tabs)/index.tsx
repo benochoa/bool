@@ -3,7 +3,7 @@ import { PaperPlane } from '@/assets/symbols/PaperPlane';
 import { XMark } from '@/assets/symbols/XMark';
 import GroupPost from '@/components/groupPost';
 import GroupPostPreview from '@/components/groupPostPreview';
-import { useActiveGroup } from '@/hooks/use-active-group';
+import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useSession } from '@/hooks/use-session';
 import { fetchAllGroupIds } from '@/lib/fetchAllGroupIds';
 import { fetchAllGroupMembers, GroupMemberRow } from '@/lib/fetchAllGroupMembers';
@@ -20,10 +20,10 @@ import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacit
 export default function ExploreScreen() {
 
   const { session } = useSession();
-  const { activeGroupId } = useActiveGroup();
+  const { currentGroupId } = useCurrentGroup();
 
   // State
-  const [activeTab, setActiveTab] = useState<'Personal' | 'Pending'>('Personal');
+  const [activeTab, setActiveTab] = useState<'Discover' | 'Pending'>('Discover');
   const [groupIds, setGroupIds] = useState<string[]>([]);
   const [allMembers, setAllMembers] = useState<GroupMemberRow[]>([]);
   const [seenGroupIds, setSeenGroupIds] = useState<Set<string>>(new Set());
@@ -35,11 +35,11 @@ export default function ExploreScreen() {
   const [loading, setLoading] = useState(true);
 
   // Pulls everything this screen needs fresh from Supabase. Called on focus
-  // (leaving/returning to the Explore tab) and again whenever the Personal/
+  // (leaving/returning to the Explore tab) and again whenever the Discover/
   // Group/Sent sub-tab changes, since switching between those never triggers
   // a focus event — the screen itself never unmounts. Received/matched data
   // is fetched here too even though it has no tab of its own on this screen —
-  // it's only used to keep already-related groups out of the Personal feed.
+  // it's only used to keep already-related groups out of the Discover feed.
   const refreshAll = useCallback(() => {
     Promise.all([fetchAllGroupIds(), fetchAllGroupMembers()]).then(([ids, members]) => {
       setGroupIds(ids);
@@ -47,7 +47,7 @@ export default function ExploreScreen() {
       setLoading(false);
     });
 
-    if (!activeGroupId) {
+    if (!currentGroupId) {
       setSuggestions([]);
       setReceivedGroupIds([]);
       setMatchedGroupIds([]);
@@ -55,15 +55,15 @@ export default function ExploreScreen() {
       return;
     }
 
-    fetchGroupSuggestions(activeGroupId).then(setSuggestions);
+    fetchGroupSuggestions(currentGroupId).then(setSuggestions);
 
-    fetchReceivedGroupIds(activeGroupId).then(setReceivedGroupIds);
-    fetchMatchedGroupIds(activeGroupId).then(setMatchedGroupIds);
+    fetchReceivedGroupIds(currentGroupId).then(setReceivedGroupIds);
+    fetchMatchedGroupIds(currentGroupId).then(setMatchedGroupIds);
 
     if (session?.user) {
-      fetchGroup(activeGroupId).then(g => setIsLeader(g?.created_by === session.user.id));
+      fetchGroup(currentGroupId).then(g => setIsLeader(g?.created_by === session.user.id));
     }
-  }, [activeGroupId, session]);
+  }, [currentGroupId, session]);
 
   // Refetch on focus (switching to Explore from another tab)...
   useFocusEffect(
@@ -83,7 +83,7 @@ export default function ExploreScreen() {
   // already reached me (Received), or already matched with me.
   const feedGroupIds = useMemo(() => {
     const myMemberIds = new Set(
-      allMembers.filter(m => m.groupId === activeGroupId).map(m => m.personId)
+      allMembers.filter(m => m.groupId === currentGroupId).map(m => m.personId)
     );
     const alreadyRelated = new Set([
       ...suggestions.map(s => s.targetGroupId),
@@ -96,7 +96,7 @@ export default function ExploreScreen() {
       const candidateMemberIds = allMembers.filter(m => m.groupId === id).map(m => m.personId);
       return !candidateMemberIds.some(personId => myMemberIds.has(personId));
     });
-  }, [groupIds, allMembers, suggestions, receivedGroupIds, matchedGroupIds, activeGroupId]);
+  }, [groupIds, allMembers, suggestions, receivedGroupIds, matchedGroupIds, currentGroupId]);
 
   // Cards already acted on this session (checked or X'd) but not yet reflected
   // in feedGroupIds (a background refetch is what actually removes a checked
@@ -107,37 +107,37 @@ export default function ExploreScreen() {
     () => feedGroupIds.filter(id => !seenGroupIds.has(id)),
     [feedGroupIds, seenGroupIds]
   );
-  const currentGroupId = remainingGroupIds[0];
+  const currentCardGroupId = remainingGroupIds[0];
 
-  // Restart the deck whenever the active group changes — the filtered list means something different now.
+  // Restart the deck whenever the current group changes — the filtered list means something different now.
   useEffect(() => {
     setSeenGroupIds(new Set());
-  }, [activeGroupId]);
+  }, [currentGroupId]);
 
   // Actions
   async function handleCheck() {
-    const targetGroupId = currentGroupId;
+    const targetGroupId = currentCardGroupId;
     setSeenGroupIds(prev => new Set(prev).add(targetGroupId));
 
-    if (!activeGroupId || !session?.user) return;
+    if (!currentGroupId || !session?.user) return;
     await supabase.from('group_suggestions').insert({
-      suggesting_group_id: activeGroupId,
+      suggesting_group_id: currentGroupId,
       target_group_id: targetGroupId,
       suggested_by: session.user.id,
     });
   }
 
   function handleX() {
-    setSeenGroupIds(prev => new Set(prev).add(currentGroupId));
+    setSeenGroupIds(prev => new Set(prev).add(currentCardGroupId));
   }
 
   // Leader-only actions on a Group-feed card
   async function handleLeaderSend(targetGroupId: string) {
-    if (!activeGroupId) return;
+    if (!currentGroupId) return;
     const { error } = await supabase
       .from('group_suggestions')
       .update({ status: 'sent' })
-      .eq('suggesting_group_id', activeGroupId)
+      .eq('suggesting_group_id', currentGroupId)
       .eq('target_group_id', targetGroupId);
     if (!error) {
       setSuggestions(prev => prev.map(s => s.targetGroupId === targetGroupId ? { ...s, status: 'sent' } : s));
@@ -147,17 +147,17 @@ export default function ExploreScreen() {
         .from('group_suggestions')
         .delete()
         .eq('suggesting_group_id', targetGroupId)
-        .eq('target_group_id', activeGroupId)
+        .eq('target_group_id', currentGroupId)
         .eq('status', 'pending');
     }
   }
 
   async function handleLeaderRemove(targetGroupId: string) {
-    if (!activeGroupId) return;
+    if (!currentGroupId) return;
     const { error } = await supabase
       .from('group_suggestions')
       .delete()
-      .eq('suggesting_group_id', activeGroupId)
+      .eq('suggesting_group_id', currentGroupId)
       .eq('target_group_id', targetGroupId);
     if (!error) {
       setSuggestions(prev => prev.filter(s => s.targetGroupId !== targetGroupId));
@@ -173,10 +173,10 @@ export default function ExploreScreen() {
   const tabRow = (
     <View style={styles.tabRow}>
       <TouchableOpacity
-        style={[styles.tabButton, activeTab === 'Personal' && styles.tabButtonActive]}
-        onPress={() => setActiveTab('Personal')}
+        style={[styles.tabButton, activeTab === 'Discover' && styles.tabButtonActive]}
+        onPress={() => setActiveTab('Discover')}
       >
-        <Text style={[styles.tabText, activeTab === 'Personal' && styles.tabTextActive]}>Personal</Text>
+        <Text style={[styles.tabText, activeTab === 'Discover' && styles.tabTextActive]}>Discover</Text>
       </TouchableOpacity>
 
       <TouchableOpacity
@@ -195,11 +195,11 @@ export default function ExploreScreen() {
   return (
     <View style={styles.container}>
 
-      {/* Personal feed */}
-      {activeTab === 'Personal' && (
+      {/* Discover feed */}
+      {activeTab === 'Discover' && (
         <View style={styles.feedContainer}>
 
-          {/* Personal / Group toggle */}
+          {/* Discover / Pending toggle */}
           {tabRow}
 
           {done ? (
@@ -208,7 +208,7 @@ export default function ExploreScreen() {
             </View>
           ) : (
             <>
-              <GroupPost groupId={currentGroupId} />
+              <GroupPost groupId={currentCardGroupId} />
 
               {/* Check / X buttons */}
               <View style={styles.buttonRow}>
@@ -290,7 +290,7 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.background,
   },
 
-  // Personal / Pending toggle
+  // Discover / Pending toggle
   tabRow: {
     width: '100%',
     flexDirection: 'row',

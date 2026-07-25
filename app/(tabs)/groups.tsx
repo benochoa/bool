@@ -8,7 +8,7 @@ import GroupPost from '@/components/groupPost';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { supabase } from '@/supabaseClient';
 import { useSession } from '@/hooks/use-session';
-import { useActiveGroup } from '@/hooks/use-active-group';
+import { useCurrentGroup } from '@/hooks/use-current-group';
 import { fetchGroupNames, GroupName } from '@/lib/fetchGroupNames';
 
 // Dropdown option — names arrive with the group-names fetch, no fetching here.
@@ -23,7 +23,7 @@ function GroupOption({ name, onPress }: { name: string; onPress: () => void }) {
 export default function GroupsScreen() {
 
   const { session } = useSession();
-  const { myGroupIds, loadingGroups, activeGroupId, setActiveGroupId, refreshGroups } = useActiveGroup();
+  const { myGroupIds, loadingGroups, currentGroupId, setCurrentGroupId, refreshGroups } = useCurrentGroup();
 
   // State
   const [menuOpen, setMenuOpen] = useState(false);
@@ -41,7 +41,7 @@ export default function GroupsScreen() {
     fetchGroupNames(myGroupIds).then(setGroupNames);
   }, [myGroupIds]);
 
-  const activeGroupName = groupNames.find(g => g.id === activeGroupId)?.name ?? '';
+  const currentGroupName = groupNames.find(g => g.id === currentGroupId)?.name ?? '';
 
   // Refetch "my groups" every time this tab is focused, so joins/leaves made
   // elsewhere (or directly in Supabase) don't stay stale on screen.
@@ -106,11 +106,11 @@ export default function GroupsScreen() {
         </View>
       )}
 
-      {/* Active group switcher */}
+      {/* Current group switcher */}
       {myGroupIds.length > 0 && (
         <View style={styles.switcherWrap} pointerEvents="box-none">
           <TouchableOpacity style={styles.switcherButton} onPress={() => setSwitcherOpen(o => !o)}>
-            <Text style={styles.switcherButtonText} numberOfLines={1}>{activeGroupName || '...'}</Text>
+            <Text style={styles.switcherButtonText} numberOfLines={1}>{currentGroupName || '...'}</Text>
           </TouchableOpacity>
           {switcherOpen && (
             <View style={styles.switcherMenu}>
@@ -118,7 +118,7 @@ export default function GroupsScreen() {
                 <GroupOption
                   key={g.id}
                   name={g.name}
-                  onPress={() => { setActiveGroupId(g.id); setSwitcherOpen(false); }}
+                  onPress={() => { setCurrentGroupId(g.id); setSwitcherOpen(false); }}
                 />
               ))}
             </View>
@@ -135,7 +135,7 @@ export default function GroupsScreen() {
         </View>
       ) : (
         <ScrollView style={styles.groupsList} contentContainerStyle={styles.groupsListContent}>
-          {activeGroupId && <GroupPost groupId={activeGroupId} />}
+          {currentGroupId && <GroupPost groupId={currentGroupId} />}
         </ScrollView>
       )}
 
@@ -238,7 +238,7 @@ const styles = StyleSheet.create({
     color: '#000',
   },
 
-  // Active group switcher
+  // Current group switcher
   switcherWrap: {
     position: 'absolute',
     top: 60,

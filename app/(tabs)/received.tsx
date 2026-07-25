@@ -5,14 +5,14 @@ import GroupPost from '@/components/groupPost';
 import { fetchGroup } from '@/lib/fetchGroup';
 import { fetchReceivedGroupIds } from '@/lib/fetchReceivedGroupIds';
 import { FontFamily, Palette, Type } from '@/constants/theme';
-import { useActiveGroup } from '@/hooks/use-active-group';
+import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/supabaseClient';
 
 export default function ReceivedScreen() {
 
   const { session } = useSession();
-  const { activeGroupId } = useActiveGroup();
+  const { currentGroupId } = useCurrentGroup();
 
   const [receivedGroupIds, setReceivedGroupIds] = useState<string[]>([]);
   const [isLeader, setIsLeader] = useState(false);
@@ -20,41 +20,41 @@ export default function ReceivedScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (!activeGroupId) {
+      if (!currentGroupId) {
         setReceivedGroupIds([]);
         setIsLeader(false);
         setLoading(false);
         return;
       }
-      fetchReceivedGroupIds(activeGroupId).then(ids => {
+      fetchReceivedGroupIds(currentGroupId).then(ids => {
         setReceivedGroupIds(ids);
         setLoading(false);
       });
       if (session?.user) {
-        fetchGroup(activeGroupId).then(g => setIsLeader(g?.created_by === session.user.id));
+        fetchGroup(currentGroupId).then(g => setIsLeader(g?.created_by === session.user.id));
       }
-    }, [activeGroupId, session])
+    }, [currentGroupId, session])
   );
 
   async function handleApprove(suggestingGroupId: string) {
-    if (!activeGroupId) return;
+    if (!currentGroupId) return;
     const { error } = await supabase
       .from('group_suggestions')
       .update({ status: 'matched' })
       .eq('suggesting_group_id', suggestingGroupId)
-      .eq('target_group_id', activeGroupId);
+      .eq('target_group_id', currentGroupId);
     if (!error) {
       setReceivedGroupIds(prev => prev.filter(id => id !== suggestingGroupId));
     }
   }
 
   async function handleReject(suggestingGroupId: string) {
-    if (!activeGroupId) return;
+    if (!currentGroupId) return;
     const { error } = await supabase
       .from('group_suggestions')
       .delete()
       .eq('suggesting_group_id', suggestingGroupId)
-      .eq('target_group_id', activeGroupId);
+      .eq('target_group_id', currentGroupId);
     if (!error) {
       setReceivedGroupIds(prev => prev.filter(id => id !== suggestingGroupId));
     }
