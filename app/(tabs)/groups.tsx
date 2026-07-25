@@ -5,20 +5,13 @@ import {
 import { useState, useEffect, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import GroupPost from '@/components/groupPost';
+import GroupSwitcher from '@/components/groupSwitcher';
+import { ChevronDown } from '@/assets/symbols/ChevronDown';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { supabase } from '@/supabaseClient';
 import { useSession } from '@/hooks/use-session';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { fetchGroupNames, GroupName } from '@/lib/fetchGroupNames';
-
-// Dropdown option — names arrive with the group-names fetch, no fetching here.
-function GroupOption({ name, onPress }: { name: string; onPress: () => void }) {
-  return (
-    <TouchableOpacity style={styles.switcherOption} onPress={onPress}>
-      <Text style={styles.switcherOptionText}>{name}</Text>
-    </TouchableOpacity>
-  );
-}
 
 export default function GroupsScreen() {
 
@@ -26,7 +19,6 @@ export default function GroupsScreen() {
   const { myGroupIds, loadingGroups, currentGroupId, setCurrentGroupId, refreshGroups } = useCurrentGroup();
 
   // State
-  const [menuOpen, setMenuOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [groupNames, setGroupNames] = useState<GroupName[]>([]);
@@ -89,42 +81,22 @@ export default function GroupsScreen() {
   return (
     <View style={styles.container}>
 
-      {/* Green circle button */}
-      <TouchableOpacity style={styles.addButton} onPress={() => setMenuOpen(o => !o)}>
-        <Text style={styles.addButtonText}>+</Text>
-      </TouchableOpacity>
-
-      {/* Dropdown menu */}
-      {menuOpen && (
-        <View style={styles.menu}>
-          <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuOpen(false); setJoinError(null); setJoining(true); }}>
-            <Text style={styles.menuText}>Join a group</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuOpen(false); setCreating(true); }}>
-            <Text style={styles.menuText}>Create a group</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
       {/* Current group switcher */}
-      {myGroupIds.length > 0 && (
-        <View style={styles.switcherWrap} pointerEvents="box-none">
-          <TouchableOpacity style={styles.switcherButton} onPress={() => setSwitcherOpen(o => !o)}>
-            <Text style={styles.switcherButtonText} numberOfLines={1}>{currentGroupName || '...'}</Text>
-          </TouchableOpacity>
-          {switcherOpen && (
-            <View style={styles.switcherMenu}>
-              {groupNames.map(g => (
-                <GroupOption
-                  key={g.id}
-                  name={g.name}
-                  onPress={() => { setCurrentGroupId(g.id); setSwitcherOpen(false); }}
-                />
-              ))}
-            </View>
-          )}
-        </View>
-      )}
+      <View style={styles.switcherWrap} pointerEvents="box-none">
+        <TouchableOpacity style={styles.switcherButton} onPress={() => setSwitcherOpen(o => !o)}>
+          <Text style={styles.switcherButtonText} numberOfLines={1}>{currentGroupName || 'Select a group'}</Text>
+          <ChevronDown size={16} color="#000" />
+        </TouchableOpacity>
+      </View>
+
+      <GroupSwitcher
+        visible={switcherOpen}
+        groups={groupNames}
+        onSelect={(id) => { setCurrentGroupId(id); setSwitcherOpen(false); }}
+        onCreate={() => { setSwitcherOpen(false); setCreating(true); }}
+        onJoin={() => { setSwitcherOpen(false); setJoinError(null); setJoining(true); }}
+        onClose={() => setSwitcherOpen(false)}
+      />
 
       {/* My groups */}
       {loadingGroups ? (
@@ -192,52 +164,6 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
 
-  // Green circle
-  addButton: {
-    position: 'absolute',
-    top: 60,
-    left: 20,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#43a047',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 2,
-  },
-
-  addButtonText: {
-    fontSize: 28,
-    color: '#fff',
-    lineHeight: 32,
-  },
-
-  // Dropdown
-  menu: {
-    position: 'absolute',
-    top: 112,
-    left: 20,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 4,
-    zIndex: 2,
-  },
-
-  menuItem: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-  },
-
-  menuText: {
-    ...Type.body,
-    color: '#000',
-  },
-
   // Current group switcher
   switcherWrap: {
     position: 'absolute',
@@ -249,43 +175,18 @@ const styles = StyleSheet.create({
   },
 
   switcherButton: {
-    maxWidth: '60%',
+    maxWidth: '80%',
     height: 44,
-    paddingHorizontal: 20,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    backgroundColor: '#fff',
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
   },
 
   switcherButtonText: {
-    ...Type.bodyBold,
+    ...Type.title,
     color: '#000',
-  },
-
-  switcherMenu: {
-    marginTop: 8,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-
-  switcherOption: {
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-  },
-
-  switcherOptionText: {
-    ...Type.body,
-    color: '#000',
-    textAlign: 'center',
+    flexShrink: 1,
   },
 
   // Empty state
