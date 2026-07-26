@@ -173,14 +173,16 @@ export default function ExploreScreen() {
   const tabRow = (
     <View style={styles.tabRow}>
       <TouchableOpacity
-        style={[styles.tabButton, activeTab === 'Discover' && styles.tabButtonActive]}
+        style={styles.tabButton}
         onPress={() => setActiveTab('Discover')}
       >
         <Text style={[styles.tabText, activeTab === 'Discover' && styles.tabTextActive]}>Discover</Text>
       </TouchableOpacity>
 
+      <Text style={styles.tabDivider}>|</Text>
+
       <TouchableOpacity
-        style={[styles.tabButton, activeTab === 'Pending' && styles.tabButtonActive]}
+        style={styles.tabButton}
         onPress={() => setActiveTab('Pending')}
       >
         <Text style={[styles.tabText, activeTab === 'Pending' && styles.tabTextActive]}>Pending</Text>
@@ -294,7 +296,7 @@ const styles = StyleSheet.create({
   tabRow: {
     width: '100%',
     flexDirection: 'row',
-    justifyContent: 'space-evenly',
+    justifyContent: 'center',
     paddingHorizontal: 20,
     paddingTop: 60,
     paddingBottom: 8,
@@ -308,23 +310,24 @@ const styles = StyleSheet.create({
   tabButton: {
     paddingVertical: 7,
     paddingHorizontal: 20,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#ccc',
   },
 
-  tabButtonActive: {
-    backgroundColor: '#000',
-    borderColor: '#000',
-  },
-
+  // Just the words — the active tab is heavily bold, the other is regular.
   tabText: {
-    ...Type.label,
+    fontFamily: FontFamily.regular,
+    fontSize: 24,
     color: '#000',
   },
 
   tabTextActive: {
-    color: '#fff',
+    fontFamily: FontFamily.bold,
+  },
+
+  tabDivider: {
+    fontFamily: FontFamily.regular,
+    fontSize: 24,
+    color: '#ccc',
+    alignSelf: 'center',
   },
 
   feedContainer: {
