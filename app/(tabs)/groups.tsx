@@ -67,7 +67,7 @@ export default function GroupsScreen() {
         </View>
       ) : (
         <ScrollView style={styles.groupsList} contentContainerStyle={styles.groupsListContent}>
-          {currentGroupId && <GroupPost groupId={currentGroupId} />}
+          {currentGroupId && <GroupPost groupId={currentGroupId} isMember onLeft={refreshGroups} />}
         </ScrollView>
       )}
 

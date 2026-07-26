@@ -12,6 +12,7 @@ import { supabase } from '@/supabaseClient';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { fetchGroup, GroupData } from '@/lib/fetchGroup';
+import { leaveGroup } from '@/lib/leaveGroup';
 import IndividualPost from './individualPost';
 
 const { width } = Dimensions.get('window');
@@ -84,9 +85,13 @@ interface Props {
   groupId?: string;
   editable?: boolean;
   onClose?: () => void;
+  // Set when the viewer is a member of this group (i.e. viewed from the groups
+  // tab, not explore) — surfaces the Leave action for non-leaders.
+  isMember?: boolean;
+  onLeft?: () => void;
 }
 
-export default function GroupPost({ groupId, editable = false, onClose }: Props) {
+export default function GroupPost({ groupId, editable = false, onClose, isMember = false, onLeft }: Props) {
 
   const { session } = useSession();
 
@@ -108,6 +113,9 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
   // editable = creation flow; isLeader = editing your own saved group in place
   const isLeader = !!(session?.user && data?.created_by && data.created_by === session.user.id);
   const isEditMode = editable || isLeader;
+  // A member who didn't create the group can leave it. Leaders offboard via a
+  // separate (future) delete/transfer flow, so they never see Leave.
+  const canLeave = isMember && !isLeader && !!data;
 
   // Fetch data (read mode) or questions (editable mode)
   useEffect(() => {
@@ -254,11 +262,39 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
 
     // The creator is the group's first member.
     if (session?.user) {
-      await supabase.from('group_members').insert({ group_id: newGroupId, person_id: session.user.id });
+      await supabase.from('group_members').insert({
+        group_id: newGroupId,
+        person_id: session.user.id,
+        status: 'active',
+        status_at: new Date().toISOString(),
+      });
     }
 
     setSaving(false);
     setSaved(true);
+  }
+
+  function handleLeave() {
+    if (!session?.user || !groupId) return;
+    Alert.alert(
+      'Leave group',
+      `Are you sure you want to leave ${data?.name ?? 'this group'}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Leave',
+          style: 'destructive',
+          onPress: async () => {
+            const { error } = await leaveGroup(session.user.id, groupId);
+            if (error) {
+              Alert.alert('Could not leave', error.message);
+              return;
+            }
+            onLeft?.();
+          },
+        },
+      ]
+    );
   }
 
   if (loading) {
@@ -404,6 +440,13 @@ export default function GroupPost({ groupId, editable = false, onClose }: Props)
           <Text style={styles.membersPlaceholder}>Members — coming soon</Text>
         )}
       </View>
+
+      {/* Leave group (non-leader members only) */}
+      {canLeave && (
+        <TouchableOpacity style={styles.leaveButton} onPress={handleLeave}>
+          <Text style={styles.leaveText}>Leave group</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Save button (edit mode) */}
       {isEditMode && !saved && (
@@ -675,6 +718,17 @@ const styles = StyleSheet.create({
     fontSize: 28,
     color: '#fff',
     fontWeight: 'bold',
+  },
+
+  // Leave group
+  leaveButton: {
+    marginTop: 32,
+    alignSelf: 'center',
+  },
+
+  leaveText: {
+    ...Type.bodyBold,
+    color: '#e53935',
   },
 
   // Modal / back

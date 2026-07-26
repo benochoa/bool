@@ -42,12 +42,19 @@ export default function JoinGroup({ visible, onClose, onJoined }: Props) {
       return;
     }
 
-    // ignoreDuplicates: redeeming a code for a group you're already in is a no-op.
+    // Upsert (not ignoreDuplicates): redeeming a code for a group you already
+    // belong to just re-sets you active — and crucially reactivates a row you'd
+    // previously left, so leaving a group isn't a one-way door.
     const { error: joinErr } = await supabase
       .from('group_members')
       .upsert(
-        { group_id: data.id, person_id: session.user.id },
-        { onConflict: 'group_id,person_id', ignoreDuplicates: true }
+        {
+          group_id: data.id,
+          person_id: session.user.id,
+          status: 'active',
+          status_at: new Date().toISOString(),
+        },
+        { onConflict: 'group_id,person_id' }
       );
     setJoinLoading(false);
     if (joinErr) {
