@@ -5,8 +5,8 @@ import {
 import { useState, useEffect, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import GroupPost from '@/components/groupPost';
-import GroupSwitcher from '@/components/groupSwitcher';
-import JoinGroup from '@/components/joinGroup';
+import GroupSwitcher from '@/components/groups/groupSwitcher';
+import JoinGroup from '@/components/groups/joinGroup';
 import { ChevronDown } from '@/assets/symbols/ChevronDown';
 import { Palette, Type } from '@/constants/theme';
 import { useCurrentGroup } from '@/hooks/use-current-group';
