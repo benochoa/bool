@@ -11,18 +11,19 @@ interface Props {
   groupName: string;
   firstImageUrl: string | null;
   suggesterPicUrl: string | null;
-  sent: boolean;
+  tint?: 'bw' | 'green';
   onPress: () => void;
+  hideSuggesterPic?: boolean;
 }
 
-export default function GroupPostPreview({ groupName, firstImageUrl, suggesterPicUrl, sent, onPress }: Props) {
+export default function GroupPostPreview({ groupName, firstImageUrl, suggesterPicUrl, tint, onPress, hideSuggesterPic }: Props) {
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.9}>
 
       {/* Photo layer */}
       {!firstImageUrl ? (
         <View style={styles.placeholder} />
-      ) : sent ? (
+      ) : tint === 'bw' ? (
         // Desaturated to black & white via an SVG color matrix — RN has no
         // native grayscale filter, and react-native-svg is already a dep.
         <Svg width={CARD_WIDTH} height={CARD_HEIGHT}>
@@ -43,8 +44,12 @@ export default function GroupPostPreview({ groupName, firstImageUrl, suggesterPi
         <Image source={{ uri: firstImageUrl }} style={styles.photo} contentFit="cover" />
       )}
 
-      {/* Suggester profile pic — top-right, stays in color even on sent tiles */}
-      {suggesterPicUrl ? (
+      {/* Green wash over the photo to mark a match. */}
+      {tint === 'green' && <View style={styles.greenOverlay} pointerEvents="none" />}
+
+      {/* Suggester profile pic — top-right, stays in color even on greyed-out tiles.
+          Suppressed entirely on screens with no suggester to attribute (Received). */}
+      {hideSuggesterPic ? null : suggesterPicUrl ? (
         <Image source={{ uri: suggesterPicUrl }} style={styles.suggesterPic} contentFit="cover" />
       ) : (
         <View style={styles.suggesterPicPlaceholder} />
@@ -76,6 +81,11 @@ const styles = StyleSheet.create({
     width: CARD_WIDTH,
     height: CARD_HEIGHT,
     backgroundColor: '#ddd',
+  },
+
+  greenOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(67,160,71,0.28)',
   },
 
   suggesterPic: {

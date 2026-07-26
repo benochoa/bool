@@ -168,6 +168,7 @@ export default function ExploreScreen() {
   const done = remainingGroupIds.length === 0;
   const groupFeedItems = suggestions.filter(s => s.status === 'pending');
   const sentFeedItems = suggestions.filter(s => s.status === 'sent');
+  const matchedFeedItems = suggestions.filter(s => s.status === 'matched');
 
   // Tab row (reused in all three feeds)
   const tabRow = (
@@ -229,7 +230,7 @@ export default function ExploreScreen() {
       {/* Pending feed — suggested (color) on top, sent (B&W) below */}
       {activeTab === 'Pending' && (
         <View style={styles.feedContainer}>
-          {groupFeedItems.length === 0 && sentFeedItems.length === 0 ? (
+          {groupFeedItems.length === 0 && sentFeedItems.length === 0 && matchedFeedItems.length === 0 ? (
             <>
               {tabRow}
               <View style={styles.doneContainer}>
@@ -239,13 +240,13 @@ export default function ExploreScreen() {
           ) : (
             <ScrollView contentContainerStyle={styles.previewList}>
               {tabRow}
-              {[...groupFeedItems, ...sentFeedItems].map(s => (
+              {[...groupFeedItems, ...sentFeedItems, ...matchedFeedItems].map(s => (
                 <GroupPostPreview
                   key={s.targetGroupId}
                   groupName={s.groupName}
                   firstImageUrl={s.firstImageUrl}
                   suggesterPicUrl={s.suggestedByPicUrl}
-                  sent={s.status === 'sent'}
+                  tint={s.status === 'sent' ? 'bw' : s.status === 'matched' ? 'green' : undefined}
                   onPress={() => setDetail(s)}
                 />
               ))}
