@@ -11,7 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '@/supabaseClient';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
-import { fetchGroup, GroupData } from '../lib/fetchGroup';
+import { fetchGroup, GroupData } from '@/lib/fetchGroup';
 import IndividualPost from './individualPost';
 
 const { width } = Dimensions.get('window');

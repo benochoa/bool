@@ -1,8 +1,8 @@
 import { CheckMark } from '@/assets/symbols/CheckMark';
 import { PaperPlane } from '@/assets/symbols/PaperPlane';
 import { XMark } from '@/assets/symbols/XMark';
-import GroupPost from '@/components/groupPost';
-import GroupPostPreview from '@/components/groupPostPreview';
+import GroupPost from '@/components/posts/groupPost';
+import GroupPostPreview from '@/components/posts/groupPostPreview';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useSession } from '@/hooks/use-session';
 import { fetchAllGroupIds } from '@/lib/fetchAllGroupIds';

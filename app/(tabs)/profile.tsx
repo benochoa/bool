@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Modal, StyleSheet, TouchableOpacity, View } from 'react-native';
 import History from '@/components/profile/history';
-import IndividualPost from '@/components/individualPost';
+import IndividualPost from '@/components/posts/individualPost';
 import Settings from '@/components/profile/settings';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Palette } from '@/constants/theme';

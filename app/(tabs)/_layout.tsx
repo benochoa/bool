@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { HapticTab } from '@/components/haptic-tab';
-import IndividualPost from '@/components/individualPost';
+import IndividualPost from '@/components/posts/individualPost';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, FontFamily, Palette, Type } from '@/constants/theme';
 import { CurrentGroupProvider } from '@/hooks/use-current-group';

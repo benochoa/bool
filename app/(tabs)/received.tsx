@@ -1,7 +1,7 @@
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { useState, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import GroupPost from '@/components/groupPost';
+import GroupPost from '@/components/posts/groupPost';
 import { fetchGroup } from '@/lib/fetchGroup';
 import { fetchReceivedGroupIds } from '@/lib/fetchReceivedGroupIds';
 import { FontFamily, Palette, Type } from '@/constants/theme';

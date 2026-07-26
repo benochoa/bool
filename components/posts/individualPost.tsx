@@ -17,7 +17,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { fetchPerson, PersonData } from '../lib/fetchPerson';
+import { fetchPerson, PersonData } from '@/lib/fetchPerson';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;

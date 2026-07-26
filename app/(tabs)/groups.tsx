@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { useState, useEffect, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import GroupPost from '@/components/groupPost';
+import GroupPost from '@/components/posts/groupPost';
 import GroupSwitcher from '@/components/groups/groupSwitcher';
 import JoinGroup from '@/components/groups/joinGroup';
 import { ChevronDown } from '@/assets/symbols/ChevronDown';
