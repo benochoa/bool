@@ -13,6 +13,7 @@ import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { fetchGroup, GroupData } from '@/lib/fetchGroup';
 import { leaveGroup } from '@/lib/leaveGroup';
+import { dissolveGroup } from '@/lib/dissolveGroup';
 import IndividualPost from './individualPost';
 
 const { width } = Dimensions.get('window');
@@ -86,12 +87,13 @@ interface Props {
   editable?: boolean;
   onClose?: () => void;
   // Set when the viewer is a member of this group (i.e. viewed from the groups
-  // tab, not explore) — surfaces the Leave action for non-leaders.
+  // tab, not explore) — surfaces Leave (non-leaders) or Dissolve (the leader).
   isMember?: boolean;
   onLeft?: () => void;
+  onDissolved?: () => void;
 }
 
-export default function GroupPost({ groupId, editable = false, onClose, isMember = false, onLeft }: Props) {
+export default function GroupPost({ groupId, editable = false, onClose, isMember = false, onLeft, onDissolved }: Props) {
 
   const { session } = useSession();
 
@@ -113,9 +115,10 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
   // editable = creation flow; isLeader = editing your own saved group in place
   const isLeader = !!(session?.user && data?.created_by && data.created_by === session.user.id);
   const isEditMode = editable || isLeader;
-  // A member who didn't create the group can leave it. Leaders offboard via a
-  // separate (future) delete/transfer flow, so they never see Leave.
+  // A member who didn't create the group can leave it; the leader dissolves it
+  // instead. Exactly one of these shows, since a viewer is leader XOR not.
   const canLeave = isMember && !isLeader && !!data;
+  const canDissolve = isMember && isLeader && !!data;
 
   // Fetch data (read mode) or questions (editable mode)
   useEffect(() => {
@@ -253,6 +256,7 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
       created_by: session?.user.id ?? null,
       invite_code: await getUniqueInviteCode(),
       image_urls: imageUrls,
+      status: 'active',
     });
     if (error) {
       setSaving(false);
@@ -291,6 +295,29 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
               return;
             }
             onLeft?.();
+          },
+        },
+      ]
+    );
+  }
+
+  function handleDissolve() {
+    if (!groupId) return;
+    Alert.alert(
+      'Dissolve group',
+      `This permanently dissolves ${data?.name ?? 'this group'} for everyone and can't be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Dissolve',
+          style: 'destructive',
+          onPress: async () => {
+            const { error } = await dissolveGroup(groupId);
+            if (error) {
+              Alert.alert('Could not dissolve', error.message);
+              return;
+            }
+            onDissolved?.();
           },
         },
       ]
@@ -445,6 +472,13 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
       {canLeave && (
         <TouchableOpacity style={styles.leaveButton} onPress={handleLeave}>
           <Text style={styles.leaveText}>Leave group</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* Dissolve group (leader only) */}
+      {canDissolve && (
+        <TouchableOpacity style={styles.leaveButton} onPress={handleDissolve}>
+          <Text style={styles.leaveText}>Dissolve group</Text>
         </TouchableOpacity>
       )}
 

@@ -5,7 +5,7 @@ import GroupPost from '@/components/posts/groupPost';
 import GroupPostPreview from '@/components/posts/groupPostPreview';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useSession } from '@/hooks/use-session';
-import { fetchAllGroupIds } from '@/lib/fetchAllGroupIds';
+import { fetchActiveGroupIds } from '@/lib/fetchActiveGroupIds';
 import { fetchAllGroupMembers, GroupMemberRow } from '@/lib/fetchAllGroupMembers';
 import { fetchGroup } from '@/lib/fetchGroup';
 import { fetchGroupSuggestions, GroupSuggestion } from '@/lib/fetchGroupSuggestions';
@@ -41,7 +41,7 @@ export default function ExploreScreen() {
   // is fetched here too even though it has no tab of its own on this screen —
   // it's only used to keep already-related groups out of the Discover feed.
   const refreshAll = useCallback(() => {
-    Promise.all([fetchAllGroupIds(), fetchAllGroupMembers()]).then(([ids, members]) => {
+    Promise.all([fetchActiveGroupIds(), fetchAllGroupMembers()]).then(([ids, members]) => {
       setGroupIds(ids);
       setAllMembers(members);
       setLoading(false);
