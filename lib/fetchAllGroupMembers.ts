@@ -6,7 +6,7 @@ export interface GroupMemberRow {
 }
 
 export async function fetchAllGroupMembers(): Promise<GroupMemberRow[]> {
-  const { data, error } = await supabase.from('group_members').select('group_id, person_id').eq('status', 'active');
+  const { data, error } = await supabase.from('memberships').select('group_id, person_id').eq('status', 'active');
   if (error || !data) return [];
   return data.map(row => ({ groupId: row.group_id, personId: row.person_id }));
 }

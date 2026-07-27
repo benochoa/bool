@@ -3,7 +3,7 @@ import {
   TouchableOpacity, Modal, ActivityIndicator, TextInput, Alert,
   KeyboardAvoidingView, Platform, Share
 } from 'react-native';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Image } from 'expo-image';
 import FontAwesome6 from '@expo/vector-icons/FontAwesome6';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
@@ -14,7 +14,10 @@ import { useSession } from '@/hooks/use-session';
 import { fetchGroup, GroupData } from '@/lib/fetchGroup';
 import { leaveGroup } from '@/lib/leaveGroup';
 import { dissolveGroup } from '@/lib/dissolveGroup';
+import { removeMember } from '@/lib/removeMember';
+import { makeGroupLeader } from '@/lib/makeGroupLeader';
 import IndividualPost from './individualPost';
+import MemberManagement, { MemberRect } from './memberManagement';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
@@ -60,11 +63,18 @@ async function fetchRandomGroupQuestions(): Promise<string[]> {
 }
 
 // Member row subcomponent — name arrives with the group fetch, no fetching here.
-function MemberRow({ name, profilePicUrl, isGroupLeader, onPress }: {
-  name: string; profilePicUrl: string | null; isGroupLeader: boolean; onPress: () => void;
+function MemberRow({ name, profilePicUrl, isGroupLeader, onPress, onLongPress }: {
+  name: string; profilePicUrl: string | null; isGroupLeader: boolean;
+  onPress: () => void; onLongPress?: (rect: MemberRect) => void;
 }) {
+  const rowRef = useRef<React.ComponentRef<typeof TouchableOpacity>>(null);
   return (
-    <TouchableOpacity style={styles.memberRow} onPress={onPress}>
+    <TouchableOpacity
+      ref={rowRef}
+      style={styles.memberRow}
+      onPress={onPress}
+      onLongPress={() => rowRef.current?.measureInWindow((x, y, width, height) => onLongPress?.({ x, y, width, height }))}
+    >
       {profilePicUrl ? (
         <Image source={{ uri: profilePicUrl }} style={styles.memberCircle} contentFit="cover" />
       ) : (
@@ -101,6 +111,9 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
   const [data, setData] = useState<GroupData | null>(null);
   const [loading, setLoading] = useState(!editable);
   const [selectedMember, setSelectedMember] = useState<string | null>(null);
+  // Leader-only member popover (opened by long-pressing a member row).
+  const [managedMember, setManagedMember] = useState<{ id: string; name: string; profilePicUrl: string | null } | null>(null);
+  const [manageRect, setManageRect] = useState<MemberRect | null>(null);
 
   // State - editable mode
   const [groupName, setGroupName] = useState('');
@@ -266,7 +279,7 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
 
     // The creator is the group's first member.
     if (session?.user) {
-      await supabase.from('group_members').insert({
+      await supabase.from('memberships').insert({
         group_id: newGroupId,
         person_id: session.user.id,
         status: 'active',
@@ -318,6 +331,62 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
               return;
             }
             onDissolved?.();
+          },
+        },
+      ]
+    );
+  }
+
+  // Re-pull the group after a membership change so the list, crown, and
+  // leader-only affordances all reflect the new state in place.
+  async function refetchGroup() {
+    if (!groupId) return;
+    setData(await fetchGroup(groupId));
+  }
+
+  function handleRemoveMember() {
+    const member = managedMember;
+    if (!groupId || !member) return;
+    Alert.alert(
+      'Remove member',
+      `Remove ${member.name} from the group?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            const { error } = await removeMember(groupId, member.id);
+            if (error) {
+              Alert.alert('Could not remove', error.message);
+              return;
+            }
+            setManagedMember(null);
+            refetchGroup();
+          },
+        },
+      ]
+    );
+  }
+
+  function handleMakeLeader() {
+    const member = managedMember;
+    if (!groupId || !member) return;
+    Alert.alert(
+      'Make group leader',
+      `Make ${member.name} the group leader? You'll no longer be the leader.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Make leader',
+          onPress: async () => {
+            const { error } = await makeGroupLeader(groupId, member.id);
+            if (error) {
+              Alert.alert('Could not update', error.message);
+              return;
+            }
+            setManagedMember(null);
+            refetchGroup();
           },
         },
       ]
@@ -452,6 +521,14 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
                 profilePicUrl={m.profilePicUrl}
                 isGroupLeader={m.id === data.created_by}
                 onPress={() => setSelectedMember(m.id)}
+                onLongPress={(rect) => {
+                  // Leader-only, and not on themselves.
+                  if (!isLeader || !session?.user || m.id === session.user.id) return;
+                  // Force the clear band to the full members-card width (card is
+                  // centered at CARD_WIDTH), keeping only the measured vertical.
+                  setManageRect({ x: (width - CARD_WIDTH) / 2, y: rect.y, width: CARD_WIDTH, height: rect.height });
+                  setManagedMember({ id: m.id, name: m.name, profilePicUrl: m.profilePicUrl });
+                }}
               />
             ))}
             {isLeader && data.invite_code && (
@@ -506,6 +583,16 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
           {selectedMember && <IndividualPost personId={selectedMember} />}
         </View>
       </Modal>
+
+      {/* Leader-only member management popover */}
+      <MemberManagement
+        visible={managedMember !== null}
+        member={managedMember}
+        rect={manageRect}
+        onMakeLeader={handleMakeLeader}
+        onRemove={handleRemoveMember}
+        onClose={() => setManagedMember(null)}
+      />
 
     </ScrollView>
     </KeyboardAvoidingView>

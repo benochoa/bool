@@ -5,7 +5,7 @@ import { supabase } from '@/supabaseClient';
 // per group, so no de-duping is needed.
 export async function fetchMyAllTimeGroupIds(personId: string): Promise<string[]> {
   const { data, error } = await supabase
-    .from('group_members')
+    .from('memberships')
     .select('group_id')
     .eq('person_id', personId)
     .order('status_at', { ascending: false });

@@ -4,7 +4,7 @@ import { supabase } from '@/supabaseClient';
 // later rejoin can reactivate it). status_at records when it happened.
 export async function leaveGroup(personId: string, groupId: string) {
   return supabase
-    .from('group_members')
+    .from('memberships')
     .update({ status: 'left', status_at: new Date().toISOString() })
     .eq('person_id', personId)
     .eq('group_id', groupId);

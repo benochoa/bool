@@ -16,7 +16,7 @@ create table groups (
   qa jsonb not null default '[]'
 );
 
-create table group_members (
+create table memberships (
   group_id text not null references groups (id) on delete cascade,
   person_id uuid not null references profiles (id) on delete cascade,
   primary key (group_id, person_id)
@@ -36,12 +36,12 @@ values ('groups', 'groups', true), ('people', 'people', true);
 
 alter table profiles enable row level security;
 alter table groups enable row level security;
-alter table group_members enable row level security;
+alter table memberships enable row level security;
 alter table questions enable row level security;
 
 create policy "authenticated read/write" on profiles for all to authenticated using (true) with check (true);
 create policy "authenticated read/write" on groups for all to authenticated using (true) with check (true);
-create policy "authenticated read/write" on group_members for all to authenticated using (true) with check (true);
+create policy "authenticated read/write" on memberships for all to authenticated using (true) with check (true);
 create policy "authenticated read/write" on questions for all to authenticated using (true) with check (true);
 
 create policy "authenticated read/write" on storage.objects for all to authenticated
@@ -84,7 +84,7 @@ alter table group_suggestions add constraint group_suggestions_status_check chec
 -- an unordered pair of matched groups; group_1_id/group_2_id are always
 -- stored with group_1_id < group_2_id (enforced by the check constraint) so
 -- a thread can be queried with two plain .eq() filters instead of .or().
--- sender_group_id is stored directly (not derived from group_members) so
+-- sender_group_id is stored directly (not derived from memberships) so
 -- it's known without a join.
 create table messages (
   id bigint generated always as identity primary key,

@@ -46,7 +46,7 @@ export default function JoinGroup({ visible, onClose, onJoined }: Props) {
     // belong to just re-sets you active — and crucially reactivates a row you'd
     // previously left, so leaving a group isn't a one-way door.
     const { error: joinErr } = await supabase
-      .from('group_members')
+      .from('memberships')
       .upsert(
         {
           group_id: data.id,
