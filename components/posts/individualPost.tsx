@@ -18,6 +18,7 @@ import {
   View
 } from 'react-native';
 import { fetchPerson, PersonData } from '@/lib/fetchPerson';
+import CarouselDots from './carouselDots';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
@@ -51,6 +52,9 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
   // State - read mode
   const [data, setData] = useState<PersonData | null>(null);
   const [loading, setLoading] = useState(true);
+  // Active page of each carousel, for the dot indicators.
+  const [photoPage, setPhotoPage] = useState(0);
+  const [qaPage, setQaPage] = useState(0);
 
   // State - editable mode
   const [name, setName] = useState('');
@@ -64,6 +68,8 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
 
   // Fetch person data; in editable mode, pre-fill the form with it
   useEffect(() => {
+    setPhotoPage(0);
+    setQaPage(0);
     fetchPerson(personId).then(async result => {
       if (!editable) {
         setData(result);
@@ -110,7 +116,11 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
         .renderAsync();
       const saved = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.7 });
       const updated = [...photos];
-      updated[index] = saved.uri;
+      // A brand-new photo dropped into a later slot bumps to the earliest empty
+      // one, so the user can't leave a gap — slots map to img1/img2/img3 on save
+      // and a gap persists across reloads. Replacing a filled slot stays put.
+      const target = updated[index] ? index : updated.findIndex(p => !p);
+      updated[target] = saved.uri;
       setPhotos(updated);
     }
   }
@@ -261,7 +271,13 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
 
       {/* Photos — no card box, image bleeds to the same outer width as the cards below */}
       <View style={styles.photoContainer}>
-        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          onMomentumScrollEnd={e => setPhotoPage(Math.round(e.nativeEvent.contentOffset.x / CARD_WIDTH))}
+        >
           {editable ? (
             photos.map((uri, i) => (
               <View key={i} style={styles.photoSlot}>
@@ -285,10 +301,18 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
         </ScrollView>
       </View>
 
+      <CarouselDots count={editable ? photos.length : (data?.imageUrls.length ?? 0)} active={photoPage} />
+
       {/* Q&A — static header above the box, never editable */}
       <Text style={styles.qaHeader}>Talk to me...</Text>
       <View style={styles.card}>
-        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          onMomentumScrollEnd={e => setQaPage(Math.round(e.nativeEvent.contentOffset.x / CARD_WIDTH))}
+        >
           {editable ? (
             questions.map((q, i) => (
               <View key={i} style={styles.qaItem}>
@@ -327,6 +351,8 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
           )}
         </ScrollView>
       </View>
+
+      <CarouselDots count={editable ? questions.length : (data?.qa.length ?? 0)} active={qaPage} />
 
       {/* Save button (editable mode) — stays visible so edits can be re-saved */}
       {editable && (
@@ -509,7 +535,7 @@ const styles = StyleSheet.create({
   // Photos
   photoContainer: {
     width: CARD_WIDTH,
-    marginTop: 16,
+    marginTop: 24,
   },
 
   photoSlot: {
@@ -544,7 +570,7 @@ const styles = StyleSheet.create({
     textAlign: 'left',
     // Ample breathing room between the photo above and this section label;
     // the card below adds its own 16 on top of the label.
-    marginTop: 32,
+    marginTop: 44,
   },
 
   qaItem: {
@@ -580,7 +606,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#43a047',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 32,
+    marginTop: 44,
   },
 
   saveButtonText: {

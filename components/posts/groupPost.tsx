@@ -18,6 +18,7 @@ import { removeMember } from '@/lib/removeMember';
 import { makeGroupLeader } from '@/lib/makeGroupLeader';
 import IndividualPost from './individualPost';
 import MemberManagement, { MemberRect } from './memberManagement';
+import CarouselDots from './carouselDots';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
@@ -114,6 +115,9 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
   // Leader-only member popover (opened by long-pressing a member row).
   const [managedMember, setManagedMember] = useState<{ id: string; name: string; profilePicUrl: string | null } | null>(null);
   const [manageRect, setManageRect] = useState<MemberRect | null>(null);
+  // Active page of each carousel, for the dot indicators.
+  const [photoPage, setPhotoPage] = useState(0);
+  const [qaPage, setQaPage] = useState(0);
 
   // State - editable mode
   const [groupName, setGroupName] = useState('');
@@ -143,6 +147,8 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
       // screen until the fetch lands — before loading the next.
       setData(null);
       setLoading(true);
+      setPhotoPage(0);
+      setQaPage(0);
       fetchGroup(groupId).then(result => {
         setData(result);
         // Leaders edit in place (pencils always live), so prefill the form
@@ -186,7 +192,11 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
         .renderAsync();
       const saved = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.7 });
       const updated = [...photos];
-      updated[index] = saved.uri;
+      // A brand-new photo dropped into a later slot bumps to the earliest empty
+      // one, so the user can't leave a gap — slots map to img1/img2/img3 on save
+      // and a gap persists across reloads. Replacing a filled slot stays put.
+      const target = updated[index] ? index : updated.findIndex(p => !p);
+      updated[target] = saved.uri;
       setPhotos(updated);
     }
   }
@@ -442,7 +452,13 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
 
       {/* Photos — no card box, image bleeds to the same outer width as the cards below */}
       <View style={styles.photoContainer}>
-        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          onMomentumScrollEnd={e => setPhotoPage(Math.round(e.nativeEvent.contentOffset.x / CARD_WIDTH))}
+        >
           {isEditMode ? (
             photos.map((uri, i) => (
               <View key={i} style={styles.photoSlot}>
@@ -466,10 +482,18 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
         </ScrollView>
       </View>
 
+      <CarouselDots count={isEditMode ? photos.length : (data?.imageUrls.length ?? 0)} active={photoPage} />
+
       {/* Q&A — static header above the box, never editable */}
       <Text style={styles.qaHeader}>Talk to me...</Text>
       <View style={styles.card}>
-        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          onMomentumScrollEnd={e => setQaPage(Math.round(e.nativeEvent.contentOffset.x / CARD_WIDTH))}
+        >
           {isEditMode ? (
             questions.map((q, i) => (
               <View key={i} style={styles.qaItem}>
@@ -509,9 +533,11 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
         </ScrollView>
       </View>
 
+      <CarouselDots count={isEditMode ? questions.length : (data?.qa.length ?? 0)} active={qaPage} />
+
       {/* Members card — unlike Q&A, this has no per-item padding, so it
           needs the card's horizontal inset restored directly. */}
-      <View style={styles.card}>
+      <View style={[styles.card, styles.membersCard]}>
         {data ? (
           <>
             {data.members.map(m => (
@@ -638,6 +664,12 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
 
+  // Extra gap above the members card (beyond the shared card's 16) so it sits
+  // clearly apart from the Q&A card above it.
+  membersCard: {
+    marginTop: 28,
+  },
+
   // "..." options pill — replaces the old pencil affordance
   optionsButton: {
     // Invisible tap target — no fill, no border, just the dots.
@@ -747,7 +779,7 @@ const styles = StyleSheet.create({
     textAlign: 'left',
     // Ample breathing room between the photo above and this section label;
     // the card below adds its own 16 on top of the label.
-    marginTop: 32,
+    marginTop: 44,
   },
 
   qaItem: {
