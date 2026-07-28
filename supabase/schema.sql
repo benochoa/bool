@@ -52,6 +52,12 @@ create policy "authenticated read/write" on storage.objects for all to authentic
 alter table groups add column created_by uuid references profiles (id);
 alter table groups add column invite_code text unique;
 
+-- Migration (run separately): photo carousel aspect ratio. The first photo added
+-- locks the card shape (snapped to a standard ratio) for that carousel; nullable
+-- for rows with no photos / legacy rows (derived on the fly at read time).
+alter table groups   add column image_aspect_ratio numeric;
+alter table profiles add column image_aspect_ratio numeric;
+
 -- Migration (run separately): group feed. One row per (suggesting group, target
 -- group) pair — the primary key doubling as the "already suggested" check.
 create table group_suggestions (

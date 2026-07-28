@@ -19,6 +19,7 @@ import { makeGroupLeader } from '@/lib/makeGroupLeader';
 import IndividualPost from './individualPost';
 import MemberManagement, { MemberRect } from './memberManagement';
 import CarouselDots from './carouselDots';
+import { snapToStandardAspect, DEFAULT_ASPECT } from '@/lib/aspectRatio';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
@@ -118,6 +119,9 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
   // Active page of each carousel, for the dot indicators.
   const [photoPage, setPhotoPage] = useState(0);
   const [qaPage, setQaPage] = useState(0);
+  // The card's aspect ratio, locked to the first photo (snapped to a standard
+  // ratio). Null until a first photo exists / has been measured.
+  const [cardAspect, setCardAspect] = useState<number | null>(null);
 
   // State - editable mode
   const [groupName, setGroupName] = useState('');
@@ -149,8 +153,10 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
       setLoading(true);
       setPhotoPage(0);
       setQaPage(0);
+      setCardAspect(null);
       fetchGroup(groupId).then(result => {
         setData(result);
+        setCardAspect(result?.imageAspectRatio ?? null);
         // Leaders edit in place (pencils always live), so prefill the form
         // from the fetched data the moment it arrives.
         if (result && session?.user && result.created_by === session.user.id) {
@@ -180,7 +186,9 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
   async function pickPhoto(index: number) {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: true,
+      // No crop tool: we keep the photo's real shape so the first one can lock
+      // the card to its (snapped) aspect ratio.
+      allowsEditing: false,
       quality: 1,
     });
     if (!result.canceled) {
@@ -198,7 +206,20 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
       const target = updated[index] ? index : updated.findIndex(p => !p);
       updated[target] = saved.uri;
       setPhotos(updated);
+      // First photo (slot 0) locks the card's aspect, unless one is already set.
+      if (target === 0 && cardAspect == null && asset.width && asset.height) {
+        setCardAspect(snapToStandardAspect(asset.width / asset.height));
+      }
     }
+  }
+
+  // Fallback for groups with photos but no stored ratio (legacy): derive it
+  // from the first photo when it loads. Only fills in when nothing's set yet.
+  function handleFirstPhotoLoad(e: { source?: { width?: number; height?: number } }) {
+    if (cardAspect != null) return;
+    const w = e?.source?.width;
+    const h = e?.source?.height;
+    if (w && h) setCardAspect(snapToStandardAspect(w / h));
   }
 
   async function handleSave() {
@@ -238,7 +259,7 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
 
       const { error } = await supabase
         .from('groups')
-        .update({ name: groupName.trim(), qa, image_urls: imageUrls })
+        .update({ name: groupName.trim(), qa, image_urls: imageUrls, image_aspect_ratio: cardAspect })
         .eq('id', groupId);
       if (error) {
         setSaving(false);
@@ -279,6 +300,7 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
       created_by: session?.user.id ?? null,
       invite_code: await getUniqueInviteCode(),
       image_urls: imageUrls,
+      image_aspect_ratio: cardAspect,
       status: 'active',
     });
     if (error) {
@@ -466,9 +488,14 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
                   <Text style={styles.optionsDots}>···</Text>
                 </TouchableOpacity>
                 {uri ? (
-                  <Image source={{ uri }} style={styles.image} contentFit="cover" />
+                  <Image
+                    source={{ uri }}
+                    style={[styles.image, { aspectRatio: cardAspect ?? DEFAULT_ASPECT }]}
+                    contentFit="cover"
+                    onLoad={i === 0 ? handleFirstPhotoLoad : undefined}
+                  />
                 ) : (
-                  <View style={styles.photoPlaceholder}>
+                  <View style={[styles.photoPlaceholder, { aspectRatio: cardAspect ?? DEFAULT_ASPECT }]}>
                     <Text style={styles.photoPlaceholderText}>Tap to add photo</Text>
                   </View>
                 )}
@@ -476,7 +503,13 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
             ))
           ) : (
             data?.imageUrls.map((url, i) => (
-              <Image key={i} source={{ uri: url }} style={styles.image} contentFit="cover" />
+              <Image
+                key={i}
+                source={{ uri: url }}
+                style={[styles.image, { aspectRatio: cardAspect ?? DEFAULT_ASPECT }]}
+                contentFit="cover"
+                onLoad={i === 0 ? handleFirstPhotoLoad : undefined}
+              />
             ))
           )}
         </ScrollView>
@@ -753,13 +786,11 @@ const styles = StyleSheet.create({
 
   image: {
     width: CARD_WIDTH,
-    height: 300,
     borderRadius: 8,
   },
 
   photoPlaceholder: {
     width: CARD_WIDTH,
-    height: 300,
     borderRadius: 8,
     backgroundColor: '#f5f5f5',
     alignItems: 'center',
