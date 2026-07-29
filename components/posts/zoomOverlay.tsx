@@ -30,9 +30,9 @@ export function useZoomOverlay() {
   return ctx;
 }
 
-// Wrap a Modal's content in this so photos inside it can zoom. A Modal is a
-// separate window, so it needs its own gesture root AND its own overlay — the
-// app-root ones live outside the modal and can't reach into it.
+// Gesture root + overlay, together. Used once at the app root, and again inside
+// each Modal that shows a post — a Modal is a separate window, so it needs its
+// own gesture root and overlay; the app-root ones can't reach into it.
 export function ZoomRoot({ children }: { children: ReactNode }) {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -43,7 +43,7 @@ export function ZoomRoot({ children }: { children: ReactNode }) {
 
 const MAX_TINT = 0.5; // slight dark tint, still readable
 
-export function ZoomOverlayProvider({ children }: { children: ReactNode }) {
+function ZoomOverlayProvider({ children }: { children: ReactNode }) {
   const originX = useSharedValue(0);
   const originY = useSharedValue(0);
   const width = useSharedValue(0);
