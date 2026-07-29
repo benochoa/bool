@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { fetchPerson, PersonData } from '@/lib/fetchPerson';
 import CarouselDots from './carouselDots';
+import ZoomableImage from './zoomableImage';
 import { snapToStandardAspect, DEFAULT_ASPECT } from '@/lib/aspectRatio';
 
 const { width } = Dimensions.get('window');
@@ -306,10 +307,9 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
                   <Text style={styles.optionsDots}>···</Text>
                 </TouchableOpacity>
                 {uri ? (
-                  <Image
-                    source={{ uri }}
+                  <ZoomableImage
+                    uri={uri}
                     style={[styles.image, { aspectRatio: cardAspect ?? DEFAULT_ASPECT }]}
-                    contentFit="cover"
                     onLoad={i === 0 ? handleFirstPhotoLoad : undefined}
                   />
                 ) : (
@@ -321,13 +321,13 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
             ))
           ) : (
             data?.imageUrls.map((url, i) => (
-              <Image
-                key={i}
-                source={{ uri: url }}
-                style={[styles.image, { aspectRatio: cardAspect ?? DEFAULT_ASPECT }]}
-                contentFit="cover"
-                onLoad={i === 0 ? handleFirstPhotoLoad : undefined}
-              />
+              <View key={i} style={styles.photoSlot}>
+                <ZoomableImage
+                  uri={url}
+                  style={[styles.image, { aspectRatio: cardAspect ?? DEFAULT_ASPECT }]}
+                  onLoad={i === 0 ? handleFirstPhotoLoad : undefined}
+                />
+              </View>
             ))
           )}
         </ScrollView>

@@ -1,6 +1,7 @@
 import { CheckMark } from '@/assets/symbols/CheckMark';
 import { XMark } from '@/assets/symbols/XMark';
 import GroupPost from '@/components/posts/groupPost';
+import { ZoomRoot } from '@/components/posts/zoomOverlay';
 import GroupPostPreview from '@/components/posts/groupPostPreview';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useCurrentGroup } from '@/hooks/use-current-group';
@@ -99,6 +100,7 @@ export default function ReceivedScreen() {
 
       {/* Detail modal — full group, with leader Approve/Reject for incoming items */}
       <Modal visible={detail !== null} animationType="slide" onRequestClose={() => setDetail(null)}>
+        <ZoomRoot>
         <View style={styles.detailModal}>
           <TouchableOpacity style={styles.detailBack} onPress={() => setDetail(null)}>
             <Text style={styles.detailBackArrow}>←</Text>
@@ -115,6 +117,7 @@ export default function ReceivedScreen() {
             </View>
           )}
         </View>
+        </ZoomRoot>
       </Modal>
     </View>
   );

@@ -19,6 +19,8 @@ import { makeGroupLeader } from '@/lib/makeGroupLeader';
 import IndividualPost from './individualPost';
 import MemberManagement, { MemberRect } from './memberManagement';
 import CarouselDots from './carouselDots';
+import ZoomableImage from './zoomableImage';
+import { ZoomRoot } from './zoomOverlay';
 import { snapToStandardAspect, DEFAULT_ASPECT } from '@/lib/aspectRatio';
 
 const { width } = Dimensions.get('window');
@@ -488,10 +490,9 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
                   <Text style={styles.optionsDots}>···</Text>
                 </TouchableOpacity>
                 {uri ? (
-                  <Image
-                    source={{ uri }}
+                  <ZoomableImage
+                    uri={uri}
                     style={[styles.image, { aspectRatio: cardAspect ?? DEFAULT_ASPECT }]}
-                    contentFit="cover"
                     onLoad={i === 0 ? handleFirstPhotoLoad : undefined}
                   />
                 ) : (
@@ -503,13 +504,13 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
             ))
           ) : (
             data?.imageUrls.map((url, i) => (
-              <Image
-                key={i}
-                source={{ uri: url }}
-                style={[styles.image, { aspectRatio: cardAspect ?? DEFAULT_ASPECT }]}
-                contentFit="cover"
-                onLoad={i === 0 ? handleFirstPhotoLoad : undefined}
-              />
+              <View key={i} style={styles.photoSlot}>
+                <ZoomableImage
+                  uri={url}
+                  style={[styles.image, { aspectRatio: cardAspect ?? DEFAULT_ASPECT }]}
+                  onLoad={i === 0 ? handleFirstPhotoLoad : undefined}
+                />
+              </View>
             ))
           )}
         </ScrollView>
@@ -635,12 +636,14 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
         animationType="slide"
         onRequestClose={() => setSelectedMember(null)}
       >
+        <ZoomRoot>
         <View style={styles.modalContainer}>
           <TouchableOpacity style={styles.backButton} onPress={() => setSelectedMember(null)}>
             <Text style={styles.backArrow}>←</Text>
           </TouchableOpacity>
           {selectedMember && <IndividualPost personId={selectedMember} />}
         </View>
+        </ZoomRoot>
       </Modal>
 
       {/* Leader-only member management popover */}

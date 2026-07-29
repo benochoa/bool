@@ -3,6 +3,7 @@ import { PaperPlane } from '@/assets/symbols/PaperPlane';
 import { XMark } from '@/assets/symbols/XMark';
 import GroupPost from '@/components/posts/groupPost';
 import GroupPostPreview from '@/components/posts/groupPostPreview';
+import { ZoomRoot } from '@/components/posts/zoomOverlay';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useSession } from '@/hooks/use-session';
 import { fetchActiveGroupIds } from '@/lib/fetchActiveGroupIds';
@@ -257,6 +258,7 @@ export default function ExploreScreen() {
 
       {/* Detail modal — full group, with leader Send/Remove for pending items */}
       <Modal visible={detail !== null} animationType="slide" onRequestClose={() => setDetail(null)}>
+        <ZoomRoot>
         <View style={styles.detailModal}>
           <TouchableOpacity style={styles.detailBack} onPress={() => setDetail(null)}>
             <Text style={styles.detailBackArrow}>←</Text>
@@ -273,6 +275,7 @@ export default function ExploreScreen() {
             </View>
           )}
         </View>
+        </ZoomRoot>
       </Modal>
 
     </View>

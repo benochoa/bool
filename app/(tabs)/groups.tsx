@@ -5,6 +5,7 @@ import {
 import { useState, useEffect, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import GroupPost from '@/components/posts/groupPost';
+import { ZoomRoot } from '@/components/posts/zoomOverlay';
 import GroupSwitcher from '@/components/groups/groupSwitcher';
 import JoinGroup from '@/components/groups/joinGroup';
 import { ChevronDown } from '@/assets/symbols/ChevronDown';
@@ -76,7 +77,9 @@ export default function GroupsScreen() {
 
       {/* Create group modal */}
       <Modal visible={creating} animationType="slide" onRequestClose={() => setCreating(false)}>
-        <GroupPost editable={true} onClose={() => { setCreating(false); refreshGroups(); }} />
+        <ZoomRoot>
+          <GroupPost editable={true} onClose={() => { setCreating(false); refreshGroups(); }} />
+        </ZoomRoot>
       </Modal>
 
     </View>
