@@ -1,5 +1,5 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Palette, Type } from '@/constants/theme';
+import { FontFamily, Palette, Type } from '@/constants/theme';
 import { supabase } from '@/supabaseClient';
 import { Image } from 'expo-image';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
@@ -421,13 +421,15 @@ const styles = StyleSheet.create({
     paddingTop: 100,
   },
 
-  // Q&A — each answer in its own white card box.
+  // Q&A — a roomy white card with its text block vertically centered.
   qaCard: {
     width: CARD_WIDTH,
     backgroundColor: '#fff',
     borderRadius: 8,
-    marginTop: 16,
+    marginTop: 20,
     padding: 16,
+    minHeight: 240,
+    justifyContent: 'center',
   },
 
   // "..." options pill — replaces the old pencil affordance
@@ -553,7 +555,7 @@ const styles = StyleSheet.create({
   // Photos — each in its own card, no white box (image bleeds to card width).
   photoCard: {
     width: CARD_WIDTH,
-    marginTop: 16,
+    marginTop: 20,
   },
 
   image: {
@@ -564,7 +566,7 @@ const styles = StyleSheet.create({
   photoPlaceholder: {
     width: CARD_WIDTH,
     borderRadius: 8,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -575,22 +577,24 @@ const styles = StyleSheet.create({
   },
 
   question: {
-    ...Type.bodyBold,
+    ...Type.body,
     color: '#000',
   },
 
   answer: {
-    ...Type.body,
+    fontFamily: FontFamily.bold,
+    fontSize: 28,
     color: '#000',
-    marginTop: 4,
+    marginTop: 8,
   },
 
   answerInput: {
-    ...Type.body,
+    fontFamily: FontFamily.bold,
+    fontSize: 28,
     color: '#000',
     borderBottomWidth: 1,
     borderBottomColor: '#ccc',
-    marginTop: 4,
+    marginTop: 8,
     paddingVertical: 4,
   },
 
