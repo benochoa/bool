@@ -106,8 +106,8 @@ export default function GroupsScreen() {
               editMode={editMode}
               onDirty={() => setDirty(true)}
               onSaved={() => { setDirty(false); setEditMode(false); }}
-              onLeft={refreshGroups}
-              onDissolved={refreshGroups}
+              onLeft={() => { setEditMode(false); refreshGroups(); }}
+              onDissolved={() => { setEditMode(false); refreshGroups(); }}
             />
           )}
         </ScrollView>
