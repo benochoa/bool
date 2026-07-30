@@ -19,18 +19,16 @@ import {
 } from 'react-native';
 import { fetchPerson, PersonData } from '@/lib/fetchPerson';
 import ZoomableImage from './zoomableImage';
+import CardReorder, { EDIT_CARD_HEIGHT, EDIT_CARD_WIDTH } from './cardReorder';
 import { snapToStandardAspect, DEFAULT_ASPECT } from '@/lib/aspectRatio';
+import {
+  CardSlot, DEFAULT_PERSON_CARD_ORDER, photoSlotsFromUrls, reconcileCardOrder,
+  slotKey, toStoredCardOrder,
+} from '@/lib/cardOrder';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
-
-// Fixed top-to-bottom order of the stacked photo/Q&A cards (2 photos, 2 Q&As).
-const CARD_ORDER: { type: 'photo' | 'qa'; index: number }[] = [
-  { type: 'photo', index: 0 },
-  { type: 'qa', index: 0 },
-  { type: 'photo', index: 1 },
-  { type: 'qa', index: 1 },
-];
+const PHOTO_SLOTS = 2;
 
 // Helpers (editable mode only)
 const DEFAULT_QUESTIONS = [
@@ -90,6 +88,7 @@ export default function IndividualPost({ personId, creating = false, editMode = 
   const [photos, setPhotos] = useState<(string | null)[]>([null, null]);
   const [questions, setQuestions] = useState<string[]>(['', '']);
   const [answers, setAnswers] = useState<string[]>(['', '']);
+  const [cardOrder, setCardOrder] = useState<CardSlot[]>(DEFAULT_PERSON_CARD_ORDER);
   const [saving, setSaving] = useState(false);
 
   // Fetch person data, then pre-fill the form from it. `editMode` is
@@ -114,20 +113,23 @@ export default function IndividualPost({ personId, creating = false, editMode = 
   function prefillFromData(d: PersonData) {
     setName(d.name ?? '');
     setProfilePic(d.profilePicUrl);
-    // Place each photo in its slot by the imgN in its URL — the storage
-    // listing collapses gaps, so positions alone can't be trusted.
-    const slots: (string | null)[] = [null, null];
-    for (const url of d.imageUrls) {
-      const match = url.match(/img(\d)\.jpg/);
-      const slot = match ? parseInt(match[1]) - 1 : -1;
-      if (slot >= 0 && slot < 2) slots[slot] = url;
-    }
-    setPhotos(slots);
+    setPhotos(photoSlotsFromUrls(d.imageUrls, PHOTO_SLOTS));
+    setCardOrder(reconcileCardOrder(d.cardOrder, DEFAULT_PERSON_CARD_ORDER));
     if (d.qa.length > 0) {
       // Keep exactly two slots, so a legacy 3-Q&A profile trims cleanly.
       setQuestions([d.qa[0]?.question ?? '', d.qa[1]?.question ?? '']);
       setAnswers([d.qa[0]?.answer ?? '', d.qa[1]?.answer ?? '']);
     }
+  }
+
+  // Photo slots in the order their cards appear in the post.
+  function photoSlotOrder(): number[] {
+    return cardOrder.filter(s => s.type === 'photo').map(s => s.index);
+  }
+
+  function handleReorder(next: CardSlot[]) {
+    setCardOrder(next);
+    onDirty?.();
   }
 
   function setPhotoAspect(i: number, ratio: number) {
@@ -161,9 +163,10 @@ export default function IndividualPost({ personId, creating = false, editMode = 
       const saved = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.7 });
       const updated = [...photos];
       // A brand-new photo dropped into a later slot bumps to the earliest empty
-      // one, so the user can't leave a gap — slots map to img1/img2/img3 on save
-      // and a gap persists across reloads. Replacing a filled slot stays put.
-      const target = updated[index] ? index : updated.findIndex(p => !p);
+      // one, so the user can't leave a gap. "Earliest" is by card order, not by
+      // slot number — cards can be rearranged, so slot 1 may well be the photo
+      // shown first. Replacing a filled slot stays put.
+      const target = updated[index] ? index : (photoSlotOrder().find(i => !updated[i]) ?? index);
       updated[target] = saved.uri;
       setPhotos(updated);
       onDirty?.();
@@ -225,8 +228,11 @@ export default function IndividualPost({ personId, creating = false, editMode = 
     // Every slot's final URL is recorded on the row (image_urls), so reads
     // never have to ask Storage what exists. Untouched slots hold https URLs
     // and keep them; fresh uploads get a new ?v= so caches refetch.
+    // Written in card order: view mode resolves photos by filename, so this
+    // array's order only decides image_urls[0] — the tile thumbnail — which
+    // should be whatever photo the post actually opens with.
     const imageUrls: string[] = [];
-    for (let i = 0; i < photos.length; i++) {
+    for (const i of photoSlotOrder()) {
       const uri = photos[i];
       if (!uri) continue;
       if (uri.startsWith('http')) {
@@ -252,7 +258,10 @@ export default function IndividualPost({ personId, creating = false, editMode = 
     const qa = questions.map((q, i) => ({ question: q, answer: answers[i] }));
     const { error } = await supabase
       .from('profiles')
-      .update({ name: name.trim(), qa, image_urls: imageUrls, profile_pic_url: profilePicUrl })
+      .update({
+        name: name.trim(), qa, image_urls: imageUrls,
+        profile_pic_url: profilePicUrl, card_order: toStoredCardOrder(cardOrder),
+      })
       .eq('id', personId);
     if (error) {
       setSaving(false);
@@ -270,9 +279,94 @@ export default function IndividualPost({ personId, creating = false, editMode = 
     return true;
   }
 
+  // View mode — full-width cards, straight from the fetched row, nothing
+  // tappable. Photos resolve through their filename, exactly as edit mode does,
+  // so a saved card order means the same thing to the owner and to visitors.
+  function renderViewCard(slot: CardSlot) {
+    const key = slotKey(slot);
+    if (slot.type === 'photo') {
+      const uri = viewPhotos[slot.index];
+      if (!uri) return null;
+      return (
+        <View key={key} style={styles.photoCard}>
+          <ZoomableImage
+            uri={uri}
+            style={[styles.image, { aspectRatio: photoAspects[slot.index] ?? DEFAULT_ASPECT }]}
+            onLoad={e => handlePhotoLoad(slot.index, e)}
+          />
+        </View>
+      );
+    }
+    const item = data?.qa[slot.index];
+    if (!item) return null;
+    return (
+      <View key={key} style={styles.qaCard}>
+        <Text style={styles.question}>{item.question}</Text>
+        <Text style={styles.answer}>{item.answer}</Text>
+      </View>
+    );
+  }
+
+  // Edit mode — the same cards drawn small enough to sit in a reorder slot.
+  // Sized by layout rather than a transform, so text stays crisp and taps land
+  // where they look like they should.
+  function renderEditCard(slot: CardSlot) {
+    if (slot.type === 'photo') {
+      const uri = photos[slot.index];
+      if (!uri) {
+        return (
+          <TouchableOpacity activeOpacity={0.7} onPress={() => pickPhoto(slot.index)}>
+            <View style={styles.editPhotoPlaceholder}>
+              <Text style={styles.photoPlaceholderText}>Tap to add photo</Text>
+            </View>
+          </TouchableOpacity>
+        );
+      }
+      // Fit the photo in the slot without distorting it: cap the height, then
+      // let the width follow from its own aspect ratio.
+      const aspect = photoAspects[slot.index] ?? DEFAULT_ASPECT;
+      const height = Math.min(EDIT_CARD_HEIGHT, EDIT_CARD_WIDTH / aspect);
+      return (
+        <View>
+          <ZoomableImage
+            uri={uri}
+            style={{ width: height * aspect, height, borderRadius: 8 }}
+            onLoad={e => handlePhotoLoad(slot.index, e)}
+            onPress={() => pickPhoto(slot.index)}
+          />
+          {/* Indicator only — the photo itself takes the tap, so this must not
+              intercept the pinch-to-zoom gesture under it. */}
+          <View style={styles.photoEditBadge} pointerEvents="none">
+            <IconSymbol name="pencil" size={14} color="#000" weight="bold" />
+          </View>
+        </View>
+      );
+    }
+    return (
+      <View style={styles.editQaCard}>
+        <Text style={styles.question}>{questions[slot.index]}</Text>
+        <TextInput
+          style={styles.answerInput}
+          placeholder="Your answer"
+          placeholderTextColor="#aaa"
+          value={answers[slot.index]}
+          onChangeText={text => {
+            const updated = [...answers];
+            updated[slot.index] = text;
+            setAnswers(updated);
+            onDirty?.();
+          }}
+          multiline
+        />
+      </View>
+    );
+  }
+
   if (loading) {
     return <ActivityIndicator style={styles.loader} />;
   }
+
+  const viewPhotos = photoSlotsFromUrls(data?.imageUrls ?? [], PHOTO_SLOTS);
 
   return (
     <KeyboardAvoidingView
@@ -322,73 +416,16 @@ export default function IndividualPost({ personId, creating = false, editMode = 
         </View>
       </View>
 
-      {/* Photos & Q&A — a fixed vertical stack (CARD_ORDER). Each photo keeps
-          its own snapped aspect ratio. View mode is inert and shows only what
-          exists; edit mode marks every photo with a pencil badge and swaps the
-          answers for always-mounted inputs, whose underline is the affordance. */}
-      {CARD_ORDER.map(({ type, index }) => {
-        if (type === 'photo') {
-          const uri = isEditMode ? photos[index] : (data?.imageUrls[index] ?? null);
-          if (!isEditMode && !uri) return null;
-          return (
-            <View key={`photo-${index}`} style={styles.photoCard}>
-              {uri ? (
-                <>
-                  <ZoomableImage
-                    uri={uri}
-                    style={[styles.image, { aspectRatio: photoAspects[index] ?? DEFAULT_ASPECT }]}
-                    onLoad={e => handlePhotoLoad(index, e)}
-                    onPress={isEditMode ? () => pickPhoto(index) : undefined}
-                  />
-                  {/* Indicator only — the photo itself takes the tap, so this
-                      must not intercept the pinch-to-zoom gesture under it. */}
-                  {isEditMode && (
-                    <View style={styles.photoEditBadge} pointerEvents="none">
-                      <IconSymbol name="pencil" size={14} color="#000" weight="bold" />
-                    </View>
-                  )}
-                </>
-              ) : (
-                <TouchableOpacity activeOpacity={0.7} onPress={() => pickPhoto(index)}>
-                  <View style={[styles.photoPlaceholder, { aspectRatio: DEFAULT_ASPECT }]}>
-                    <Text style={styles.photoPlaceholderText}>Tap to add photo</Text>
-                  </View>
-                </TouchableOpacity>
-              )}
-            </View>
-          );
-        }
-
-        // Q&A card
-        if (!isEditMode) {
-          const item = data?.qa[index];
-          if (!item) return null;
-          return (
-            <View key={`qa-${index}`} style={styles.qaCard}>
-              <Text style={styles.question}>{item.question}</Text>
-              <Text style={styles.answer}>{item.answer}</Text>
-            </View>
-          );
-        }
-        return (
-          <View key={`qa-${index}`} style={styles.qaCard}>
-            <Text style={styles.question}>{questions[index]}</Text>
-            <TextInput
-              style={styles.answerInput}
-              placeholder="Your answer"
-              placeholderTextColor="#aaa"
-              value={answers[index]}
-              onChangeText={text => {
-                const updated = [...answers];
-                updated[index] = text;
-                setAnswers(updated);
-                onDirty?.();
-              }}
-              multiline
-            />
-          </View>
-        );
-      })}
+      {/* Photos & Q&A — a vertical stack in the post's saved card order. Each
+          photo keeps its own snapped aspect ratio. View mode is inert and shows
+          only what exists; edit mode drops each card into a drag-to-reorder
+          slot, marks photos with a pencil badge, and swaps the answers for
+          always-mounted inputs, whose underline is the affordance. */}
+      {isEditMode ? (
+        <CardReorder order={cardOrder} onReorder={handleReorder} renderCard={renderEditCard} />
+      ) : (
+        cardOrder.map(renderViewCard)
+      )}
 
       {/* Save button — only for first-time setup, which has no pencil to save
           from. Everywhere else the pencil's menu owns Save/Discard. */}
@@ -559,6 +596,27 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: '#fff',
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Edit-mode variants, sized to the reorder slot rather than the full card.
+  editPhotoPlaceholder: {
+    width: EDIT_CARD_WIDTH,
+    height: EDIT_CARD_HEIGHT,
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // A fixed height, not a minimum: the card has to fit its slot exactly, so a
+  // long answer scrolls inside the input instead of pushing the card taller.
+  editQaCard: {
+    width: EDIT_CARD_WIDTH,
+    height: EDIT_CARD_HEIGHT,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 16,
     justifyContent: 'center',
   },
 

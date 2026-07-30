@@ -6,6 +6,8 @@ export interface PersonData {
   imageUrls: string[];
   profilePicUrl: string | null;
   imageAspectRatio: number | null;
+  // Stored card order as slot keys; null on rows saved before it was editable.
+  cardOrder: string[] | null;
 }
 
 export async function fetchPerson(personId: string): Promise<PersonData | null> {
@@ -14,7 +16,7 @@ export async function fetchPerson(personId: string): Promise<PersonData | null> 
   // never needs to be asked what files exist.
   const { data, error } = await supabase
     .from('profiles')
-    .select('name, qa, image_urls, profile_pic_url, image_aspect_ratio')
+    .select('name, qa, image_urls, profile_pic_url, image_aspect_ratio, card_order')
     .eq('id', personId)
     .single();
   if (error || !data) return null;
@@ -25,5 +27,6 @@ export async function fetchPerson(personId: string): Promise<PersonData | null> 
     imageUrls: data.image_urls ?? [],
     profilePicUrl: data.profile_pic_url ?? null,
     imageAspectRatio: data.image_aspect_ratio ?? null,
+    cardOrder: data.card_order ?? null,
   };
 }
