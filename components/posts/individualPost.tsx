@@ -379,7 +379,7 @@ export default function IndividualPost({ personId, creating = false, editMode = 
       keyboardShouldPersistTaps="handled"
     >
 
-      {/* Header — circular profile picture, name to its right */}
+      {/* Header — circular profile picture stacked above the name, centered */}
       <View style={styles.headerRow}>
         {/* Like the card photos: the whole picture is the tap target in edit
             mode, and the badge is only a marker. */}
@@ -482,41 +482,40 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Header (profile picture + name)
+  // Header — profile picture stacked above the name, both centered.
   headerRow: {
     width: CARD_WIDTH,
     marginTop: 16,
-    flexDirection: 'row',
     alignItems: 'center',
   },
 
   profilePic: {
-    width: 79,
-    height: 79,
-    borderRadius: 39.5,
+    width: 105,
+    height: 105,
+    borderRadius: 52.5,
   },
 
   profilePicPlaceholder: {
-    width: 79,
-    height: 79,
-    borderRadius: 39.5,
+    width: 105,
+    height: 105,
+    borderRadius: 52.5,
     backgroundColor: '#ddd',
   },
 
   // Wraps the circle so the edit badge can anchor to it directly — same
-  // 79px box as profilePic, no longer itself tappable.
+  // 105px box as profilePic.
   profilePicWrap: {
-    width: 79,
-    height: 79,
+    width: 105,
+    height: 105,
   },
 
   // Sits at 45° below the positive x-axis of the profile pic, centered on
-  // its edge (half in, half out): offset = r*cos45 ≈ 27.9 from the pic's
-  // own center, then inset by the badge's own radius.
+  // its edge (half in, half out): offset = r*cos45 ≈ 37.1 from the pic's
+  // own center (r = 52.5), then inset by the badge's own radius.
   profilePicEditBadge: {
     position: 'absolute',
-    top: 53.5,
-    left: 53.5,
+    top: 76,
+    left: 76,
     width: 27,
     height: 27,
     borderRadius: 13.5,
@@ -533,10 +532,8 @@ const styles = StyleSheet.create({
   },
 
   nameWrap: {
-    flex: 1,
-    marginLeft: 12,
+    marginTop: 6,
     alignSelf: 'stretch',
-    justifyContent: 'center',
   },
 
   // The view-mode text carries the input's box model with an invisible rule,
@@ -544,7 +541,7 @@ const styles = StyleSheet.create({
   name: {
     ...Type.title,
     color: '#000',
-    textAlign: 'left',
+    textAlign: 'center',
     borderBottomWidth: 1,
     borderBottomColor: 'transparent',
     paddingVertical: 4,
@@ -553,7 +550,7 @@ const styles = StyleSheet.create({
   nameInput: {
     ...Type.title,
     color: '#000',
-    textAlign: 'left',
+    textAlign: 'center',
     borderBottomWidth: 1,
     borderBottomColor: '#ccc',
     paddingVertical: 4,
