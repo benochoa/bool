@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { Alert, Modal, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Modal, StyleSheet, TouchableOpacity, View } from 'react-native';
 import History from '@/components/profile/history';
-import IndividualPost from '@/components/posts/individualPost';
+import IndividualPost, { IndividualPostHandle } from '@/components/posts/individualPost';
 import Settings from '@/components/profile/settings';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Palette } from '@/constants/theme';
@@ -13,29 +13,44 @@ export default function ProfileScreen() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   // Set by the post on its first edit; leaving edit mode re-reads the saved
-  // row, so anything unsaved is dropped and has to be confirmed first.
+  // row, so anything unsaved is dropped unless it's saved on the way out.
   const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const postRef = useRef<IndividualPostHandle>(null);
 
   if (!session) return null;
 
+  async function handleSave() {
+    setSaving(true);
+    const saved = await postRef.current?.save();
+    setSaving(false);
+    // A failed save has already shown its own alert — stay in edit mode so the
+    // edits aren't lost.
+    if (saved) { setDirty(false); setEditMode(false); }
+  }
+
   function toggleEditMode() {
-    if (editMode && dirty) {
-      Alert.alert('Discard changes?', 'Your unsaved edits will be lost.', [
-        { text: 'Keep editing', style: 'cancel' },
-        { text: 'Discard', style: 'destructive', onPress: () => { setDirty(false); setEditMode(false); } },
-      ]);
-      return;
-    }
-    setDirty(false);
-    setEditMode(e => !e);
+    if (!editMode) { setDirty(false); setEditMode(true); return; }
+    // Nothing to save, so no need to ask.
+    if (!dirty) { setEditMode(false); return; }
+    Alert.alert('Done editing?', undefined, [
+      { text: 'Keep editing', style: 'cancel' },
+      { text: 'Save changes', onPress: handleSave },
+      { text: 'Discard changes', style: 'destructive', onPress: () => { setDirty(false); setEditMode(false); } },
+    ]);
   }
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={toggleEditMode}>
-          <IconSymbol name="pencil" size={24} color={editMode ? '#43a047' : '#000'} />
-        </TouchableOpacity>
+        {/* The ✓ is gone, so this spinner is the only sign a save is running. */}
+        {saving ? (
+          <ActivityIndicator size={24} color="#43a047" />
+        ) : (
+          <TouchableOpacity onPress={toggleEditMode}>
+            <IconSymbol name="pencil" size={24} color={editMode ? '#43a047' : '#000'} />
+          </TouchableOpacity>
+        )}
         <View style={styles.headerRight}>
           <TouchableOpacity onPress={() => setHistoryOpen(true)}>
             <IconSymbol name="book.fill" size={24} color="#000" />
@@ -46,10 +61,10 @@ export default function ProfileScreen() {
         </View>
       </View>
       <IndividualPost
+        ref={postRef}
         personId={session.user.id}
         editMode={editMode}
         onDirty={() => setDirty(true)}
-        onSave={() => { setDirty(false); setEditMode(false); }}
       />
 
       <Modal visible={historyOpen} animationType="slide" onRequestClose={() => setHistoryOpen(false)}>

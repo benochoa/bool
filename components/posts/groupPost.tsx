@@ -3,7 +3,7 @@ import {
   TouchableOpacity, Modal, ActivityIndicator, TextInput, Alert,
   KeyboardAvoidingView, Platform, Share
 } from 'react-native';
-import { useEffect, useRef, useState } from 'react';
+import { Ref, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { Image } from 'expo-image';
 import FontAwesome6 from '@expo/vector-icons/FontAwesome6';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
@@ -104,6 +104,12 @@ function MemberRow({ name, profilePicUrl, isGroupLeader, onPress, onLongPress }:
   );
 }
 
+// Lets the screen that owns the edit pencil drive the save from its own menu.
+export interface GroupPostHandle {
+  // Resolves true only if the group actually saved.
+  save: () => Promise<boolean>;
+}
+
 interface Props {
   groupId?: string;
   // The creation flow — no group row yet, so it is permanently in edit mode.
@@ -117,13 +123,13 @@ interface Props {
   isMember?: boolean;
   onLeft?: () => void;
   onDissolved?: () => void;
-  onSaved?: () => void;
   // Fired on the first edit of a session so the screen owning `editMode` knows
-  // to confirm before discarding.
+  // to offer Save/Discard on the way out.
   onDirty?: () => void;
+  ref?: Ref<GroupPostHandle>;
 }
 
-export default function GroupPost({ groupId, creating = false, editMode = false, onClose, isMember = false, onLeft, onDissolved, onSaved, onDirty }: Props) {
+export default function GroupPost({ groupId, creating = false, editMode = false, onClose, isMember = false, onLeft, onDissolved, onDirty, ref }: Props) {
 
   const { session } = useSession();
 
@@ -241,10 +247,14 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
     if (w && h) setPhotoAspect(i, snapToStandardAspect(w / h));
   }
 
-  async function handleSave() {
+  // Reports success so the screen driving the pencil menu only leaves edit
+  // mode once the group is actually saved.
+  useImperativeHandle(ref, () => ({ save: handleSave }));
+
+  async function handleSave(): Promise<boolean> {
     if (!groupName.trim()) {
       Alert.alert('Missing name', 'Please enter a group name.');
-      return;
+      return false;
     }
     setSaving(true);
     const qa = questions.map((q, i) => ({ question: q, answer: answers[i] }));
@@ -271,7 +281,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
         if (error) {
           setSaving(false);
           Alert.alert('Photo upload failed', error.message);
-          return;
+          return false;
         }
         imageUrls.push(supabase.storage.from('groups').getPublicUrl(path).data.publicUrl + '?v=' + Date.now());
       }
@@ -283,7 +293,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
       if (error) {
         setSaving(false);
         Alert.alert('Save failed', error.message);
-        return;
+        return false;
       }
 
       // Re-prefill so saved photos pick up their new ?v= URLs — and so view
@@ -292,8 +302,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
       setData(fresh);
       if (fresh) prefillFromData(fresh);
       setSaving(false);
-      onSaved?.();
-      return;
+      return true;
     }
 
     // Creation
@@ -326,7 +335,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
     if (error) {
       setSaving(false);
       Alert.alert('Save failed', error.message);
-      return;
+      return false;
     }
 
     // The creator is the group's first member.
@@ -341,6 +350,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
 
     setSaving(false);
     setSaved(true);
+    return true;
   }
 
   function handleLeave() {
@@ -601,8 +611,9 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
         </TouchableOpacity>
       )}
 
-      {/* Save button (edit mode) */}
-      {isEditMode && !saved && (
+      {/* Save button — only for creation, which has no pencil to save from.
+          When editing an existing group the pencil's menu owns Save/Discard. */}
+      {creating && !saved && (
         <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving}>
           {saving ? (
             <ActivityIndicator color="#fff" />

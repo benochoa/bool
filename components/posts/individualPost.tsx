@@ -4,7 +4,7 @@ import { supabase } from '@/supabaseClient';
 import { Image } from 'expo-image';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
-import { useEffect, useState } from 'react';
+import { Ref, useEffect, useImperativeHandle, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -49,8 +49,17 @@ async function fetchRandomPersonQuestions(): Promise<string[]> {
   return [...all].sort(() => Math.random() - 0.5).slice(0, 2);
 }
 
+// Lets the screen that owns the edit pencil drive the save from its own menu.
+export interface IndividualPostHandle {
+  // Resolves true only if the profile actually saved.
+  save: () => Promise<boolean>;
+}
+
 interface Props {
   personId: string;
+  // First-time profile setup — permanently editing, with its own ✓ to save
+  // since there is no pencil (and no saved profile to go back to).
+  creating?: boolean;
   // View mode renders straight from the fetched row, so your own profile looks
   // exactly like it does to a visitor; edit mode renders the form state.
   editMode?: boolean;
@@ -59,11 +68,14 @@ interface Props {
   standalone?: boolean;
   onSave?: () => void;
   // Fired on the first edit of a session so the screen owning `editMode` knows
-  // to confirm before discarding.
+  // to offer Save/Discard on the way out.
   onDirty?: () => void;
+  ref?: Ref<IndividualPostHandle>;
 }
 
-export default function IndividualPost({ personId, editMode = false, standalone = false, onSave, onDirty }: Props) {
+export default function IndividualPost({ personId, creating = false, editMode = false, standalone = false, onSave, onDirty, ref }: Props) {
+
+  const isEditMode = creating || editMode;
 
   // State - read mode
   const [data, setData] = useState<PersonData | null>(null);
@@ -181,10 +193,14 @@ export default function IndividualPost({ personId, editMode = false, standalone 
     }
   }
 
-  async function handleSave() {
+  // Reports success so the screen driving the pencil menu only leaves edit
+  // mode once the profile is actually saved.
+  useImperativeHandle(ref, () => ({ save: handleSave }));
+
+  async function handleSave(): Promise<boolean> {
     if (!name.trim()) {
       Alert.alert('Missing name', 'Please enter your name.');
-      return;
+      return false;
     }
     setSaving(true);
 
@@ -201,7 +217,7 @@ export default function IndividualPost({ personId, editMode = false, standalone 
       if (error) {
         setSaving(false);
         Alert.alert('Photo upload failed', error.message);
-        return;
+        return false;
       }
       profilePicUrl = supabase.storage.from('people').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
     }
@@ -228,7 +244,7 @@ export default function IndividualPost({ personId, editMode = false, standalone 
       if (error) {
         setSaving(false);
         Alert.alert('Photo upload failed', error.message);
-        return;
+        return false;
       }
       imageUrls.push(supabase.storage.from('people').getPublicUrl(path).data.publicUrl + '?v=' + Date.now());
     }
@@ -241,7 +257,7 @@ export default function IndividualPost({ personId, editMode = false, standalone 
     if (error) {
       setSaving(false);
       Alert.alert('Save failed', error.message);
-      return;
+      return false;
     }
 
     // View mode reads from `data`, so it has to be re-pulled — otherwise
@@ -251,6 +267,7 @@ export default function IndividualPost({ personId, editMode = false, standalone 
     if (fresh) prefillFromData(fresh);
     setSaving(false);
     onSave?.();
+    return true;
   }
 
   if (loading) {
@@ -270,21 +287,28 @@ export default function IndividualPost({ personId, editMode = false, standalone 
 
       {/* Header — circular profile picture, name to its right */}
       <View style={styles.headerRow}>
-        <View style={styles.profilePicWrap}>
-          {(editMode ? profilePic : data?.profilePicUrl) ? (
-            <Image source={{ uri: (editMode ? profilePic : data?.profilePicUrl)! }} style={styles.profilePic} contentFit="cover" />
+        {/* Like the card photos: the whole picture is the tap target in edit
+            mode, and the badge is only a marker. */}
+        <TouchableOpacity
+          style={styles.profilePicWrap}
+          activeOpacity={0.7}
+          disabled={!isEditMode}
+          onPress={pickProfilePic}
+        >
+          {(isEditMode ? profilePic : data?.profilePicUrl) ? (
+            <Image source={{ uri: (isEditMode ? profilePic : data?.profilePicUrl)! }} style={styles.profilePic} contentFit="cover" />
           ) : (
             <View style={styles.profilePicPlaceholder} />
           )}
-          {editMode && (
-            <TouchableOpacity style={styles.profilePicEditBadge} onPress={pickProfilePic}>
+          {isEditMode && (
+            <View style={styles.profilePicEditBadge} pointerEvents="none">
               <IconSymbol name="pencil" size={14} color="#000" weight="bold" />
-            </TouchableOpacity>
+            </View>
           )}
-        </View>
+        </TouchableOpacity>
 
         <View style={styles.nameWrap}>
-          {editMode ? (
+          {isEditMode ? (
             <TextInput
               style={styles.nameInput}
               placeholder="Your name"
@@ -304,8 +328,8 @@ export default function IndividualPost({ personId, editMode = false, standalone 
           answers for always-mounted inputs, whose underline is the affordance. */}
       {CARD_ORDER.map(({ type, index }) => {
         if (type === 'photo') {
-          const uri = editMode ? photos[index] : (data?.imageUrls[index] ?? null);
-          if (!editMode && !uri) return null;
+          const uri = isEditMode ? photos[index] : (data?.imageUrls[index] ?? null);
+          if (!isEditMode && !uri) return null;
           return (
             <View key={`photo-${index}`} style={styles.photoCard}>
               {uri ? (
@@ -314,11 +338,11 @@ export default function IndividualPost({ personId, editMode = false, standalone 
                     uri={uri}
                     style={[styles.image, { aspectRatio: photoAspects[index] ?? DEFAULT_ASPECT }]}
                     onLoad={e => handlePhotoLoad(index, e)}
-                    onPress={editMode ? () => pickPhoto(index) : undefined}
+                    onPress={isEditMode ? () => pickPhoto(index) : undefined}
                   />
                   {/* Indicator only — the photo itself takes the tap, so this
                       must not intercept the pinch-to-zoom gesture under it. */}
-                  {editMode && (
+                  {isEditMode && (
                     <View style={styles.photoEditBadge} pointerEvents="none">
                       <IconSymbol name="pencil" size={14} color="#000" weight="bold" />
                     </View>
@@ -336,7 +360,7 @@ export default function IndividualPost({ personId, editMode = false, standalone 
         }
 
         // Q&A card
-        if (!editMode) {
+        if (!isEditMode) {
           const item = data?.qa[index];
           if (!item) return null;
           return (
@@ -366,8 +390,9 @@ export default function IndividualPost({ personId, editMode = false, standalone 
         );
       })}
 
-      {/* Save button (edit mode) — stays visible so edits can be re-saved */}
-      {editMode && (
+      {/* Save button — only for first-time setup, which has no pencil to save
+          from. Everywhere else the pencil's menu owns Save/Discard. */}
+      {creating && (
         <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving}>
           {saving ? (
             <ActivityIndicator color="#fff" />

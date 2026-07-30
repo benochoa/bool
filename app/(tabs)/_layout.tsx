@@ -46,10 +46,11 @@ export default function TabLayout() {
             <Text style={styles.gateSignOut}>Sign out</Text>
           </TouchableOpacity>
         </View>
-        {/* Nothing to view yet, so this one never leaves edit mode. */}
+        {/* Nothing to view yet, so this one never leaves edit mode — and it
+            keeps the ✓, since there's no pencil here to save from. */}
         <IndividualPost
           personId={session.user.id}
-          editMode
+          creating
           onSave={() => setComplete(true)}
         />
       </View>

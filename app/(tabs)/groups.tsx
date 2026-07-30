@@ -2,9 +2,9 @@ import {
   StyleSheet, View, Text, TouchableOpacity, Modal,
   ActivityIndicator, ScrollView, Alert
 } from 'react-native';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import GroupPost from '@/components/posts/groupPost';
+import GroupPost, { GroupPostHandle } from '@/components/posts/groupPost';
 import { ZoomRoot } from '@/components/posts/zoomOverlay';
 import GroupSwitcher from '@/components/groups/groupSwitcher';
 import JoinGroup from '@/components/groups/joinGroup';
@@ -27,8 +27,10 @@ export default function GroupsScreen() {
   const [joining, setJoining] = useState(false);
   const [editMode, setEditMode] = useState(false);
   // Set by the post on its first edit; leaving edit mode re-reads the saved
-  // row, so anything unsaved is dropped and has to be confirmed first.
+  // row, so anything unsaved is dropped unless it's saved on the way out.
   const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const postRef = useRef<GroupPostHandle>(null);
 
   // One query resolves every switcher name — the menu rows and the active
   // label both read from it.
@@ -42,16 +44,24 @@ export default function GroupsScreen() {
   // the switcher's data means no extra query and no wait on GroupPost's fetch.
   const isLeader = !!(session?.user && currentGroup?.created_by === session.user.id);
 
+  async function handleSave() {
+    setSaving(true);
+    const saved = await postRef.current?.save();
+    setSaving(false);
+    // A failed save has already shown its own alert — stay in edit mode so the
+    // edits aren't lost.
+    if (saved) { setDirty(false); setEditMode(false); }
+  }
+
   function toggleEditMode() {
-    if (editMode && dirty) {
-      Alert.alert('Discard changes?', 'Your unsaved edits will be lost.', [
-        { text: 'Keep editing', style: 'cancel' },
-        { text: 'Discard', style: 'destructive', onPress: () => { setDirty(false); setEditMode(false); } },
-      ]);
-      return;
-    }
-    setDirty(false);
-    setEditMode(e => !e);
+    if (!editMode) { setDirty(false); setEditMode(true); return; }
+    // Nothing to save, so no need to ask.
+    if (!dirty) { setEditMode(false); return; }
+    Alert.alert('Done editing?', undefined, [
+      { text: 'Keep editing', style: 'cancel' },
+      { text: 'Save changes', onPress: handleSave },
+      { text: 'Discard changes', style: 'destructive', onPress: () => { setDirty(false); setEditMode(false); } },
+    ]);
   }
 
   // Refetch "my groups" every time this tab is focused, so joins/leaves made
@@ -65,11 +75,16 @@ export default function GroupsScreen() {
   return (
     <View style={styles.container}>
 
-      {/* Edit toggle — leader only, in the same band as the switcher */}
+      {/* Edit toggle — leader only, in the same band as the switcher. The ✓ is
+          gone, so the spinner is the only sign a save is running. */}
       {isLeader && currentGroupId && (
-        <TouchableOpacity style={styles.editButton} onPress={toggleEditMode}>
-          <IconSymbol name="pencil" size={24} color={editMode ? '#43a047' : '#000'} />
-        </TouchableOpacity>
+        saving ? (
+          <ActivityIndicator size={24} color="#43a047" style={styles.editButton} />
+        ) : (
+          <TouchableOpacity style={styles.editButton} onPress={toggleEditMode}>
+            <IconSymbol name="pencil" size={24} color={editMode ? '#43a047' : '#000'} />
+          </TouchableOpacity>
+        )
       )}
 
       {/* Current group switcher */}
@@ -101,11 +116,11 @@ export default function GroupsScreen() {
         <ScrollView style={styles.groupsList} contentContainerStyle={styles.groupsListContent}>
           {currentGroupId && (
             <GroupPost
+              ref={postRef}
               groupId={currentGroupId}
               isMember
               editMode={editMode}
               onDirty={() => setDirty(true)}
-              onSaved={() => { setDirty(false); setEditMode(false); }}
               onLeft={() => { setEditMode(false); refreshGroups(); }}
               onDissolved={() => { setEditMode(false); refreshGroups(); }}
             />
