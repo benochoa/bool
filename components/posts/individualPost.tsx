@@ -18,18 +18,24 @@ import {
   View
 } from 'react-native';
 import { fetchPerson, PersonData } from '@/lib/fetchPerson';
-import CarouselDots from './carouselDots';
 import ZoomableImage from './zoomableImage';
 import { snapToStandardAspect, DEFAULT_ASPECT } from '@/lib/aspectRatio';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
 
+// Fixed top-to-bottom order of the stacked photo/Q&A cards (2 photos, 2 Q&As).
+const CARD_ORDER: { type: 'photo' | 'qa'; index: number }[] = [
+  { type: 'photo', index: 0 },
+  { type: 'qa', index: 0 },
+  { type: 'photo', index: 1 },
+  { type: 'qa', index: 1 },
+];
+
 // Helpers (editable mode only)
 const DEFAULT_QUESTIONS = [
   "What's your favorite way to spend a weekend?",
   "What's something you could talk about for hours?",
-  "What's the best meal you've ever had?",
 ];
 
 async function fetchRandomPersonQuestions(): Promise<string[]> {
@@ -39,8 +45,8 @@ async function fetchRandomPersonQuestions(): Promise<string[]> {
     .eq('category', 'individual')
     .single();
   const all: string[] = data?.questions ?? [];
-  if (all.length < 3) return DEFAULT_QUESTIONS;
-  return [...all].sort(() => Math.random() - 0.5).slice(0, 3);
+  if (all.length < 2) return DEFAULT_QUESTIONS;
+  return [...all].sort(() => Math.random() - 0.5).slice(0, 2);
 }
 
 interface Props {
@@ -54,30 +60,24 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
   // State - read mode
   const [data, setData] = useState<PersonData | null>(null);
   const [loading, setLoading] = useState(true);
-  // Active page of each carousel, for the dot indicators.
-  const [photoPage, setPhotoPage] = useState(0);
-  const [qaPage, setQaPage] = useState(0);
-  // The card's aspect ratio, locked to the first photo (snapped to a standard
-  // ratio). Null until a first photo exists / has been measured.
-  const [cardAspect, setCardAspect] = useState<number | null>(null);
+  // Each photo's own aspect ratio (snapped to a standard), indexed by photo
+  // slot. Null until picked / first loaded.
+  const [photoAspects, setPhotoAspects] = useState<(number | null)[]>([null, null]);
 
   // State - editable mode
   const [name, setName] = useState('');
   const [profilePic, setProfilePic] = useState<string | null>(null);
-  const [photos, setPhotos] = useState<(string | null)[]>([null, null, null]);
-  const [questions, setQuestions] = useState<string[]>(['', '', '']);
-  const [answers, setAnswers] = useState<string[]>(['', '', '']);
+  const [photos, setPhotos] = useState<(string | null)[]>([null, null]);
+  const [questions, setQuestions] = useState<string[]>(['', '']);
+  const [answers, setAnswers] = useState<string[]>(['', '']);
   const [editingName, setEditingName] = useState(false);
   const [editingAnswerIndex, setEditingAnswerIndex] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
   // Fetch person data; in editable mode, pre-fill the form with it
   useEffect(() => {
-    setPhotoPage(0);
-    setQaPage(0);
-    setCardAspect(null);
+    setPhotoAspects([null, null]);
     fetchPerson(personId).then(async result => {
-      setCardAspect(result?.imageAspectRatio ?? null);
       if (!editable) {
         setData(result);
         setLoading(false);
@@ -89,18 +89,19 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
         setProfilePic(result.profilePicUrl);
         // Place each photo in its slot by the imgN in its URL — the storage
         // listing collapses gaps, so positions alone can't be trusted.
-        const slots: (string | null)[] = [null, null, null];
+        const slots: (string | null)[] = [null, null];
         for (const url of result.imageUrls) {
           const match = url.match(/img(\d)\.jpg/);
           const slot = match ? parseInt(match[1]) - 1 : -1;
-          if (slot >= 0 && slot < 3) slots[slot] = url;
+          if (slot >= 0 && slot < 2) slots[slot] = url;
         }
         setPhotos(slots);
       }
 
       if (result && result.qa.length > 0) {
-        setQuestions(result.qa.map(item => item.question));
-        setAnswers(result.qa.map(item => item.answer));
+        // Keep exactly two slots, so a legacy 3-Q&A profile trims cleanly.
+        setQuestions([result.qa[0]?.question ?? '', result.qa[1]?.question ?? '']);
+        setAnswers([result.qa[0]?.answer ?? '', result.qa[1]?.answer ?? '']);
       } else {
         setQuestions(await fetchRandomPersonQuestions());
       }
@@ -108,13 +109,17 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
     });
   }, [personId, editable]);
 
-  // Fallback for profiles with photos but no stored ratio (legacy): derive it
-  // from the first photo when it loads. Only fills in when nothing's set yet.
-  function handleFirstPhotoLoad(e: { source?: { width?: number; height?: number } }) {
-    if (cardAspect != null) return;
+  function setPhotoAspect(i: number, ratio: number) {
+    setPhotoAspects(prev => { const next = [...prev]; next[i] = ratio; return next; });
+  }
+
+  // Existing photos carry no picked dimensions, so derive each one's aspect
+  // from its natural size the first time it loads. Only fills a slot once.
+  function handlePhotoLoad(i: number, e: { source?: { width?: number; height?: number } }) {
+    if (photoAspects[i] != null) return;
     const w = e?.source?.width;
     const h = e?.source?.height;
-    if (w && h) setCardAspect(snapToStandardAspect(w / h));
+    if (w && h) setPhotoAspect(i, snapToStandardAspect(w / h));
   }
 
   async function pickPhoto(index: number) {
@@ -140,9 +145,9 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
       const target = updated[index] ? index : updated.findIndex(p => !p);
       updated[target] = saved.uri;
       setPhotos(updated);
-      // First photo (slot 0) locks the card's aspect, unless one is already set.
-      if (target === 0 && cardAspect == null && asset.width && asset.height) {
-        setCardAspect(snapToStandardAspect(asset.width / asset.height));
+      // Each photo keeps its own shape, snapped to a standard ratio.
+      if (asset.width && asset.height) {
+        setPhotoAspect(target, snapToStandardAspect(asset.width / asset.height));
       }
     }
   }
@@ -220,7 +225,7 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
     const qa = questions.map((q, i) => ({ question: q, answer: answers[i] }));
     const { error } = await supabase
       .from('profiles')
-      .update({ name: name.trim(), qa, image_urls: imageUrls, profile_pic_url: profilePicUrl, image_aspect_ratio: cardAspect })
+      .update({ name: name.trim(), qa, image_urls: imageUrls, profile_pic_url: profilePicUrl })
       .eq('id', personId);
     setSaving(false);
     if (error) {
@@ -291,100 +296,87 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
         </View>
       </View>
 
-      {/* Photos — no card box, image bleeds to the same outer width as the cards below */}
-      <View style={styles.photoContainer}>
-        <ScrollView
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          onMomentumScrollEnd={e => setPhotoPage(Math.round(e.nativeEvent.contentOffset.x / CARD_WIDTH))}
-        >
-          {editable ? (
-            photos.map((uri, i) => (
-              <View key={i} style={styles.photoSlot}>
-                <TouchableOpacity style={[styles.optionsButton, styles.optionsPhotos]} onPress={() => pickPhoto(i)}>
+      {/* Photos & Q&A — a fixed vertical stack (CARD_ORDER). Each photo keeps
+          its own snapped aspect ratio; in edit mode every card is tap-to-edit,
+          with the "···" left as a purely symbolic hint. */}
+      {CARD_ORDER.map(({ type, index }) => {
+        if (type === 'photo') {
+          const uri = editable ? photos[index] : (data?.imageUrls[index] ?? null);
+          if (!editable && !uri) return null;
+          return (
+            <View key={`photo-${index}`} style={styles.photoCard}>
+              {editable && (
+                <View style={[styles.optionsButton, styles.optionsPhotos]} pointerEvents="none">
                   <Text style={styles.optionsDots}>···</Text>
-                </TouchableOpacity>
-                {uri ? (
-                  <ZoomableImage
-                    uri={uri}
-                    style={[styles.image, { aspectRatio: cardAspect ?? DEFAULT_ASPECT }]}
-                    onLoad={i === 0 ? handleFirstPhotoLoad : undefined}
-                  />
-                ) : (
-                  <View style={[styles.photoPlaceholder, { aspectRatio: cardAspect ?? DEFAULT_ASPECT }]}>
+                </View>
+              )}
+              {uri ? (
+                <ZoomableImage
+                  uri={uri}
+                  style={[styles.image, { aspectRatio: photoAspects[index] ?? DEFAULT_ASPECT }]}
+                  onLoad={e => handlePhotoLoad(index, e)}
+                  onPress={editable ? () => pickPhoto(index) : undefined}
+                />
+              ) : (
+                <TouchableOpacity activeOpacity={0.7} onPress={() => pickPhoto(index)}>
+                  <View style={[styles.photoPlaceholder, { aspectRatio: DEFAULT_ASPECT }]}>
                     <Text style={styles.photoPlaceholderText}>Tap to add photo</Text>
                   </View>
-                )}
-              </View>
-            ))
-          ) : (
-            data?.imageUrls.map((url, i) => (
-              <View key={i} style={styles.photoSlot}>
-                <ZoomableImage
-                  uri={url}
-                  style={[styles.image, { aspectRatio: cardAspect ?? DEFAULT_ASPECT }]}
-                  onLoad={i === 0 ? handleFirstPhotoLoad : undefined}
-                />
-              </View>
-            ))
-          )}
-        </ScrollView>
-      </View>
-
-      <CarouselDots count={editable ? photos.length : (data?.imageUrls.length ?? 0)} active={photoPage} />
-
-      {/* Q&A — static header above the box, never editable */}
-      <Text style={styles.qaHeader}>Talk to me...</Text>
-      <View style={styles.card}>
-        <ScrollView
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          onMomentumScrollEnd={e => setQaPage(Math.round(e.nativeEvent.contentOffset.x / CARD_WIDTH))}
-        >
-          {editable ? (
-            questions.map((q, i) => (
-              <View key={i} style={styles.qaItem}>
-                <TouchableOpacity style={[styles.optionsButton, styles.optionsQa]} onPress={() => setEditingAnswerIndex(editingAnswerIndex === i ? null : i)}>
-                  <Text style={styles.optionsDots}>···</Text>
                 </TouchableOpacity>
-                <Text style={styles.question}>{q}</Text>
-                {editingAnswerIndex === i ? (
-                  <TextInput
-                    style={styles.answerInput}
-                    placeholder="Your answer"
-                    placeholderTextColor="#aaa"
-                    value={answers[i]}
-                    onChangeText={text => {
-                      const updated = [...answers];
-                      updated[i] = text;
-                      setAnswers(updated);
-                    }}
-                    multiline
-                    autoFocus
-                  />
-                ) : (
-                  <Text style={[styles.answer, !answers[i] && styles.placeholder]}>
-                    {answers[i] || 'Tap to answer'}
-                  </Text>
-                )}
-              </View>
-            ))
-          ) : (
-            data?.qa.map((item, i) => (
-              <View key={i} style={styles.qaItem}>
-                <Text style={styles.question}>{item.question}</Text>
-                <Text style={styles.answer}>{item.answer}</Text>
-              </View>
-            ))
-          )}
-        </ScrollView>
-      </View>
+              )}
+            </View>
+          );
+        }
 
-      <CarouselDots count={editable ? questions.length : (data?.qa.length ?? 0)} active={qaPage} />
+        // Q&A card
+        if (!editable) {
+          const item = data?.qa[index];
+          if (!item) return null;
+          return (
+            <View key={`qa-${index}`} style={styles.qaCard}>
+              <Text style={styles.question}>{item.question}</Text>
+              <Text style={styles.answer}>{item.answer}</Text>
+            </View>
+          );
+        }
+        return editingAnswerIndex === index ? (
+          <View key={`qa-${index}`} style={styles.qaCard}>
+            <View style={[styles.optionsButton, styles.optionsQa]} pointerEvents="none">
+              <Text style={styles.optionsDots}>···</Text>
+            </View>
+            <Text style={styles.question}>{questions[index]}</Text>
+            <TextInput
+              style={styles.answerInput}
+              placeholder="Your answer"
+              placeholderTextColor="#aaa"
+              value={answers[index]}
+              onChangeText={text => {
+                const updated = [...answers];
+                updated[index] = text;
+                setAnswers(updated);
+              }}
+              onBlur={() => setEditingAnswerIndex(null)}
+              multiline
+              autoFocus
+            />
+          </View>
+        ) : (
+          <TouchableOpacity
+            key={`qa-${index}`}
+            style={styles.qaCard}
+            activeOpacity={0.7}
+            onPress={() => setEditingAnswerIndex(index)}
+          >
+            <View style={[styles.optionsButton, styles.optionsQa]} pointerEvents="none">
+              <Text style={styles.optionsDots}>···</Text>
+            </View>
+            <Text style={styles.question}>{questions[index]}</Text>
+            <Text style={[styles.answer, !answers[index] && styles.placeholder]}>
+              {answers[index] || 'Tap to answer'}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
 
       {/* Save button (editable mode) — stays visible so edits can be re-saved */}
       {editable && (
@@ -429,17 +421,13 @@ const styles = StyleSheet.create({
     paddingTop: 100,
   },
 
-  // Shared card box
-  card: {
+  // Q&A — each answer in its own white card box.
+  qaCard: {
     width: CARD_WIDTH,
     backgroundColor: '#fff',
     borderRadius: 8,
     marginTop: 16,
-    overflow: 'hidden',
-    // Horizontal padding lives on qaItem instead, so the "..." can sit flush
-    // at the card edge — aligned with the name/photo dots — without the
-    // scroll view clipping it.
-    paddingVertical: 16,
+    padding: 16,
   },
 
   // "..." options pill — replaces the old pencil affordance
@@ -478,12 +466,10 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
 
-  // Q&A: nudged up from 8, still inside the card padding.
+  // Q&A: top-right of the card, inside its padding.
   optionsQa: {
     position: 'absolute',
-    top: 2,
-    // qaItem is now full CARD_WIDTH (same box as headerRow/photoContainer),
-    // so the same right offset lands on the same edge as name/photo.
+    top: 8,
     right: 8,
     zIndex: 1,
   },
@@ -564,14 +550,10 @@ const styles = StyleSheet.create({
     color: '#aaa',
   },
 
-  // Photos
-  photoContainer: {
+  // Photos — each in its own card, no white box (image bleeds to card width).
+  photoCard: {
     width: CARD_WIDTH,
-    marginTop: 24,
-  },
-
-  photoSlot: {
-    width: CARD_WIDTH,
+    marginTop: 16,
   },
 
   image: {
@@ -590,22 +572,6 @@ const styles = StyleSheet.create({
   photoPlaceholderText: {
     ...Type.body,
     color: '#aaa',
-  },
-
-  // Q&A
-  qaHeader: {
-    ...Type.header,
-    width: CARD_WIDTH,
-    color: '#000',
-    textAlign: 'left',
-    // Ample breathing room between the photo above and this section label;
-    // the card below adds its own 16 on top of the label.
-    marginTop: 44,
-  },
-
-  qaItem: {
-    width: CARD_WIDTH,
-    paddingHorizontal: 16,
   },
 
   question: {

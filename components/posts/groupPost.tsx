@@ -18,13 +18,22 @@ import { removeMember } from '@/lib/removeMember';
 import { makeGroupLeader } from '@/lib/makeGroupLeader';
 import IndividualPost from './individualPost';
 import MemberManagement, { MemberRect } from './memberManagement';
-import CarouselDots from './carouselDots';
 import ZoomableImage from './zoomableImage';
 import { ZoomRoot } from './zoomOverlay';
 import { snapToStandardAspect, DEFAULT_ASPECT } from '@/lib/aspectRatio';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
+
+// Fixed top-to-bottom order of the stacked photo/Q&A cards.
+const CARD_ORDER: { type: 'photo' | 'qa'; index: number }[] = [
+  { type: 'photo', index: 0 },
+  { type: 'qa', index: 0 },
+  { type: 'photo', index: 1 },
+  { type: 'photo', index: 2 },
+  { type: 'qa', index: 1 },
+  { type: 'qa', index: 2 },
+];
 
 // Helpers (editable mode only)
 async function getNextGroupId(): Promise<string> {
@@ -118,12 +127,9 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
   // Leader-only member popover (opened by long-pressing a member row).
   const [managedMember, setManagedMember] = useState<{ id: string; name: string; profilePicUrl: string | null } | null>(null);
   const [manageRect, setManageRect] = useState<MemberRect | null>(null);
-  // Active page of each carousel, for the dot indicators.
-  const [photoPage, setPhotoPage] = useState(0);
-  const [qaPage, setQaPage] = useState(0);
-  // The card's aspect ratio, locked to the first photo (snapped to a standard
-  // ratio). Null until a first photo exists / has been measured.
-  const [cardAspect, setCardAspect] = useState<number | null>(null);
+  // Each photo's own aspect ratio (snapped to a standard), indexed by photo
+  // slot. Null until picked / first loaded.
+  const [photoAspects, setPhotoAspects] = useState<(number | null)[]>([null, null, null]);
 
   // State - editable mode
   const [groupName, setGroupName] = useState('');
@@ -153,12 +159,9 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
       // screen until the fetch lands — before loading the next.
       setData(null);
       setLoading(true);
-      setPhotoPage(0);
-      setQaPage(0);
-      setCardAspect(null);
+      setPhotoAspects([null, null, null]);
       fetchGroup(groupId).then(result => {
         setData(result);
-        setCardAspect(result?.imageAspectRatio ?? null);
         // Leaders edit in place (pencils always live), so prefill the form
         // from the fetched data the moment it arrives.
         if (result && session?.user && result.created_by === session.user.id) {
@@ -208,20 +211,24 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
       const target = updated[index] ? index : updated.findIndex(p => !p);
       updated[target] = saved.uri;
       setPhotos(updated);
-      // First photo (slot 0) locks the card's aspect, unless one is already set.
-      if (target === 0 && cardAspect == null && asset.width && asset.height) {
-        setCardAspect(snapToStandardAspect(asset.width / asset.height));
+      // Each photo keeps its own shape, snapped to a standard ratio.
+      if (asset.width && asset.height) {
+        setPhotoAspect(target, snapToStandardAspect(asset.width / asset.height));
       }
     }
   }
 
-  // Fallback for groups with photos but no stored ratio (legacy): derive it
-  // from the first photo when it loads. Only fills in when nothing's set yet.
-  function handleFirstPhotoLoad(e: { source?: { width?: number; height?: number } }) {
-    if (cardAspect != null) return;
+  function setPhotoAspect(i: number, ratio: number) {
+    setPhotoAspects(prev => { const next = [...prev]; next[i] = ratio; return next; });
+  }
+
+  // Existing photos carry no picked dimensions, so derive each one's aspect
+  // from its natural size the first time it loads. Only fills a slot once.
+  function handlePhotoLoad(i: number, e: { source?: { width?: number; height?: number } }) {
+    if (photoAspects[i] != null) return;
     const w = e?.source?.width;
     const h = e?.source?.height;
-    if (w && h) setCardAspect(snapToStandardAspect(w / h));
+    if (w && h) setPhotoAspect(i, snapToStandardAspect(w / h));
   }
 
   async function handleSave() {
@@ -261,7 +268,7 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
 
       const { error } = await supabase
         .from('groups')
-        .update({ name: groupName.trim(), qa, image_urls: imageUrls, image_aspect_ratio: cardAspect })
+        .update({ name: groupName.trim(), qa, image_urls: imageUrls })
         .eq('id', groupId);
       if (error) {
         setSaving(false);
@@ -302,7 +309,6 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
       created_by: session?.user.id ?? null,
       invite_code: await getUniqueInviteCode(),
       image_urls: imageUrls,
-      image_aspect_ratio: cardAspect,
       status: 'active',
     });
     if (error) {
@@ -474,100 +480,87 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
         )}
       </View>
 
-      {/* Photos — no card box, image bleeds to the same outer width as the cards below */}
-      <View style={styles.photoContainer}>
-        <ScrollView
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          onMomentumScrollEnd={e => setPhotoPage(Math.round(e.nativeEvent.contentOffset.x / CARD_WIDTH))}
-        >
-          {isEditMode ? (
-            photos.map((uri, i) => (
-              <View key={i} style={styles.photoSlot}>
-                <TouchableOpacity style={[styles.optionsButton, styles.optionsPhotos]} onPress={() => pickPhoto(i)}>
+      {/* Photos & Q&A — a fixed vertical stack (CARD_ORDER). Each photo keeps
+          its own snapped aspect ratio; in edit mode every card is tap-to-edit,
+          with the "···" left as a purely symbolic hint. */}
+      {CARD_ORDER.map(({ type, index }) => {
+        if (type === 'photo') {
+          const uri = isEditMode ? photos[index] : (data?.imageUrls[index] ?? null);
+          if (!isEditMode && !uri) return null;
+          return (
+            <View key={`photo-${index}`} style={styles.photoCard}>
+              {isEditMode && (
+                <View style={[styles.optionsButton, styles.optionsPhotos]} pointerEvents="none">
                   <Text style={styles.optionsDots}>···</Text>
-                </TouchableOpacity>
-                {uri ? (
-                  <ZoomableImage
-                    uri={uri}
-                    style={[styles.image, { aspectRatio: cardAspect ?? DEFAULT_ASPECT }]}
-                    onLoad={i === 0 ? handleFirstPhotoLoad : undefined}
-                  />
-                ) : (
-                  <View style={[styles.photoPlaceholder, { aspectRatio: cardAspect ?? DEFAULT_ASPECT }]}>
+                </View>
+              )}
+              {uri ? (
+                <ZoomableImage
+                  uri={uri}
+                  style={[styles.image, { aspectRatio: photoAspects[index] ?? DEFAULT_ASPECT }]}
+                  onLoad={e => handlePhotoLoad(index, e)}
+                  onPress={isEditMode ? () => pickPhoto(index) : undefined}
+                />
+              ) : (
+                <TouchableOpacity activeOpacity={0.7} onPress={() => pickPhoto(index)}>
+                  <View style={[styles.photoPlaceholder, { aspectRatio: DEFAULT_ASPECT }]}>
                     <Text style={styles.photoPlaceholderText}>Tap to add photo</Text>
                   </View>
-                )}
-              </View>
-            ))
-          ) : (
-            data?.imageUrls.map((url, i) => (
-              <View key={i} style={styles.photoSlot}>
-                <ZoomableImage
-                  uri={url}
-                  style={[styles.image, { aspectRatio: cardAspect ?? DEFAULT_ASPECT }]}
-                  onLoad={i === 0 ? handleFirstPhotoLoad : undefined}
-                />
-              </View>
-            ))
-          )}
-        </ScrollView>
-      </View>
-
-      <CarouselDots count={isEditMode ? photos.length : (data?.imageUrls.length ?? 0)} active={photoPage} />
-
-      {/* Q&A — static header above the box, never editable */}
-      <Text style={styles.qaHeader}>Talk to me...</Text>
-      <View style={styles.card}>
-        <ScrollView
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          onMomentumScrollEnd={e => setQaPage(Math.round(e.nativeEvent.contentOffset.x / CARD_WIDTH))}
-        >
-          {isEditMode ? (
-            questions.map((q, i) => (
-              <View key={i} style={styles.qaItem}>
-                <TouchableOpacity style={[styles.optionsButton, styles.optionsQa]} onPress={() => setEditingAnswerIndex(editingAnswerIndex === i ? null : i)}>
-                  <Text style={styles.optionsDots}>···</Text>
                 </TouchableOpacity>
-                <Text style={styles.question}>{q}</Text>
-                {editingAnswerIndex === i ? (
-                  <TextInput
-                    style={styles.answerInput}
-                    placeholder="Your answer"
-                    placeholderTextColor="#aaa"
-                    value={answers[i]}
-                    onChangeText={text => {
-                      const updated = [...answers];
-                      updated[i] = text;
-                      setAnswers(updated);
-                    }}
-                    multiline
-                    autoFocus
-                  />
-                ) : (
-                  <Text style={[styles.answer, !answers[i] && styles.placeholder]}>
-                    {answers[i] || 'Tap to answer'}
-                  </Text>
-                )}
-              </View>
-            ))
-          ) : (
-            data?.qa.map((item, i) => (
-              <View key={i} style={styles.qaItem}>
-                <Text style={styles.question}>{item.question}</Text>
-                <Text style={styles.answer}>{item.answer}</Text>
-              </View>
-            ))
-          )}
-        </ScrollView>
-      </View>
+              )}
+            </View>
+          );
+        }
 
-      <CarouselDots count={isEditMode ? questions.length : (data?.qa.length ?? 0)} active={qaPage} />
+        // Q&A card
+        if (!isEditMode) {
+          const item = data?.qa[index];
+          if (!item) return null;
+          return (
+            <View key={`qa-${index}`} style={styles.qaCard}>
+              <Text style={styles.question}>{item.question}</Text>
+              <Text style={styles.answer}>{item.answer}</Text>
+            </View>
+          );
+        }
+        return editingAnswerIndex === index ? (
+          <View key={`qa-${index}`} style={styles.qaCard}>
+            <View style={[styles.optionsButton, styles.optionsQa]} pointerEvents="none">
+              <Text style={styles.optionsDots}>···</Text>
+            </View>
+            <Text style={styles.question}>{questions[index]}</Text>
+            <TextInput
+              style={styles.answerInput}
+              placeholder="Your answer"
+              placeholderTextColor="#aaa"
+              value={answers[index]}
+              onChangeText={text => {
+                const updated = [...answers];
+                updated[index] = text;
+                setAnswers(updated);
+              }}
+              onBlur={() => setEditingAnswerIndex(null)}
+              multiline
+              autoFocus
+            />
+          </View>
+        ) : (
+          <TouchableOpacity
+            key={`qa-${index}`}
+            style={styles.qaCard}
+            activeOpacity={0.7}
+            onPress={() => setEditingAnswerIndex(index)}
+          >
+            <View style={[styles.optionsButton, styles.optionsQa]} pointerEvents="none">
+              <Text style={styles.optionsDots}>···</Text>
+            </View>
+            <Text style={styles.question}>{questions[index]}</Text>
+            <Text style={[styles.answer, !answers[index] && styles.placeholder]}>
+              {answers[index] || 'Tap to answer'}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
 
       {/* Members card — unlike Q&A, this has no per-item padding, so it
           needs the card's horizontal inset restored directly. */}
@@ -687,16 +680,14 @@ const styles = StyleSheet.create({
     paddingTop: 60,
   },
 
-  // Shared card
+  // Members card box — rows carry their own horizontal padding, so the crown
+  // can sit flush at the card edge without the box clipping it.
   card: {
     width: CARD_WIDTH,
     backgroundColor: '#fff',
     borderRadius: 8,
     marginTop: 16,
     overflow: 'hidden',
-    // Horizontal padding lives on qaItem instead, so the "..." can sit flush
-    // at the card edge — aligned with the name/photo dots — without the
-    // scroll view clipping it.
     paddingVertical: 16,
   },
 
@@ -742,12 +733,10 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
 
-  // Q&A: nudged up from 8, still inside the card padding.
+  // Q&A: top-right of the card, inside its padding.
   optionsQa: {
     position: 'absolute',
-    top: 2,
-    // qaItem is now full CARD_WIDTH (same box as headerRow/photoContainer),
-    // so the same right offset lands on the same edge as name/photo.
+    top: 8,
     right: 8,
     zIndex: 1,
   },
@@ -777,14 +766,10 @@ const styles = StyleSheet.create({
     color: '#aaa',
   },
 
-  // Photos
-  photoContainer: {
+  // Photos — each in its own card, no white box (image bleeds to card width).
+  photoCard: {
     width: CARD_WIDTH,
     marginTop: 16,
-  },
-
-  photoSlot: {
-    width: CARD_WIDTH,
   },
 
   image: {
@@ -805,20 +790,13 @@ const styles = StyleSheet.create({
     color: '#aaa',
   },
 
-  // Q&A
-  qaHeader: {
-    ...Type.header,
+  // Q&A — each answer in its own white card box.
+  qaCard: {
     width: CARD_WIDTH,
-    color: '#000',
-    textAlign: 'left',
-    // Ample breathing room between the photo above and this section label;
-    // the card below adds its own 16 on top of the label.
-    marginTop: 44,
-  },
-
-  qaItem: {
-    width: CARD_WIDTH,
-    paddingHorizontal: 16,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    marginTop: 16,
+    padding: 16,
   },
 
   question: {

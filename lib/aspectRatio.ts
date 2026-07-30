@@ -1,5 +1,5 @@
-// The first photo added to a carousel snaps to the nearest of these standard
-// ratios (width / height); the card and every other photo then use it.
+// Each photo snaps to the nearest of these standard ratios (width / height),
+// independently — one photo's shape never affects another's.
 export const STANDARD_ASPECT_RATIOS = [
   2 / 3,  // 0.667  portrait (tall)
   3 / 4,  // 0.750

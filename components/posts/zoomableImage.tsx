@@ -8,19 +8,21 @@ import Animated, {
 import { runOnJS } from 'react-native-worklets';
 import { useZoomOverlay } from './zoomOverlay';
 
-// Drop-in replacement for a carousel <Image> that adds two-finger pinch-to-zoom.
+// Drop-in replacement for a post <Image> that adds two-finger pinch-to-zoom.
 // The photo animates into the app-root ZoomOverlay (so it grows past its box),
-// then springs back on release. All gestures are two-finger, so one-finger
-// horizontal swipes still page the carousel.
+// then springs back on release. In edit mode the same photo is also tap-to-
+// repick: a 1-finger tap and a 2-finger pinch are mutually exclusive, so an
+// optional onPress rides alongside the pinch without stealing it.
 interface Props {
   uri: string;
   style?: StyleProp<ImageStyle>;
   onLoad?: ImageProps['onLoad'];
+  onPress?: () => void;
 }
 
 const SPRING_BACK = { duration: 180 };
 
-export default function ZoomableImage({ uri, style, onLoad }: Props) {
+export default function ZoomableImage({ uri, style, onLoad, onPress }: Props) {
   const z = useZoomOverlay();
   const aref = useAnimatedRef<Animated.View>();
 
@@ -34,7 +36,7 @@ export default function ZoomableImage({ uri, style, onLoad }: Props) {
   const startFocalX = useSharedValue(0);
   const startFocalY = useSharedValue(0);
 
-  const gesture = Gesture.Pinch()
+  const pinch = Gesture.Pinch()
     .onStart((e) => {
       const m = measure(aref);
       if (m) {
@@ -65,6 +67,12 @@ export default function ZoomableImage({ uri, style, onLoad }: Props) {
         if (done) runOnJS(finish)();
       });
     });
+
+  // A single-finger tap re-picks the photo (edit mode only). Race, not
+  // simultaneous: whichever the fingers form — 1 or 2 — wins alone.
+  const gesture = onPress
+    ? Gesture.Race(pinch, Gesture.Tap().onEnd(() => runOnJS(onPress)()))
+    : pinch;
 
   return (
     <GestureDetector gesture={gesture}>
