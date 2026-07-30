@@ -9,6 +9,7 @@ import FontAwesome6 from '@expo/vector-icons/FontAwesome6';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '@/supabaseClient';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { fetchGroup, GroupData } from '@/lib/fetchGroup';
@@ -107,22 +108,30 @@ function MemberRow({ name, profilePicUrl, isGroupLeader, onPress, onLongPress }:
 
 interface Props {
   groupId?: string;
-  editable?: boolean;
+  // The creation flow — no group row yet, so it is permanently in edit mode.
+  creating?: boolean;
+  // The leader's view/edit toggle on an existing group. View mode renders
+  // straight from the fetched row, so the leader sees what everyone else sees.
+  editMode?: boolean;
   onClose?: () => void;
   // Set when the viewer is a member of this group (i.e. viewed from the groups
   // tab, not explore) — surfaces Leave (non-leaders) or Dissolve (the leader).
   isMember?: boolean;
   onLeft?: () => void;
   onDissolved?: () => void;
+  onSaved?: () => void;
+  // Fired on the first edit of a session so the screen owning `editMode` knows
+  // to confirm before discarding.
+  onDirty?: () => void;
 }
 
-export default function GroupPost({ groupId, editable = false, onClose, isMember = false, onLeft, onDissolved }: Props) {
+export default function GroupPost({ groupId, creating = false, editMode = false, onClose, isMember = false, onLeft, onDissolved, onSaved, onDirty }: Props) {
 
   const { session } = useSession();
 
   // State - read mode
   const [data, setData] = useState<GroupData | null>(null);
-  const [loading, setLoading] = useState(!editable);
+  const [loading, setLoading] = useState(!creating);
   const [selectedMember, setSelectedMember] = useState<string | null>(null);
   // Leader-only member popover (opened by long-pressing a member row).
   const [managedMember, setManagedMember] = useState<{ id: string; name: string; profilePicUrl: string | null } | null>(null);
@@ -136,22 +145,24 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
   const [photos, setPhotos] = useState<(string | null)[]>([null, null, null]);
   const [questions, setQuestions] = useState<string[]>(['', '', '']);
   const [answers, setAnswers] = useState<string[]>(['', '', '']);
-  const [editingName, setEditingName] = useState(false);
-  const [editingAnswerIndex, setEditingAnswerIndex] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // editable = creation flow; isLeader = editing your own saved group in place
+  // Creation is always editing; on a saved group, only the leader can turn edit
+  // mode on — and `isLeader` is the authority, so a stale `editMode` from the
+  // screen above can never grant rights the viewer doesn't have.
   const isLeader = !!(session?.user && data?.created_by && data.created_by === session.user.id);
-  const isEditMode = editable || isLeader;
+  const isEditMode = creating || (isLeader && editMode);
   // A member who didn't create the group can leave it; the leader dissolves it
   // instead. Exactly one of these shows, since a viewer is leader XOR not.
   const canLeave = isMember && !isLeader && !!data;
   const canDissolve = isMember && isLeader && !!data;
 
-  // Fetch data (read mode) or questions (editable mode)
+  // Fetch data (existing group) or questions (creation). `editMode` is
+  // deliberately not a dependency: toggling it must not refetch, which would
+  // wipe any edits in progress.
   useEffect(() => {
-    if (editable) {
+    if (creating) {
       fetchRandomGroupQuestions().then(qs => setQuestions(qs));
     } else if (groupId) {
       // The same instance can be reused for another group (explore feed), so
@@ -170,7 +181,7 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
         setLoading(false);
       });
     }
-  }, [groupId, editable, session]);
+  }, [groupId, creating, session]);
 
   // Pre-fill the edit form from fetched data; also used by Cancel to discard edits.
   function prefillFromData(d: GroupData) {
@@ -211,6 +222,7 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
       const target = updated[index] ? index : updated.findIndex(p => !p);
       updated[target] = saved.uri;
       setPhotos(updated);
+      onDirty?.();
       // Each photo keeps its own shape, snapped to a standard ratio.
       if (asset.width && asset.height) {
         setPhotoAspect(target, snapToStandardAspect(asset.width / asset.height));
@@ -276,11 +288,13 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
         return;
       }
 
-      // Stay in edit mode; re-prefill so saved photos pick up their new ?v= URLs.
+      // Re-prefill so saved photos pick up their new ?v= URLs — and so view
+      // mode, which reads `data`, doesn't show the pre-save row.
       const fresh = await fetchGroup(groupId);
       setData(fresh);
       if (fresh) prefillFromData(fresh);
       setSaving(false);
+      onSaved?.();
       return;
     }
 
@@ -444,12 +458,12 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
     >
     <ScrollView
       style={styles.container}
-      contentContainerStyle={[styles.content, editable && onClose && styles.contentWithBackButton]}
+      contentContainerStyle={[styles.content, creating && onClose && styles.contentWithBackButton]}
       keyboardShouldPersistTaps="handled"
     >
 
-      {/* Back arrow (editable mode) */}
-      {editable && onClose && (
+      {/* Back arrow (creation flow) */}
+      {creating && onClose && (
         <TouchableOpacity style={styles.backButton} onPress={onClose}>
           <Text style={styles.backArrow}>←</Text>
         </TouchableOpacity>
@@ -457,50 +471,45 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
 
       {/* Name — no card box */}
       <View style={styles.nameContainer}>
-        {isEditMode && (
-          <View style={styles.optionsWrapName}>
-            <TouchableOpacity style={styles.optionsButton} onPress={() => setEditingName(e => !e)}>
-              <Text style={styles.optionsDots}>···</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-        {isEditMode && editingName ? (
+        {isEditMode ? (
           <TextInput
             style={styles.nameInput}
             placeholder="Group name"
             placeholderTextColor="#aaa"
             value={groupName}
-            onChangeText={setGroupName}
-            autoFocus
+            onChangeText={text => { setGroupName(text); onDirty?.(); }}
           />
         ) : (
-          <Text style={[styles.name, isEditMode && !groupName && styles.placeholder]}>
-            {isEditMode ? (groupName || 'Group name') : data?.name}
-          </Text>
+          <Text style={styles.name}>{data?.name}</Text>
         )}
       </View>
 
       {/* Photos & Q&A — a fixed vertical stack (CARD_ORDER). Each photo keeps
-          its own snapped aspect ratio; in edit mode every card is tap-to-edit,
-          with the "···" left as a purely symbolic hint. */}
+          its own snapped aspect ratio. View mode is inert and shows only what
+          exists; edit mode marks every photo with a pencil badge and swaps the
+          answers for always-mounted inputs, whose underline is the affordance. */}
       {CARD_ORDER.map(({ type, index }) => {
         if (type === 'photo') {
           const uri = isEditMode ? photos[index] : (data?.imageUrls[index] ?? null);
           if (!isEditMode && !uri) return null;
           return (
             <View key={`photo-${index}`} style={styles.photoCard}>
-              {isEditMode && (
-                <View style={[styles.optionsButton, styles.optionsPhotos]} pointerEvents="none">
-                  <Text style={styles.optionsDots}>···</Text>
-                </View>
-              )}
               {uri ? (
-                <ZoomableImage
-                  uri={uri}
-                  style={[styles.image, { aspectRatio: photoAspects[index] ?? DEFAULT_ASPECT }]}
-                  onLoad={e => handlePhotoLoad(index, e)}
-                  onPress={isEditMode ? () => pickPhoto(index) : undefined}
-                />
+                <>
+                  <ZoomableImage
+                    uri={uri}
+                    style={[styles.image, { aspectRatio: photoAspects[index] ?? DEFAULT_ASPECT }]}
+                    onLoad={e => handlePhotoLoad(index, e)}
+                    onPress={isEditMode ? () => pickPhoto(index) : undefined}
+                  />
+                  {/* Indicator only — the photo itself takes the tap, so this
+                      must not intercept the pinch-to-zoom gesture under it. */}
+                  {isEditMode && (
+                    <View style={styles.photoEditBadge} pointerEvents="none">
+                      <IconSymbol name="pencil" size={14} color="#000" weight="bold" />
+                    </View>
+                  )}
+                </>
               ) : (
                 <TouchableOpacity activeOpacity={0.7} onPress={() => pickPhoto(index)}>
                   <View style={[styles.photoPlaceholder, { aspectRatio: DEFAULT_ASPECT }]}>
@@ -523,11 +532,8 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
             </View>
           );
         }
-        return editingAnswerIndex === index ? (
+        return (
           <View key={`qa-${index}`} style={styles.qaCard}>
-            <View style={[styles.optionsButton, styles.optionsQa]} pointerEvents="none">
-              <Text style={styles.optionsDots}>···</Text>
-            </View>
             <Text style={styles.question}>{questions[index]}</Text>
             <TextInput
               style={styles.answerInput}
@@ -538,27 +544,11 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
                 const updated = [...answers];
                 updated[index] = text;
                 setAnswers(updated);
+                onDirty?.();
               }}
-              onBlur={() => setEditingAnswerIndex(null)}
               multiline
-              autoFocus
             />
           </View>
-        ) : (
-          <TouchableOpacity
-            key={`qa-${index}`}
-            style={styles.qaCard}
-            activeOpacity={0.7}
-            onPress={() => setEditingAnswerIndex(index)}
-          >
-            <View style={[styles.optionsButton, styles.optionsQa]} pointerEvents="none">
-              <Text style={styles.optionsDots}>···</Text>
-            </View>
-            <Text style={styles.question}>{questions[index]}</Text>
-            <Text style={[styles.answer, !answers[index] && styles.placeholder]}>
-              {answers[index] || 'Tap to answer'}
-            </Text>
-          </TouchableOpacity>
         );
       })}
 
@@ -575,8 +565,9 @@ export default function GroupPost({ groupId, editable = false, onClose, isMember
                 isGroupLeader={m.id === data.created_by}
                 onPress={() => setSelectedMember(m.id)}
                 onLongPress={(rect) => {
-                  // Leader-only, and not on themselves.
-                  if (!isLeader || !session?.user || m.id === session.user.id) return;
+                  // Managing members is an edit, so it lives in edit mode —
+                  // and never on yourself.
+                  if (!isEditMode || !session?.user || m.id === session.user.id) return;
                   // Force the clear band to the full members-card width (card is
                   // centered at CARD_WIDTH), keeping only the measured vertical.
                   setManageRect({ x: (width - CARD_WIDTH) / 2, y: rect.y, width: CARD_WIDTH, height: rect.height });
@@ -697,60 +688,21 @@ const styles = StyleSheet.create({
     marginTop: 32,
   },
 
-  // "..." options pill — replaces the old pencil affordance
-  optionsButton: {
-    // Invisible tap target — no fill, no border, just the dots.
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  optionsDots: {
-    color: '#333',
-    fontSize: 24,
-    fontWeight: '700',
-    // Middle dots (·) sit at the em-box center (periods rest on the baseline),
-    // so "···" is vertically centered in the pill with no offset needed.
-    includeFontPadding: false,
-  },
-
-  // Name: full-height wrapper that flex-centers the pill against the name line.
-  optionsWrapName: {
-    position: 'absolute',
-    right: 8,
-    top: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    zIndex: 1,
-  },
-
-  // Photos: same y as the old pencil.
-  optionsPhotos: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    zIndex: 1,
-  },
-
-  // Q&A: top-right of the card, inside its padding.
-  optionsQa: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    zIndex: 1,
-  },
-
   // Name
   nameContainer: {
     width: CARD_WIDTH,
     marginTop: 16,
   },
 
+  // The view-mode text carries the input's box model with an invisible rule,
+  // so toggling modes swaps the underline in without shifting the layout.
   name: {
     ...Type.title,
     color: '#000',
     textAlign: 'left',
+    borderBottomWidth: 1,
+    borderBottomColor: 'transparent',
+    paddingVertical: 4,
   },
 
   nameInput: {
@@ -762,10 +714,6 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
 
-  placeholder: {
-    color: '#aaa',
-  },
-
   // Photos — each in its own card, no white box (image bleeds to card width).
   photoCard: {
     width: CARD_WIDTH,
@@ -775,6 +723,26 @@ const styles = StyleSheet.create({
   image: {
     width: CARD_WIDTH,
     borderRadius: 8,
+  },
+
+  // Edit-mode marker that a photo is tappable — bottom-right of the image.
+  photoEditBadge: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
   },
 
   photoPlaceholder: {
@@ -811,6 +779,9 @@ const styles = StyleSheet.create({
     fontSize: 28,
     color: '#000',
     marginTop: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'transparent',
+    paddingVertical: 4,
   },
 
   answerInput: {

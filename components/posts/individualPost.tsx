@@ -51,11 +51,19 @@ async function fetchRandomPersonQuestions(): Promise<string[]> {
 
 interface Props {
   personId: string;
-  editable?: boolean;
+  // View mode renders straight from the fetched row, so your own profile looks
+  // exactly like it does to a visitor; edit mode renders the form state.
+  editMode?: boolean;
+  // Set when nothing above this post provides top clearance (the member-profile
+  // modal, which only has a floating back arrow).
+  standalone?: boolean;
   onSave?: () => void;
+  // Fired on the first edit of a session so the screen owning `editMode` knows
+  // to confirm before discarding.
+  onDirty?: () => void;
 }
 
-export default function IndividualPost({ personId, editable = false, onSave }: Props) {
+export default function IndividualPost({ personId, editMode = false, standalone = false, onSave, onDirty }: Props) {
 
   // State - read mode
   const [data, setData] = useState<PersonData | null>(null);
@@ -70,44 +78,45 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
   const [photos, setPhotos] = useState<(string | null)[]>([null, null]);
   const [questions, setQuestions] = useState<string[]>(['', '']);
   const [answers, setAnswers] = useState<string[]>(['', '']);
-  const [editingName, setEditingName] = useState(false);
-  const [editingAnswerIndex, setEditingAnswerIndex] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Fetch person data; in editable mode, pre-fill the form with it
+  // Fetch person data, then pre-fill the form from it. `editMode` is
+  // deliberately not a dependency: the pencil has to flip into edit mode
+  // without a refetch, which would wipe any edits in progress.
   useEffect(() => {
     setPhotoAspects([null, null]);
     fetchPerson(personId).then(async result => {
-      if (!editable) {
-        setData(result);
-        setLoading(false);
-        return;
-      }
-
-      if (result) {
-        setName(result.name ?? '');
-        setProfilePic(result.profilePicUrl);
-        // Place each photo in its slot by the imgN in its URL — the storage
-        // listing collapses gaps, so positions alone can't be trusted.
-        const slots: (string | null)[] = [null, null];
-        for (const url of result.imageUrls) {
-          const match = url.match(/img(\d)\.jpg/);
-          const slot = match ? parseInt(match[1]) - 1 : -1;
-          if (slot >= 0 && slot < 2) slots[slot] = url;
-        }
-        setPhotos(slots);
-      }
-
-      if (result && result.qa.length > 0) {
-        // Keep exactly two slots, so a legacy 3-Q&A profile trims cleanly.
-        setQuestions([result.qa[0]?.question ?? '', result.qa[1]?.question ?? '']);
-        setAnswers([result.qa[0]?.answer ?? '', result.qa[1]?.answer ?? '']);
-      } else {
+      setData(result);
+      if (result) prefillFromData(result);
+      // No Q&A yet means a brand-new profile (the setup gate), which needs a
+      // fresh random pair to answer.
+      if (!result || result.qa.length === 0) {
         setQuestions(await fetchRandomPersonQuestions());
       }
       setLoading(false);
     });
-  }, [personId, editable]);
+  }, [personId]);
+
+  // Pre-fill the edit form from fetched data; also re-run after a save so the
+  // photos pick up their new ?v= URLs.
+  function prefillFromData(d: PersonData) {
+    setName(d.name ?? '');
+    setProfilePic(d.profilePicUrl);
+    // Place each photo in its slot by the imgN in its URL — the storage
+    // listing collapses gaps, so positions alone can't be trusted.
+    const slots: (string | null)[] = [null, null];
+    for (const url of d.imageUrls) {
+      const match = url.match(/img(\d)\.jpg/);
+      const slot = match ? parseInt(match[1]) - 1 : -1;
+      if (slot >= 0 && slot < 2) slots[slot] = url;
+    }
+    setPhotos(slots);
+    if (d.qa.length > 0) {
+      // Keep exactly two slots, so a legacy 3-Q&A profile trims cleanly.
+      setQuestions([d.qa[0]?.question ?? '', d.qa[1]?.question ?? '']);
+      setAnswers([d.qa[0]?.answer ?? '', d.qa[1]?.answer ?? '']);
+    }
+  }
 
   function setPhotoAspect(i: number, ratio: number) {
     setPhotoAspects(prev => { const next = [...prev]; next[i] = ratio; return next; });
@@ -145,6 +154,7 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
       const target = updated[index] ? index : updated.findIndex(p => !p);
       updated[target] = saved.uri;
       setPhotos(updated);
+      onDirty?.();
       // Each photo keeps its own shape, snapped to a standard ratio.
       if (asset.width && asset.height) {
         setPhotoAspect(target, snapToStandardAspect(asset.width / asset.height));
@@ -167,6 +177,7 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
         .renderAsync();
       const saved = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.7 });
       setProfilePic(saved.uri);
+      onDirty?.();
     }
   }
 
@@ -227,11 +238,18 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
       .from('profiles')
       .update({ name: name.trim(), qa, image_urls: imageUrls, profile_pic_url: profilePicUrl })
       .eq('id', personId);
-    setSaving(false);
     if (error) {
+      setSaving(false);
       Alert.alert('Save failed', error.message);
       return;
     }
+
+    // View mode reads from `data`, so it has to be re-pulled — otherwise
+    // returning to it would show the pre-save row.
+    const fresh = await fetchPerson(personId);
+    setData(fresh);
+    if (fresh) prefillFromData(fresh);
+    setSaving(false);
     onSave?.();
   }
 
@@ -246,25 +264,19 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
     >
     <ScrollView
       style={styles.container}
-      contentContainerStyle={[styles.content, !editable && styles.contentStandalone]}
+      contentContainerStyle={[styles.content, standalone && styles.contentStandalone]}
       keyboardShouldPersistTaps="handled"
     >
 
       {/* Header — circular profile picture, name to its right */}
       <View style={styles.headerRow}>
         <View style={styles.profilePicWrap}>
-          {editable ? (
-            profilePic ? (
-              <Image source={{ uri: profilePic }} style={styles.profilePic} contentFit="cover" />
-            ) : (
-              <View style={styles.profilePicPlaceholder} />
-            )
-          ) : data?.profilePicUrl ? (
-            <Image source={{ uri: data.profilePicUrl }} style={styles.profilePic} contentFit="cover" />
+          {(editMode ? profilePic : data?.profilePicUrl) ? (
+            <Image source={{ uri: (editMode ? profilePic : data?.profilePicUrl)! }} style={styles.profilePic} contentFit="cover" />
           ) : (
             <View style={styles.profilePicPlaceholder} />
           )}
-          {editable && (
+          {editMode && (
             <TouchableOpacity style={styles.profilePicEditBadge} onPress={pickProfilePic}>
               <IconSymbol name="pencil" size={14} color="#000" weight="bold" />
             </TouchableOpacity>
@@ -272,51 +284,46 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
         </View>
 
         <View style={styles.nameWrap}>
-          {editable && (
-            <View style={styles.optionsWrapName}>
-              <TouchableOpacity style={styles.optionsButton} onPress={() => setEditingName(e => !e)}>
-                <Text style={styles.optionsDots}>···</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-          {editable && editingName ? (
+          {editMode ? (
             <TextInput
               style={styles.nameInput}
               placeholder="Your name"
               placeholderTextColor="#aaa"
               value={name}
-              onChangeText={setName}
-              autoFocus
+              onChangeText={text => { setName(text); onDirty?.(); }}
             />
           ) : (
-            <Text style={[styles.name, editable && !name && styles.placeholder]}>
-              {editable ? (name || 'Your name') : data?.name}
-            </Text>
+            <Text style={styles.name}>{data?.name}</Text>
           )}
         </View>
       </View>
 
       {/* Photos & Q&A — a fixed vertical stack (CARD_ORDER). Each photo keeps
-          its own snapped aspect ratio; in edit mode every card is tap-to-edit,
-          with the "···" left as a purely symbolic hint. */}
+          its own snapped aspect ratio. View mode is inert and shows only what
+          exists; edit mode marks every photo with a pencil badge and swaps the
+          answers for always-mounted inputs, whose underline is the affordance. */}
       {CARD_ORDER.map(({ type, index }) => {
         if (type === 'photo') {
-          const uri = editable ? photos[index] : (data?.imageUrls[index] ?? null);
-          if (!editable && !uri) return null;
+          const uri = editMode ? photos[index] : (data?.imageUrls[index] ?? null);
+          if (!editMode && !uri) return null;
           return (
             <View key={`photo-${index}`} style={styles.photoCard}>
-              {editable && (
-                <View style={[styles.optionsButton, styles.optionsPhotos]} pointerEvents="none">
-                  <Text style={styles.optionsDots}>···</Text>
-                </View>
-              )}
               {uri ? (
-                <ZoomableImage
-                  uri={uri}
-                  style={[styles.image, { aspectRatio: photoAspects[index] ?? DEFAULT_ASPECT }]}
-                  onLoad={e => handlePhotoLoad(index, e)}
-                  onPress={editable ? () => pickPhoto(index) : undefined}
-                />
+                <>
+                  <ZoomableImage
+                    uri={uri}
+                    style={[styles.image, { aspectRatio: photoAspects[index] ?? DEFAULT_ASPECT }]}
+                    onLoad={e => handlePhotoLoad(index, e)}
+                    onPress={editMode ? () => pickPhoto(index) : undefined}
+                  />
+                  {/* Indicator only — the photo itself takes the tap, so this
+                      must not intercept the pinch-to-zoom gesture under it. */}
+                  {editMode && (
+                    <View style={styles.photoEditBadge} pointerEvents="none">
+                      <IconSymbol name="pencil" size={14} color="#000" weight="bold" />
+                    </View>
+                  )}
+                </>
               ) : (
                 <TouchableOpacity activeOpacity={0.7} onPress={() => pickPhoto(index)}>
                   <View style={[styles.photoPlaceholder, { aspectRatio: DEFAULT_ASPECT }]}>
@@ -329,7 +336,7 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
         }
 
         // Q&A card
-        if (!editable) {
+        if (!editMode) {
           const item = data?.qa[index];
           if (!item) return null;
           return (
@@ -339,11 +346,8 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
             </View>
           );
         }
-        return editingAnswerIndex === index ? (
+        return (
           <View key={`qa-${index}`} style={styles.qaCard}>
-            <View style={[styles.optionsButton, styles.optionsQa]} pointerEvents="none">
-              <Text style={styles.optionsDots}>···</Text>
-            </View>
             <Text style={styles.question}>{questions[index]}</Text>
             <TextInput
               style={styles.answerInput}
@@ -354,32 +358,16 @@ export default function IndividualPost({ personId, editable = false, onSave }: P
                 const updated = [...answers];
                 updated[index] = text;
                 setAnswers(updated);
+                onDirty?.();
               }}
-              onBlur={() => setEditingAnswerIndex(null)}
               multiline
-              autoFocus
             />
           </View>
-        ) : (
-          <TouchableOpacity
-            key={`qa-${index}`}
-            style={styles.qaCard}
-            activeOpacity={0.7}
-            onPress={() => setEditingAnswerIndex(index)}
-          >
-            <View style={[styles.optionsButton, styles.optionsQa]} pointerEvents="none">
-              <Text style={styles.optionsDots}>···</Text>
-            </View>
-            <Text style={styles.question}>{questions[index]}</Text>
-            <Text style={[styles.answer, !answers[index] && styles.placeholder]}>
-              {answers[index] || 'Tap to answer'}
-            </Text>
-          </TouchableOpacity>
         );
       })}
 
-      {/* Save button (editable mode) — stays visible so edits can be re-saved */}
-      {editable && (
+      {/* Save button (edit mode) — stays visible so edits can be re-saved */}
+      {editMode && (
         <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving}>
           {saving ? (
             <ActivityIndicator color="#fff" />
@@ -430,50 +418,6 @@ const styles = StyleSheet.create({
     padding: 16,
     minHeight: 240,
     justifyContent: 'center',
-  },
-
-  // "..." options pill — replaces the old pencil affordance
-  optionsButton: {
-    // Invisible tap target — no fill, no border, just the dots.
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  optionsDots: {
-    color: '#333',
-    fontSize: 24,
-    fontWeight: '700',
-    // Middle dots (·) sit at the em-box center (periods rest on the baseline),
-    // so "···" is vertically centered in the pill with no offset needed.
-    includeFontPadding: false,
-  },
-
-  // Name: full-height wrapper that flex-centers the pill against the name line.
-  optionsWrapName: {
-    position: 'absolute',
-    right: 8,
-    top: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    zIndex: 1,
-  },
-
-  // Photos: same y as the old pencil.
-  optionsPhotos: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    zIndex: 1,
-  },
-
-  // Q&A: top-right of the card, inside its padding.
-  optionsQa: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    zIndex: 1,
   },
 
   // Header (profile picture + name)
@@ -533,10 +477,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  // The view-mode text carries the input's box model with an invisible rule,
+  // so toggling modes swaps the underline in without shifting the layout.
   name: {
     ...Type.title,
     color: '#000',
     textAlign: 'left',
+    borderBottomWidth: 1,
+    borderBottomColor: 'transparent',
+    paddingVertical: 4,
   },
 
   nameInput: {
@@ -548,14 +497,31 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
 
-  placeholder: {
-    color: '#aaa',
-  },
-
   // Photos — each in its own card, no white box (image bleeds to card width).
   photoCard: {
     width: CARD_WIDTH,
     marginTop: 20,
+  },
+
+  // Edit-mode marker that a photo is tappable — bottom-right, matching the
+  // profile picture's badge.
+  photoEditBadge: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
   },
 
   image: {
@@ -586,6 +552,9 @@ const styles = StyleSheet.create({
     fontSize: 28,
     color: '#000',
     marginTop: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'transparent',
+    paddingVertical: 4,
   },
 
   answerInput: {
