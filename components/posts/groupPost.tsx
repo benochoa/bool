@@ -96,10 +96,8 @@ function MemberRow({ name, profilePicUrl, isGroupLeader, onPress, onLongPress }:
       )}
       <Text style={styles.memberName}>{name}</Text>
       {isGroupLeader && (
-        <View style={styles.optionsWrapName}>
-          <View style={styles.optionsButton}>
-            <FontAwesome6 name="crown" size={14} color="#000" solid />
-          </View>
+        <View style={styles.crownWrap}>
+          <FontAwesome6 name="crown" size={14} color="#000" solid />
         </View>
       )}
     </TouchableOpacity>
@@ -625,7 +623,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
           <TouchableOpacity style={styles.backButton} onPress={() => setSelectedMember(null)}>
             <Text style={styles.backArrow}>←</Text>
           </TouchableOpacity>
-          {selectedMember && <IndividualPost personId={selectedMember} />}
+          {selectedMember && <IndividualPost personId={selectedMember} standalone />}
         </View>
         </ZoomRoot>
       </Modal>
@@ -810,6 +808,15 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     backgroundColor: '#ccc',
     marginRight: 12,
+  },
+
+  // Leader crown — pinned to the row's right edge, in line with the name.
+  crownWrap: {
+    position: 'absolute',
+    right: 18,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
   },
 
   memberName: {

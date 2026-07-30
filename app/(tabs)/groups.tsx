@@ -1,6 +1,6 @@
 import {
   StyleSheet, View, Text, TouchableOpacity, Modal,
-  ActivityIndicator, ScrollView
+  ActivityIndicator, ScrollView, Alert
 } from 'react-native';
 import { useState, useEffect, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
@@ -9,19 +9,26 @@ import { ZoomRoot } from '@/components/posts/zoomOverlay';
 import GroupSwitcher from '@/components/groups/groupSwitcher';
 import JoinGroup from '@/components/groups/joinGroup';
 import { ChevronDown } from '@/assets/symbols/ChevronDown';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Palette, Type } from '@/constants/theme';
 import { useCurrentGroup } from '@/hooks/use-current-group';
+import { useSession } from '@/hooks/use-session';
 import { fetchGroupNames, GroupName } from '@/lib/fetchGroupNames';
 
 export default function GroupsScreen() {
 
   const { myGroupIds, loadingGroups, currentGroupId, setCurrentGroupId, refreshGroups } = useCurrentGroup();
+  const { session } = useSession();
 
   // State
   const [creating, setCreating] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [groupNames, setGroupNames] = useState<GroupName[]>([]);
   const [joining, setJoining] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  // Set by the post on its first edit; leaving edit mode re-reads the saved
+  // row, so anything unsaved is dropped and has to be confirmed first.
+  const [dirty, setDirty] = useState(false);
 
   // One query resolves every switcher name — the menu rows and the active
   // label both read from it.
@@ -29,7 +36,23 @@ export default function GroupsScreen() {
     fetchGroupNames(myGroupIds).then(setGroupNames);
   }, [myGroupIds]);
 
-  const currentGroupName = groupNames.find(g => g.id === currentGroupId)?.name ?? '';
+  const currentGroup = groupNames.find(g => g.id === currentGroupId);
+  const currentGroupName = currentGroup?.name ?? '';
+  // Only the leader can edit, so only the leader gets a pencil. Reading it off
+  // the switcher's data means no extra query and no wait on GroupPost's fetch.
+  const isLeader = !!(session?.user && currentGroup?.created_by === session.user.id);
+
+  function toggleEditMode() {
+    if (editMode && dirty) {
+      Alert.alert('Discard changes?', 'Your unsaved edits will be lost.', [
+        { text: 'Keep editing', style: 'cancel' },
+        { text: 'Discard', style: 'destructive', onPress: () => { setDirty(false); setEditMode(false); } },
+      ]);
+      return;
+    }
+    setDirty(false);
+    setEditMode(e => !e);
+  }
 
   // Refetch "my groups" every time this tab is focused, so joins/leaves made
   // elsewhere (or directly in Supabase) don't stay stale on screen.
@@ -42,6 +65,13 @@ export default function GroupsScreen() {
   return (
     <View style={styles.container}>
 
+      {/* Edit toggle — leader only, in the same band as the switcher */}
+      {isLeader && currentGroupId && (
+        <TouchableOpacity style={styles.editButton} onPress={toggleEditMode}>
+          <IconSymbol name="pencil" size={24} color={editMode ? '#43a047' : '#000'} />
+        </TouchableOpacity>
+      )}
+
       {/* Current group switcher */}
       <View style={styles.switcherWrap} pointerEvents="box-none">
         <TouchableOpacity style={styles.switcherButton} onPress={() => setSwitcherOpen(o => !o)}>
@@ -53,7 +83,8 @@ export default function GroupsScreen() {
       <GroupSwitcher
         visible={switcherOpen}
         groups={groupNames}
-        onSelect={(id) => { setCurrentGroupId(id); setSwitcherOpen(false); }}
+        // Edit mode belongs to the group you were editing, so switching leaves it.
+        onSelect={(id) => { setCurrentGroupId(id); setSwitcherOpen(false); setEditMode(false); setDirty(false); }}
         onCreate={() => { setSwitcherOpen(false); setCreating(true); }}
         onJoin={() => { setSwitcherOpen(false); setJoining(true); }}
         onClose={() => setSwitcherOpen(false)}
@@ -68,7 +99,17 @@ export default function GroupsScreen() {
         </View>
       ) : (
         <ScrollView style={styles.groupsList} contentContainerStyle={styles.groupsListContent}>
-          {currentGroupId && <GroupPost groupId={currentGroupId} isMember onLeft={refreshGroups} onDissolved={refreshGroups} />}
+          {currentGroupId && (
+            <GroupPost
+              groupId={currentGroupId}
+              isMember
+              editMode={editMode}
+              onDirty={() => setDirty(true)}
+              onSaved={() => { setDirty(false); setEditMode(false); }}
+              onLeft={refreshGroups}
+              onDissolved={refreshGroups}
+            />
+          )}
         </ScrollView>
       )}
 
@@ -78,7 +119,7 @@ export default function GroupsScreen() {
       {/* Create group modal */}
       <Modal visible={creating} animationType="slide" onRequestClose={() => setCreating(false)}>
         <ZoomRoot>
-          <GroupPost editable={true} onClose={() => { setCreating(false); refreshGroups(); }} />
+          <GroupPost creating onClose={() => { setCreating(false); refreshGroups(); }} />
         </ZoomRoot>
       </Modal>
 
@@ -106,6 +147,16 @@ const styles = StyleSheet.create({
     right: 0,
     alignItems: 'center',
     zIndex: 2,
+  },
+
+  // Same 44pt band as the switcher button, so the pencil sits in line with it.
+  editButton: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    height: 44,
+    justifyContent: 'center',
+    zIndex: 3,
   },
 
   switcherButton: {

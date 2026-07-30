@@ -46,9 +46,10 @@ export default function TabLayout() {
             <Text style={styles.gateSignOut}>Sign out</Text>
           </TouchableOpacity>
         </View>
+        {/* Nothing to view yet, so this one never leaves edit mode. */}
         <IndividualPost
           personId={session.user.id}
-          editable={true}
+          editMode
           onSave={() => setComplete(true)}
         />
       </View>
