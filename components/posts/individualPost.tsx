@@ -407,7 +407,7 @@ export default function IndividualPost({ personId, creating = false, editMode = 
               <ActivityIndicator size={24} color="#43a047" style={styles.editButton} />
             ) : (
               <TouchableOpacity style={styles.editButton} onPress={onToggleEdit}>
-                <Pencil size={24} color={editMode ? '#43a047' : '#000'} />
+                <Pencil size={27.6} color={editMode ? '#43a047' : '#000'} />
               </TouchableOpacity>
             )
           )}
@@ -529,10 +529,10 @@ const styles = StyleSheet.create({
   // own center (r = 52.5), then inset by the icon's own radius.
   editButton: {
     position: 'absolute',
-    top: 77.6,
-    left: 77.6,
-    width: 24,
-    height: 24,
+    top: 75.8,
+    left: 75.8,
+    width: 27.6,
+    height: 27.6,
     alignItems: 'center',
     justifyContent: 'center',
   },

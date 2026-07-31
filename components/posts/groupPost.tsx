@@ -604,7 +604,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
             <ActivityIndicator size={24} color="#43a047" style={styles.editButton} />
           ) : (
             <TouchableOpacity style={styles.editButton} onPress={onToggleEdit}>
-              <Pencil size={24} color={editMode ? '#43a047' : '#000'} />
+              <Pencil size={27.6} color={editMode ? '#43a047' : '#000'} />
             </TouchableOpacity>
           )
         )}
@@ -793,11 +793,11 @@ const styles = StyleSheet.create({
   },
 
   // Pinned to the far right of the row, so it lines up with the cards' right
-  // edge. Sized to the icon (24 grows to 26.4 with the disc's padding) so the
+  // edge. Sized to the icon (27.6 grows to 30.4 with the disc's padding) so the
   // disc sits flush and layout doesn't depend on edit state.
   editButton: {
-    width: 26.4,
-    height: 26.4,
+    width: 30.4,
+    height: 30.4,
     alignItems: 'center',
     justifyContent: 'center',
   },
