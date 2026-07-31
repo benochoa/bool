@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { Image } from 'expo-image';
 import { Alert, Modal, StyleSheet, TouchableOpacity, View } from 'react-native';
 import History from '@/components/profile/history';
 import IndividualPost, { IndividualPostHandle } from '@/components/posts/individualPost';
@@ -43,12 +44,19 @@ export default function ProfileScreen() {
       {/* The edit pencil lives beside the name inside the post, so it scrolls
           away with the content — this header is only history/settings. */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => setHistoryOpen(true)}>
-          <IconSymbol name="book.fill" size={24} color="#000" />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setSettingsOpen(true)}>
-          <IconSymbol name="gearshape.fill" size={24} color="#000" />
-        </TouchableOpacity>
+        <Image
+          source={require('../../assets/images/bool-logo.png')}
+          style={styles.logo}
+          contentFit="contain"
+        />
+        <View style={styles.headerRight}>
+          <TouchableOpacity onPress={() => setHistoryOpen(true)}>
+            <IconSymbol name="book.fill" size={24} color="#000" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setSettingsOpen(true)}>
+            <IconSymbol name="gearshape.fill" size={24} color="#000" />
+          </TouchableOpacity>
+        </View>
       </View>
       <IndividualPost
         ref={postRef}
@@ -76,10 +84,26 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    // Logo at the left, history/settings at the right.
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 16,
     paddingTop: 60,
     paddingHorizontal: 20,
+  },
+  // Matches the file's own aspect (755x289), so `contain` fills the box exactly
+  // and the wordmark neither letterboxes nor crops. The artwork is trimmed to
+  // the ink, so this height is the letter height — it sets the header's height,
+  // and the 24pt icons centre against it.
+  logo: {
+    height: 26,
+    width: 68,
+    // The artwork is trimmed to the ink, so it has no optical margin of its own
+    // — this nudges it off the header's own left padding.
+    marginLeft: 6,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
   },
 });

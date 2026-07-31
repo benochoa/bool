@@ -1,4 +1,3 @@
-import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Pencil } from '@/assets/symbols/Pencil';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { supabase } from '@/supabaseClient';
@@ -336,19 +335,12 @@ export default function IndividualPost({ personId, creating = false, editMode = 
       const aspect = photoAspects[slot.index] ?? DEFAULT_ASPECT;
       const height = Math.min(EDIT_CARD_HEIGHT, EDIT_CARD_WIDTH / aspect);
       return (
-        <View>
-          <ZoomableImage
-            uri={uri}
-            style={{ width: height * aspect, height, borderRadius: 8 }}
-            onLoad={e => handlePhotoLoad(slot.index, e)}
-            onPress={() => pickPhoto(slot.index)}
-          />
-          {/* Indicator only — the photo itself takes the tap, so this must not
-              intercept the pinch-to-zoom gesture under it. */}
-          <View style={styles.photoEditBadge} pointerEvents="none">
-            <IconSymbol name="pencil" size={14} color="#000" weight="bold" />
-          </View>
-        </View>
+        <ZoomableImage
+          uri={uri}
+          style={{ width: height * aspect, height, borderRadius: 8 }}
+          onLoad={e => handlePhotoLoad(slot.index, e)}
+          onPress={() => pickPhoto(slot.index)}
+        />
       );
     }
     return (
@@ -574,27 +566,6 @@ const styles = StyleSheet.create({
   photoCard: {
     width: CARD_WIDTH,
     marginTop: 20,
-  },
-
-  // Edit-mode marker that a photo is tappable — bottom-right, matching the
-  // profile picture's badge.
-  photoEditBadge: {
-    position: 'absolute',
-    bottom: 12,
-    right: 12,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 2,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 2,
   },
 
   image: {
