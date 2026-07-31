@@ -1,10 +1,11 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { Pencil } from '@/assets/symbols/Pencil';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { supabase } from '@/supabaseClient';
 import { Image } from 'expo-image';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
-import { Ref, useEffect, useImperativeHandle, useState } from 'react';
+import { Ref, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,6 +19,7 @@ import {
   View
 } from 'react-native';
 import { fetchPerson, PersonData } from '@/lib/fetchPerson';
+import { useKeyboardAwareScroll } from '@/hooks/use-keyboard-aware-scroll';
 import ZoomableImage from './zoomableImage';
 import CardReorder, { EDIT_CARD_HEIGHT, EDIT_CARD_WIDTH } from './cardReorder';
 import { snapToStandardAspect, DEFAULT_ASPECT } from '@/lib/aspectRatio';
@@ -68,10 +70,13 @@ interface Props {
   // Fired on the first edit of a session so the screen owning `editMode` knows
   // to offer Save/Discard on the way out.
   onDirty?: () => void;
+  // Passed only where the viewer may edit — its presence is what puts the
+  // pencil beside the name, so Discover and the member-profile modal get none.
+  onToggleEdit?: () => void;
   ref?: Ref<IndividualPostHandle>;
 }
 
-export default function IndividualPost({ personId, creating = false, editMode = false, standalone = false, onSave, onDirty, ref }: Props) {
+export default function IndividualPost({ personId, creating = false, editMode = false, standalone = false, onSave, onDirty, onToggleEdit, ref }: Props) {
 
   const isEditMode = creating || editMode;
 
@@ -90,6 +95,10 @@ export default function IndividualPost({ personId, creating = false, editMode = 
   const [answers, setAnswers] = useState<string[]>(['', '']);
   const [cardOrder, setCardOrder] = useState<CardSlot[]>(DEFAULT_PERSON_CARD_ORDER);
   const [saving, setSaving] = useState(false);
+
+  // Keeps the Q&A card you tapped fully above the keyboard.
+  const { scrollRef, onScroll, reveal, spacerHeight } = useKeyboardAwareScroll();
+  const qaCards = useRef<Record<number, View | null>>({});
 
   // Fetch person data, then pre-fill the form from it. `editMode` is
   // deliberately not a dependency: the pencil has to flip into edit mode
@@ -343,7 +352,7 @@ export default function IndividualPost({ personId, creating = false, editMode = 
       );
     }
     return (
-      <View style={styles.editQaCard}>
+      <View style={styles.editQaCard} ref={node => { qaCards.current[slot.index] = node; }}>
         <Text style={styles.question}>{questions[slot.index]}</Text>
         <TextInput
           style={styles.answerInput}
@@ -356,6 +365,7 @@ export default function IndividualPost({ personId, creating = false, editMode = 
             setAnswers(updated);
             onDirty?.();
           }}
+          onFocus={() => reveal(qaCards.current[slot.index])}
           multiline
         />
       </View>
@@ -374,6 +384,9 @@ export default function IndividualPost({ personId, creating = false, editMode = 
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
     <ScrollView
+      ref={scrollRef}
+      onScroll={onScroll}
+      scrollEventThrottle={16}
       style={styles.container}
       contentContainerStyle={[styles.content, standalone && styles.contentStandalone]}
       keyboardShouldPersistTaps="handled"
@@ -381,25 +394,32 @@ export default function IndividualPost({ personId, creating = false, editMode = 
 
       {/* Header — circular profile picture stacked above the name, centered */}
       <View style={styles.headerRow}>
-        {/* Like the card photos: the whole picture is the tap target in edit
-            mode, and the badge is only a marker. */}
-        <TouchableOpacity
-          style={styles.profilePicWrap}
-          activeOpacity={0.7}
-          disabled={!isEditMode}
-          onPress={pickProfilePic}
-        >
-          {(isEditMode ? profilePic : data?.profilePicUrl) ? (
-            <Image source={{ uri: (isEditMode ? profilePic : data?.profilePicUrl)! }} style={styles.profilePic} contentFit="cover" />
-          ) : (
-            <View style={styles.profilePicPlaceholder} />
+        <View style={styles.profilePicWrap}>
+          {/* Like the card photos, the whole picture is the tap target in edit
+              mode — the pencil beside it is the toggle, not the photo picker. */}
+          <TouchableOpacity
+            activeOpacity={0.7}
+            disabled={!isEditMode}
+            onPress={pickProfilePic}
+          >
+            {(isEditMode ? profilePic : data?.profilePicUrl) ? (
+              <Image source={{ uri: (isEditMode ? profilePic : data?.profilePicUrl)! }} style={styles.profilePic} contentFit="cover" />
+            ) : (
+              <View style={styles.profilePicPlaceholder} />
+            )}
+          </TouchableOpacity>
+          {onToggleEdit && (
+            // The ✓ is gone in edit mode, so the spinner is the only sign a
+            // save is running.
+            saving ? (
+              <ActivityIndicator size={24} color="#43a047" style={styles.editButton} />
+            ) : (
+              <TouchableOpacity style={styles.editButton} onPress={onToggleEdit}>
+                <Pencil size={24} color={editMode ? '#43a047' : '#000'} />
+              </TouchableOpacity>
+            )
           )}
-          {isEditMode && (
-            <View style={styles.profilePicEditBadge} pointerEvents="none">
-              <IconSymbol name="pencil" size={14} color="#000" weight="bold" />
-            </View>
-          )}
-        </TouchableOpacity>
+        </View>
 
         <View style={styles.nameWrap}>
           {isEditMode ? (
@@ -438,6 +458,9 @@ export default function IndividualPost({ personId, creating = false, editMode = 
           )}
         </TouchableOpacity>
       )}
+
+      {/* Room for the focused card to rise above the keyboard. */}
+      <View style={{ height: spacerHeight }} />
 
     </ScrollView>
     </KeyboardAvoidingView>
@@ -502,7 +525,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ddd',
   },
 
-  // Wraps the circle so the edit badge can anchor to it directly — same
+  // Wraps the circle so the edit pencil can anchor to it directly — same
   // 105px box as profilePic.
   profilePicWrap: {
     width: 105,
@@ -511,24 +534,15 @@ const styles = StyleSheet.create({
 
   // Sits at 45° below the positive x-axis of the profile pic, centered on
   // its edge (half in, half out): offset = r*cos45 ≈ 37.1 from the pic's
-  // own center (r = 52.5), then inset by the badge's own radius.
-  profilePicEditBadge: {
+  // own center (r = 52.5), then inset by the icon's own radius.
+  editButton: {
     position: 'absolute',
-    top: 76,
-    left: 76,
-    width: 27,
-    height: 27,
-    borderRadius: 13.5,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd',
+    top: 77.6,
+    left: 77.6,
+    width: 24,
+    height: 24,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 2,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 2,
   },
 
   nameWrap: {

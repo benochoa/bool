@@ -1,12 +1,15 @@
 import { Image } from 'expo-image';
-import { Dimensions, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, Dimensions, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Type } from '@/constants/theme';
 import { GroupName } from '@/lib/fetchGroupNames';
 import { Key } from '@/assets/symbols/Key';
 import { Plus } from '@/assets/symbols/Plus';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
+// Matches styles.sheet's 35% height — the sheet's offscreen resting place.
+const SHEET_HEIGHT = height * 0.35;
 
 interface Props {
   visible: boolean;
@@ -18,10 +21,31 @@ interface Props {
 }
 
 export default function GroupSwitcher({ visible, groups, onSelect, onCreate, onJoin, onClose }: Props) {
+
+  // Modal's own "slide" animates the tint along with the sheet. Driving the
+  // sheet here instead lets the tint be instant in both directions — which
+  // means staying mounted until the closing slide has finished.
+  const [mounted, setMounted] = useState(visible);
+  const translateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
+
+  useEffect(() => {
+    if (visible) setMounted(true);
+    Animated.timing(translateY, {
+      toValue: visible ? 0 : SHEET_HEIGHT,
+      duration: visible ? 250 : 200,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished && !visible) setMounted(false);
+    });
+  }, [visible, translateY]);
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={mounted} transparent animationType="none" onRequestClose={onClose}>
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
-        <View style={styles.sheet} onStartShouldSetResponder={() => true}>
+        <Animated.View
+          style={[styles.sheet, { transform: [{ translateY }] }]}
+          onStartShouldSetResponder={() => true}
+        >
           <View style={styles.card}>
             <ScrollView showsVerticalScrollIndicator={false}>
             {groups.map((group, i) => (
@@ -54,7 +78,7 @@ export default function GroupSwitcher({ visible, groups, onSelect, onCreate, onJ
             </TouchableOpacity>
             </ScrollView>
           </View>
-        </View>
+        </Animated.View>
       </TouchableOpacity>
     </Modal>
   );

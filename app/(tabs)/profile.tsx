@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Alert, Modal, StyleSheet, TouchableOpacity, View } from 'react-native';
 import History from '@/components/profile/history';
 import IndividualPost, { IndividualPostHandle } from '@/components/posts/individualPost';
 import Settings from '@/components/profile/settings';
@@ -15,15 +15,13 @@ export default function ProfileScreen() {
   // Set by the post on its first edit; leaving edit mode re-reads the saved
   // row, so anything unsaved is dropped unless it's saved on the way out.
   const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
   const postRef = useRef<IndividualPostHandle>(null);
 
   if (!session) return null;
 
   async function handleSave() {
-    setSaving(true);
+    // The post shows its own spinner in place of the pencil while this runs.
     const saved = await postRef.current?.save();
-    setSaving(false);
     // A failed save has already shown its own alert — stay in edit mode so the
     // edits aren't lost.
     if (saved) { setDirty(false); setEditMode(false); }
@@ -42,29 +40,22 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.container}>
+      {/* The edit pencil lives beside the name inside the post, so it scrolls
+          away with the content — this header is only history/settings. */}
       <View style={styles.header}>
-        {/* The ✓ is gone, so this spinner is the only sign a save is running. */}
-        {saving ? (
-          <ActivityIndicator size={24} color="#43a047" />
-        ) : (
-          <TouchableOpacity onPress={toggleEditMode}>
-            <IconSymbol name="pencil" size={24} color={editMode ? '#43a047' : '#000'} />
-          </TouchableOpacity>
-        )}
-        <View style={styles.headerRight}>
-          <TouchableOpacity onPress={() => setHistoryOpen(true)}>
-            <IconSymbol name="book.fill" size={24} color="#000" />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setSettingsOpen(true)}>
-            <IconSymbol name="gearshape.fill" size={24} color="#000" />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity onPress={() => setHistoryOpen(true)}>
+          <IconSymbol name="book.fill" size={24} color="#000" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setSettingsOpen(true)}>
+          <IconSymbol name="gearshape.fill" size={24} color="#000" />
+        </TouchableOpacity>
       </View>
       <IndividualPost
         ref={postRef}
         personId={session.user.id}
         editMode={editMode}
         onDirty={() => setDirty(true)}
+        onToggleEdit={toggleEditMode}
       />
 
       <Modal visible={historyOpen} animationType="slide" onRequestClose={() => setHistoryOpen(false)}>
@@ -85,15 +76,10 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    // Edit pencil at the left, history/settings at the right.
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: 60,
-    paddingHorizontal: 20,
-  },
-  headerRight: {
-    flexDirection: 'row',
+    justifyContent: 'flex-end',
     alignItems: 'center',
     gap: 16,
+    paddingTop: 60,
+    paddingHorizontal: 20,
   },
 });

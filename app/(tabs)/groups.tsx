@@ -1,6 +1,6 @@
 import {
   StyleSheet, View, Text, TouchableOpacity, Modal,
-  ActivityIndicator, ScrollView, Alert
+  ActivityIndicator, Alert
 } from 'react-native';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
@@ -9,7 +9,6 @@ import { ZoomRoot } from '@/components/posts/zoomOverlay';
 import GroupSwitcher from '@/components/groups/groupSwitcher';
 import JoinGroup from '@/components/groups/joinGroup';
 import { ChevronDown } from '@/assets/symbols/ChevronDown';
-import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Palette, Type } from '@/constants/theme';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useSession } from '@/hooks/use-session';
@@ -29,7 +28,6 @@ export default function GroupsScreen() {
   // Set by the post on its first edit; leaving edit mode re-reads the saved
   // row, so anything unsaved is dropped unless it's saved on the way out.
   const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
   const postRef = useRef<GroupPostHandle>(null);
 
   // One query resolves every switcher name — the menu rows and the active
@@ -45,9 +43,8 @@ export default function GroupsScreen() {
   const isLeader = !!(session?.user && currentGroup?.created_by === session.user.id);
 
   async function handleSave() {
-    setSaving(true);
+    // The post shows its own spinner in place of the pencil while this runs.
     const saved = await postRef.current?.save();
-    setSaving(false);
     // A failed save has already shown its own alert — stay in edit mode so the
     // edits aren't lost.
     if (saved) { setDirty(false); setEditMode(false); }
@@ -75,17 +72,8 @@ export default function GroupsScreen() {
   return (
     <View style={styles.container}>
 
-      {/* Edit toggle — leader only, in the same band as the switcher. The ✓ is
-          gone, so the spinner is the only sign a save is running. */}
-      {isLeader && currentGroupId && (
-        saving ? (
-          <ActivityIndicator size={24} color="#43a047" style={styles.editButton} />
-        ) : (
-          <TouchableOpacity style={styles.editButton} onPress={toggleEditMode}>
-            <IconSymbol name="pencil" size={24} color={editMode ? '#43a047' : '#000'} />
-          </TouchableOpacity>
-        )
-      )}
+      {/* The edit pencil lives beside the name inside the post, so it scrolls
+          away with the content rather than sitting in this band. */}
 
       {/* Current group switcher */}
       <View style={styles.switcherWrap} pointerEvents="box-none">
@@ -113,19 +101,25 @@ export default function GroupsScreen() {
           <Text style={styles.emptyText}>You are not in any groups yet. Create one or join your friends!</Text>
         </View>
       ) : (
-        <ScrollView style={styles.groupsList} contentContainerStyle={styles.groupsListContent}>
+        // The post owns the scrolling — wrapping it in a ScrollView of its own
+        // would leave its inner one with nothing to scroll, and with no way to
+        // bring a keyboard-covered card into view.
+        <View style={styles.groupsList}>
           {currentGroupId && (
             <GroupPost
               ref={postRef}
               groupId={currentGroupId}
               isMember
+              topInset={100}
               editMode={editMode}
               onDirty={() => setDirty(true)}
+              // Only the leader gets a pencil, so only the leader gets the toggle.
+              onToggleEdit={isLeader ? toggleEditMode : undefined}
               onLeft={() => { setEditMode(false); refreshGroups(); }}
               onDissolved={() => { setEditMode(false); refreshGroups(); }}
             />
           )}
-        </ScrollView>
+        </View>
       )}
 
       {/* Join group modal */}
@@ -164,16 +158,6 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
 
-  // Same 44pt band as the switcher button, so the pencil sits in line with it.
-  editButton: {
-    position: 'absolute',
-    top: 60,
-    left: 20,
-    height: 44,
-    justifyContent: 'center',
-    zIndex: 3,
-  },
-
   switcherButton: {
     maxWidth: '80%',
     height: 44,
@@ -206,13 +190,6 @@ const styles = StyleSheet.create({
   // Groups list
   groupsList: {
     flex: 1,
-  },
-
-  groupsListContent: {
-    // Clears the absolute +/switcher band (60–104pt) so the group name lands
-    // at the same height as on the explore tab, for leaders and members alike.
-    paddingTop: 100,
-    paddingBottom: 40,
   },
 
 });

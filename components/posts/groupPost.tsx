@@ -10,8 +10,10 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '@/supabaseClient';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { Pencil } from '@/assets/symbols/Pencil';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
+import { useKeyboardAwareScroll } from '@/hooks/use-keyboard-aware-scroll';
 import { fetchGroup, GroupData } from '@/lib/fetchGroup';
 import { leaveGroup } from '@/lib/leaveGroup';
 import { dissolveGroup } from '@/lib/dissolveGroup';
@@ -122,10 +124,18 @@ interface Props {
   // Fired on the first edit of a session so the screen owning `editMode` knows
   // to offer Save/Discard on the way out.
   onDirty?: () => void;
+  // Passed only where the viewer may edit — its presence is what puts the
+  // pencil beside the name, so Discover never shows one.
+  onToggleEdit?: () => void;
+  // Top clearance for a screen whose own header floats over this post (the
+  // groups tab's switcher band). It belongs to the scrolled content, so the
+  // post keeps scrolling under that header — and the post keeps owning its
+  // scroll view, which is what lets it scroll a focused card into view.
+  topInset?: number;
   ref?: Ref<GroupPostHandle>;
 }
 
-export default function GroupPost({ groupId, creating = false, editMode = false, onClose, isMember = false, onLeft, onDissolved, onDirty, ref }: Props) {
+export default function GroupPost({ groupId, creating = false, editMode = false, onClose, isMember = false, onLeft, onDissolved, onDirty, onToggleEdit, topInset, ref }: Props) {
 
   const { session } = useSession();
 
@@ -147,6 +157,10 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
   const [answers, setAnswers] = useState<string[]>(['', '', '']);
   const [cardOrder, setCardOrder] = useState<CardSlot[]>(DEFAULT_GROUP_CARD_ORDER);
   const [saving, setSaving] = useState(false);
+
+  // Keeps the Q&A card you tapped fully above the keyboard.
+  const { scrollRef, onScroll, reveal, spacerHeight } = useKeyboardAwareScroll();
+  const qaCards = useRef<Record<number, View | null>>({});
   const [saved, setSaved] = useState(false);
 
   // Creation is always editing; on a saved group, only the leader can turn edit
@@ -527,7 +541,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
       );
     }
     return (
-      <View style={styles.editQaCard}>
+      <View style={styles.editQaCard} ref={node => { qaCards.current[slot.index] = node; }}>
         <Text style={styles.question}>{questions[slot.index]}</Text>
         <TextInput
           style={styles.answerInput}
@@ -540,6 +554,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
             setAnswers(updated);
             onDirty?.();
           }}
+          onFocus={() => reveal(qaCards.current[slot.index])}
           multiline
         />
       </View>
@@ -558,8 +573,15 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
     <ScrollView
+      ref={scrollRef}
+      onScroll={onScroll}
+      scrollEventThrottle={16}
       style={styles.container}
-      contentContainerStyle={[styles.content, creating && onClose && styles.contentWithBackButton]}
+      contentContainerStyle={[
+        styles.content,
+        creating && onClose && styles.contentWithBackButton,
+        topInset !== undefined && { paddingTop: topInset },
+      ]}
       keyboardShouldPersistTaps="handled"
     >
 
@@ -582,6 +604,17 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
           />
         ) : (
           <Text style={styles.name}>{data?.name}</Text>
+        )}
+        {onToggleEdit && isLeader && (
+          // The ✓ is gone in edit mode, so the spinner is the only sign a save
+          // is running.
+          saving ? (
+            <ActivityIndicator size={24} color="#43a047" style={styles.editButton} />
+          ) : (
+            <TouchableOpacity style={styles.editButton} onPress={onToggleEdit}>
+              <Pencil size={24} color={editMode ? '#43a047' : '#000'} />
+            </TouchableOpacity>
+          )
         )}
       </View>
 
@@ -685,6 +718,9 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
         onClose={() => setManagedMember(null)}
       />
 
+      {/* Room for the focused card to rise above the keyboard. */}
+      <View style={{ height: spacerHeight }} />
+
     </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -733,10 +769,13 @@ const styles = StyleSheet.create({
     marginTop: 32,
   },
 
-  // Name
+  // Name — left-aligned, with the pencil on its right.
   nameContainer: {
     width: CARD_WIDTH,
     marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
 
   // The view-mode text carries the input's box model with an invisible rule,
@@ -744,6 +783,7 @@ const styles = StyleSheet.create({
   name: {
     ...Type.title,
     color: '#000',
+    flex: 1,
     textAlign: 'left',
     borderBottomWidth: 1,
     borderBottomColor: 'transparent',
@@ -753,10 +793,21 @@ const styles = StyleSheet.create({
   nameInput: {
     ...Type.title,
     color: '#000',
+    flex: 1,
     textAlign: 'left',
     borderBottomWidth: 1,
     borderBottomColor: '#ccc',
     paddingVertical: 4,
+  },
+
+  // Pinned to the far right of the row, so it lines up with the cards' right
+  // edge. Sized to the icon (24 grows to 26.4 with the disc's padding) so the
+  // disc sits flush and layout doesn't depend on edit state.
+  editButton: {
+    width: 26.4,
+    height: 26.4,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   // Photos — each in its own card, no white box (image bleeds to card width).
