@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigation } from 'expo-router';
 import { Image } from 'expo-image';
 import { ActivityIndicator, Alert, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import History from '@/components/profile/history';
@@ -6,6 +7,7 @@ import IndividualPost, { IndividualPostHandle } from '@/components/posts/individ
 import Settings from '@/components/profile/settings';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Palette, Type } from '@/constants/theme';
+import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { useSession } from '@/hooks/use-session';
 
 export default function ProfileScreen() {
@@ -18,6 +20,13 @@ export default function ProfileScreen() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const postRef = useRef<IndividualPostHandle>(null);
+
+  // Editing takes over the whole screen: with the bar hidden there's no way to
+  // leave the tab mid-edit, so unsaved work can't be stranded behind a switch.
+  const navigation = useNavigation();
+  useEffect(() => {
+    navigation.setOptions({ tabBarStyle: editMode ? { display: 'none' } : undefined });
+  }, [navigation, editMode]);
 
   if (!session) return null;
 
@@ -32,14 +41,26 @@ export default function ProfileScreen() {
     if (saved) { setDirty(false); setEditMode(false); }
   }
 
-  function toggleEditMode() {
-    if (!editMode) { setDirty(false); setEditMode(true); return; }
-    // Nothing to save, so no need to ask.
+  function enterEditMode() {
+    setDirty(false);
+    setEditMode(true);
+  }
+
+  // Only reachable with unsaved edits — Done is inert until then, so there is
+  // never a confirmation with nothing to confirm.
+  function handleDone() {
+    Alert.alert('Save changes?', undefined, [
+      { text: 'Continue editing', style: 'cancel' },
+      { text: 'Confirm', onPress: handleSave },
+    ]);
+  }
+
+  function handleBack() {
+    // Nothing to lose, so leave straight away.
     if (!dirty) { setEditMode(false); return; }
-    Alert.alert('Done editing?', undefined, [
-      { text: 'Keep editing', style: 'cancel' },
-      { text: 'Save changes', onPress: handleSave },
-      { text: 'Discard changes', style: 'destructive', onPress: () => { setDirty(false); setEditMode(false); } },
+    Alert.alert('Discard changes?', undefined, [
+      { text: 'Continue editing', style: 'cancel' },
+      { text: 'Discard', style: 'destructive', onPress: () => { setDirty(false); setEditMode(false); } },
     ]);
   }
 
@@ -51,17 +72,25 @@ export default function ProfileScreen() {
           slot entirely, so history and settings simply aren't reachable until
           you're done. */}
       <View style={styles.header}>
-        <Image
-          source={require('../../assets/images/bool-logo.png')}
-          style={styles.logo}
-          contentFit="contain"
-        />
+        {editMode ? (
+          <TouchableOpacity onPress={handleBack} hitSlop={8}>
+            <ChevronLeft size={26} color="#000" />
+          </TouchableOpacity>
+        ) : (
+          <Image
+            source={require('../../assets/images/bool-logo.png')}
+            style={styles.logo}
+            contentFit="contain"
+          />
+        )}
         {editMode ? (
           saving ? (
-            <ActivityIndicator size={24} color="#43a047" />
+            <ActivityIndicator size={24} color={Palette.confirm} />
           ) : (
-            <TouchableOpacity onPress={toggleEditMode}>
-              <Text style={styles.doneText}>Done</Text>
+            // Inert until there is something to save, which is what the grey
+            // says — so Done never opens a confirmation over no changes.
+            <TouchableOpacity onPress={handleDone} disabled={!dirty}>
+              <Text style={[styles.doneText, !dirty && styles.doneTextIdle]}>Done</Text>
             </TouchableOpacity>
           )
         ) : (
@@ -80,7 +109,7 @@ export default function ProfileScreen() {
         personId={session.user.id}
         editMode={editMode}
         onDirty={() => setDirty(true)}
-        onToggleEdit={toggleEditMode}
+        onToggleEdit={enterEditMode}
       />
 
       <Modal visible={historyOpen} animationType="slide" onRequestClose={() => setHistoryOpen(false)}>
@@ -123,9 +152,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 16,
   },
-  // Green, like every other affirmative action in the app.
   doneText: {
     ...Type.bodyBold,
-    color: '#43a047',
+    color: Palette.confirm,
+  },
+  doneTextIdle: {
+    color: Palette.muted,
   },
 });

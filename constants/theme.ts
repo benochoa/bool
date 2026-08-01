@@ -6,6 +6,10 @@
 // App palette — screens own the page background; cards sit on it in white.
 export const Palette = {
   background: '#F5F5F7',
+  // Done/Confirm, once an edit has something to save...
+  confirm: '#3B3B98',
+  // ...and the same control before it does: readable, but plainly not live.
+  muted: '#8A8A8E',
 };
 
 const tintColorLight = '#0a7ea4';

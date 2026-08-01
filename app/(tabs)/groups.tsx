@@ -3,12 +3,14 @@ import {
   ActivityIndicator, Alert
 } from 'react-native';
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigation } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import GroupPost, { GroupPostHandle } from '@/components/posts/groupPost';
 import { ZoomRoot } from '@/components/posts/zoomOverlay';
 import GroupSwitcher from '@/components/groups/groupSwitcher';
 import JoinGroup from '@/components/groups/joinGroup';
 import { ChevronDown } from '@/assets/symbols/ChevronDown';
+import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { Palette, Type } from '@/constants/theme';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useSession } from '@/hooks/use-session';
@@ -28,7 +30,15 @@ export default function GroupsScreen() {
   // Set by the post on its first edit; leaving edit mode re-reads the saved
   // row, so anything unsaved is dropped unless it's saved on the way out.
   const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
   const postRef = useRef<GroupPostHandle>(null);
+
+  // Editing takes over the whole screen: with the bar hidden there's no way to
+  // leave the tab mid-edit, so unsaved work can't be stranded behind a switch.
+  const navigation = useNavigation();
+  useEffect(() => {
+    navigation.setOptions({ tabBarStyle: editMode ? { display: 'none' } : undefined });
+  }, [navigation, editMode]);
 
   // One query resolves every switcher name — the menu rows and the active
   // label both read from it.
@@ -43,21 +53,34 @@ export default function GroupsScreen() {
   const isLeader = !!(session?.user && currentGroup?.created_by === session.user.id);
 
   async function handleSave() {
-    // The post shows its own spinner in place of the pencil while this runs.
+    setSaving(true);
     const saved = await postRef.current?.save();
+    setSaving(false);
     // A failed save has already shown its own alert — stay in edit mode so the
     // edits aren't lost.
     if (saved) { setDirty(false); setEditMode(false); }
   }
 
-  function toggleEditMode() {
-    if (!editMode) { setDirty(false); setEditMode(true); return; }
-    // Nothing to save, so no need to ask.
+  function enterEditMode() {
+    setDirty(false);
+    setEditMode(true);
+  }
+
+  // Only reachable with unsaved edits — Done is inert until then, so there is
+  // never a confirmation with nothing to confirm.
+  function handleDone() {
+    Alert.alert('Save changes?', undefined, [
+      { text: 'Continue editing', style: 'cancel' },
+      { text: 'Confirm', onPress: handleSave },
+    ]);
+  }
+
+  function handleBack() {
+    // Nothing to lose, so leave straight away.
     if (!dirty) { setEditMode(false); return; }
-    Alert.alert('Done editing?', undefined, [
-      { text: 'Keep editing', style: 'cancel' },
-      { text: 'Save changes', onPress: handleSave },
-      { text: 'Discard changes', style: 'destructive', onPress: () => { setDirty(false); setEditMode(false); } },
+    Alert.alert('Discard changes?', undefined, [
+      { text: 'Continue editing', style: 'cancel' },
+      { text: 'Discard', style: 'destructive', onPress: () => { setDirty(false); setEditMode(false); } },
     ]);
   }
 
@@ -72,16 +95,32 @@ export default function GroupsScreen() {
   return (
     <View style={styles.container}>
 
-      {/* The edit pencil lives beside the name inside the post, so it scrolls
-          away with the content rather than sitting in this band. */}
-
-      {/* Current group switcher */}
-      <View style={styles.switcherWrap} pointerEvents="box-none">
-        <TouchableOpacity style={styles.switcherButton} onPress={() => setSwitcherOpen(o => !o)}>
-          <Text style={styles.switcherButtonText} numberOfLines={1}>{currentGroupName || 'Select a group'}</Text>
-          <ChevronDown size={16} color="#000" />
-        </TouchableOpacity>
-      </View>
+      {/* Editing takes over the band entirely: the switcher would be a way out
+          of the group mid-edit, and the name is editable in the post anyway. */}
+      {editMode ? (
+        <View style={styles.editBand}>
+          <TouchableOpacity onPress={handleBack} hitSlop={8}>
+            <ChevronLeft size={26} color="#000" />
+          </TouchableOpacity>
+          {saving ? (
+            <ActivityIndicator size={24} color={Palette.confirm} />
+          ) : (
+            // Inert until there is something to save, which is what the grey
+            // says — so Done never opens a confirmation over no changes.
+            <TouchableOpacity onPress={handleDone} disabled={!dirty}>
+              <Text style={[styles.doneText, !dirty && styles.doneTextIdle]}>Done</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      ) : (
+        /* Current group switcher */
+        <View style={styles.switcherWrap} pointerEvents="box-none">
+          <TouchableOpacity style={styles.switcherButton} onPress={() => setSwitcherOpen(o => !o)}>
+            <Text style={styles.switcherButtonText} numberOfLines={1}>{currentGroupName || 'Select a group'}</Text>
+            <ChevronDown size={16} color="#000" />
+          </TouchableOpacity>
+        </View>
+      )}
 
       <GroupSwitcher
         visible={switcherOpen}
@@ -114,7 +153,7 @@ export default function GroupsScreen() {
               editMode={editMode}
               onDirty={() => setDirty(true)}
               // Only the leader gets a pencil, so only the leader gets the toggle.
-              onToggleEdit={isLeader ? toggleEditMode : undefined}
+              onToggleEdit={isLeader ? enterEditMode : undefined}
               onLeft={() => { setEditMode(false); refreshGroups(); }}
               onDissolved={() => { setEditMode(false); refreshGroups(); }}
             />
@@ -146,6 +185,29 @@ const styles = StyleSheet.create({
   loader: {
     flex: 1,
     alignSelf: 'center',
+  },
+
+  // Edit controls — the same 44pt band the switcher occupies, so nothing below
+  // shifts when one replaces the other.
+  editBand: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    right: 20,
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 3,
+  },
+
+  doneText: {
+    ...Type.bodyBold,
+    color: Palette.confirm,
+  },
+
+  doneTextIdle: {
+    color: Palette.muted,
   },
 
   // Current group switcher

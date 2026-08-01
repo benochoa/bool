@@ -597,16 +597,12 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
         ) : (
           <Text style={styles.name}>{data?.name}</Text>
         )}
-        {onToggleEdit && isLeader && (
-          // The ✓ is gone in edit mode, so the spinner is the only sign a save
-          // is running.
-          saving ? (
-            <ActivityIndicator size={24} color="#43a047" style={styles.editButton} />
-          ) : (
-            <TouchableOpacity style={styles.editButton} onPress={onToggleEdit}>
-              <Pencil size={27.6} color={editMode ? '#43a047' : '#000'} />
-            </TouchableOpacity>
-          )
+        {/* Only the way in — edit mode is left from the screen's own header
+            (Done / back), so the pencil would be a third, redundant exit. */}
+        {onToggleEdit && isLeader && !editMode && (
+          <TouchableOpacity style={styles.editButton} onPress={onToggleEdit}>
+            <Pencil size={27.6} color="#000" />
+          </TouchableOpacity>
         )}
       </View>
 
