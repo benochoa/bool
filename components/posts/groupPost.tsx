@@ -126,6 +126,12 @@ interface Props {
   // Passed only where the viewer may edit — its presence is what puts the
   // pencil beside the name, so Discover never shows one.
   onToggleEdit?: () => void;
+  // Two instances of this post exist during the edit transition — a read copy
+  // underneath and an edit copy sliding over it. The read one reports its row
+  // up through `onLoaded`; the screen hands it back as `initialData`, so the
+  // edit copy mounts from data already in memory rather than fetching again.
+  onLoaded?: (data: GroupData | null) => void;
+  initialData?: GroupData | null;
   // Top clearance for a screen whose own header floats over this post (the
   // groups tab's switcher band). It belongs to the scrolled content, so the
   // post keeps scrolling under that header — and the post keeps owning its
@@ -134,13 +140,13 @@ interface Props {
   ref?: Ref<GroupPostHandle>;
 }
 
-export default function GroupPost({ groupId, creating = false, editMode = false, onClose, isMember = false, onLeft, onDissolved, onDirty, onToggleEdit, topInset, ref }: Props) {
+export default function GroupPost({ groupId, creating = false, editMode = false, onClose, isMember = false, onLeft, onDissolved, onDirty, onToggleEdit, onLoaded, initialData, topInset, ref }: Props) {
 
   const { session } = useSession();
 
   // State - read mode
-  const [data, setData] = useState<GroupData | null>(null);
-  const [loading, setLoading] = useState(!creating);
+  const [data, setData] = useState<GroupData | null>(initialData ?? null);
+  const [loading, setLoading] = useState(!creating && !initialData);
   const [selectedMember, setSelectedMember] = useState<string | null>(null);
   // Leader-only member popover (opened by long-pressing a member row).
   const [managedMember, setManagedMember] = useState<{ id: string; name: string; profilePicUrl: string | null } | null>(null);
@@ -174,10 +180,15 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
 
   // Fetch data (existing group) or questions (creation). `editMode` is
   // deliberately not a dependency: toggling it must not refetch, which would
-  // wipe any edits in progress.
+  // wipe any edits in progress. Neither is `initialData` — it seeds the first
+  // render only.
   useEffect(() => {
     if (creating) {
       fetchRandomGroupQuestions().then(qs => setQuestions(qs));
+    } else if (initialData) {
+      // Handed the row by whoever already fetched it (the edit overlay), so
+      // this instance can mount fully formed instead of round-tripping again.
+      prefillFromData(initialData);
     } else if (groupId) {
       // The same instance can be reused for another group (explore feed), so
       // clear the previous group's data — which would otherwise flash on
@@ -193,8 +204,10 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
           prefillFromData(result);
         }
         setLoading(false);
+        onLoaded?.(result);
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupId, creating, session]);
 
   // Pre-fill the edit form from fetched data; also used by Cancel to discard edits.

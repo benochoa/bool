@@ -1,11 +1,12 @@
 import {
   StyleSheet, View, Text, TouchableOpacity, Modal,
-  ActivityIndicator, Alert
+  ActivityIndicator, Alert, Animated, Dimensions
 } from 'react-native';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigation } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import GroupPost, { GroupPostHandle } from '@/components/posts/groupPost';
+import { GroupData } from '@/lib/fetchGroup';
 import { ZoomRoot } from '@/components/posts/zoomOverlay';
 import GroupSwitcher from '@/components/groups/groupSwitcher';
 import JoinGroup from '@/components/groups/joinGroup';
@@ -15,6 +16,9 @@ import { Palette, Type } from '@/constants/theme';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useSession } from '@/hooks/use-session';
 import { fetchGroupNames, GroupName } from '@/lib/fetchGroupNames';
+
+// How far offscreen the editor rests — a full screen width to the right.
+const WIDTH = Dimensions.get('window').width;
 
 export default function GroupsScreen() {
 
@@ -32,6 +36,26 @@ export default function GroupsScreen() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const postRef = useRef<GroupPostHandle>(null);
+  // The row the read copy fetched, handed to the edit copy so it mounts
+  // instantly instead of fetching the same group a second time.
+  const [snapshot, setSnapshot] = useState<GroupData | null>(null);
+  // Bumped after a save so the read copy underneath re-reads what was written.
+  const [readKey, setReadKey] = useState(0);
+  // Stays true through the slide-out, so the edit copy is still there to watch
+  // leave; `editMode` alone would unmount it mid-animation.
+  const [editorMounted, setEditorMounted] = useState(false);
+  const slide = useRef(new Animated.Value(WIDTH)).current;
+
+  useEffect(() => {
+    if (editMode) setEditorMounted(true);
+    Animated.timing(slide, {
+      toValue: editMode ? 0 : WIDTH,
+      duration: editMode ? 280 : 240,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished && !editMode) setEditorMounted(false);
+    });
+  }, [editMode, slide]);
 
   // Editing takes over the whole screen: with the bar hidden there's no way to
   // leave the tab mid-edit, so unsaved work can't be stranded behind a switch.
@@ -58,7 +82,14 @@ export default function GroupsScreen() {
     setSaving(false);
     // A failed save has already shown its own alert — stay in edit mode so the
     // edits aren't lost.
-    if (saved) { setDirty(false); setEditMode(false); }
+    if (saved) {
+      setDirty(false);
+      setEditMode(false);
+      // The read copy underneath still holds the pre-save row, and it's about
+      // to be the only thing on screen.
+      setReadKey(k => k + 1);
+      refreshGroups();
+    }
   }
 
   function enterEditMode() {
@@ -144,19 +175,38 @@ export default function GroupsScreen() {
         // would leave its inner one with nothing to scroll, and with no way to
         // bring a keyboard-covered card into view.
         <View style={styles.groupsList}>
+          {/* The read copy stays mounted underneath, so the editor has
+              something to slide over — and it's the one that fetches. */}
           {currentGroupId && (
             <GroupPost
-              ref={postRef}
+              key={`${currentGroupId}-${readKey}`}
               groupId={currentGroupId}
               isMember
               topInset={100}
-              editMode={editMode}
-              onDirty={() => setDirty(true)}
+              onLoaded={setSnapshot}
               // Only the leader gets a pencil, so only the leader gets the toggle.
               onToggleEdit={isLeader ? enterEditMode : undefined}
               onLeft={() => { setEditMode(false); refreshGroups(); }}
               onDissolved={() => { setEditMode(false); refreshGroups(); }}
             />
+          )}
+
+          {editorMounted && currentGroupId && (
+            <Animated.View
+              style={[StyleSheet.absoluteFill, styles.editor, { transform: [{ translateX: slide }] }]}
+            >
+              <GroupPost
+                ref={postRef}
+                groupId={currentGroupId}
+                isMember
+                topInset={100}
+                editMode
+                initialData={snapshot}
+                onDirty={() => setDirty(true)}
+                onLeft={() => { setEditMode(false); refreshGroups(); }}
+                onDissolved={() => { setEditMode(false); refreshGroups(); }}
+              />
+            </Animated.View>
           )}
         </View>
       )}
@@ -252,6 +302,11 @@ const styles = StyleSheet.create({
   // Groups list
   groupsList: {
     flex: 1,
+  },
+
+  // Opaque, or the read copy underneath would show through it.
+  editor: {
+    backgroundColor: Palette.background,
   },
 
 });

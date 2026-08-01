@@ -1,14 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigation } from 'expo-router';
-import { Image } from 'expo-image';
-import { ActivityIndicator, Alert, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator, Alert, Animated, Dimensions, Modal, StyleSheet, Text,
+  TouchableOpacity, View,
+} from 'react-native';
 import History from '@/components/profile/history';
 import IndividualPost, { IndividualPostHandle } from '@/components/posts/individualPost';
+import { PersonData } from '@/lib/fetchPerson';
 import Settings from '@/components/profile/settings';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Palette, Type } from '@/constants/theme';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { useSession } from '@/hooks/use-session';
+
+// How far offscreen the editor rests — a full screen width to the right.
+const WIDTH = Dimensions.get('window').width;
 
 export default function ProfileScreen() {
   const { session } = useSession();
@@ -20,6 +26,15 @@ export default function ProfileScreen() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const postRef = useRef<IndividualPostHandle>(null);
+  // The row the read copy fetched, handed to the edit copy so it mounts
+  // instantly instead of fetching the same profile a second time.
+  const [snapshot, setSnapshot] = useState<PersonData | null>(null);
+  // Bumped after a save so the read copy underneath re-reads what was written.
+  const [readKey, setReadKey] = useState(0);
+  // Stays true through the slide-out, so the edit copy is still there to watch
+  // leave; `editMode` alone would unmount it mid-animation.
+  const [editorMounted, setEditorMounted] = useState(false);
+  const slide = useRef(new Animated.Value(WIDTH)).current;
 
   // Editing takes over the whole screen: with the bar hidden there's no way to
   // leave the tab mid-edit, so unsaved work can't be stranded behind a switch.
@@ -27,6 +42,17 @@ export default function ProfileScreen() {
   useEffect(() => {
     navigation.setOptions({ tabBarStyle: editMode ? { display: 'none' } : undefined });
   }, [navigation, editMode]);
+
+  useEffect(() => {
+    if (editMode) setEditorMounted(true);
+    Animated.timing(slide, {
+      toValue: editMode ? 0 : WIDTH,
+      duration: editMode ? 280 : 240,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished && !editMode) setEditorMounted(false);
+    });
+  }, [editMode, slide]);
 
   if (!session) return null;
 
@@ -38,7 +64,13 @@ export default function ProfileScreen() {
     setSaving(false);
     // A failed save has already shown its own alert — stay in edit mode so the
     // edits aren't lost.
-    if (saved) { setDirty(false); setEditMode(false); }
+    if (saved) {
+      setDirty(false);
+      setEditMode(false);
+      // The read copy underneath still holds the pre-save row, and it's about
+      // to be the only thing on screen.
+      setReadKey(k => k + 1);
+    }
   }
 
   function enterEditMode() {
@@ -77,11 +109,9 @@ export default function ProfileScreen() {
             <ChevronLeft size={26} color="#000" />
           </TouchableOpacity>
         ) : (
-          <Image
-            source={require('../../assets/images/bool-logo.png')}
-            style={styles.logo}
-            contentFit="contain"
-          />
+          // Nothing on the left outside edit mode — an empty slot, so the
+          // header's space-between still pushes the icons to the right.
+          <View />
         )}
         {editMode ? (
           saving ? (
@@ -104,13 +134,30 @@ export default function ProfileScreen() {
           </View>
         )}
       </View>
-      <IndividualPost
-        ref={postRef}
-        personId={session.user.id}
-        editMode={editMode}
-        onDirty={() => setDirty(true)}
-        onToggleEdit={enterEditMode}
-      />
+      {/* The read copy stays mounted underneath, so the editor has something to
+          slide over — and it's the one that fetches the profile. */}
+      <View style={styles.body}>
+        <IndividualPost
+          key={readKey}
+          personId={session.user.id}
+          onLoaded={setSnapshot}
+          onToggleEdit={enterEditMode}
+        />
+
+        {editorMounted && (
+          <Animated.View
+            style={[StyleSheet.absoluteFill, styles.editor, { transform: [{ translateX: slide }] }]}
+          >
+            <IndividualPost
+              ref={postRef}
+              personId={session.user.id}
+              editMode
+              initialData={snapshot}
+              onDirty={() => setDirty(true)}
+            />
+          </Animated.View>
+        )}
+      </View>
 
       <Modal visible={historyOpen} animationType="slide" onRequestClose={() => setHistoryOpen(false)}>
         <History onClose={() => setHistoryOpen(false)} />
@@ -136,21 +183,19 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingHorizontal: 20,
   },
-  // Matches the file's own aspect (755x289), so `contain` fills the box exactly
-  // and the wordmark neither letterboxes nor crops. The artwork is trimmed to
-  // the ink, so this height is the letter height — it sets the header's height,
-  // and the 24pt icons centre against it.
-  logo: {
-    height: 26,
-    width: 68,
-    // The artwork is trimmed to the ink, so it has no optical margin of its own
-    // — this nudges it off the header's own left padding.
-    marginLeft: 6,
-  },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 16,
+  },
+  // Anchors the editor's absolute fill to the area below the header, so the
+  // header's own controls stay above it and never slide.
+  body: {
+    flex: 1,
+  },
+  // Opaque, or the read copy underneath would show through it.
+  editor: {
+    backgroundColor: Palette.background,
   },
   doneText: {
     ...Type.bodyBold,

@@ -1,18 +1,26 @@
 import { Tabs } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { ComponentProps, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+import { House } from '@/assets/symbols/House';
 import { HapticTab } from '@/components/haptic-tab';
 import IndividualPost from '@/components/posts/individualPost';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors, FontFamily, Palette, Type } from '@/constants/theme';
+import { Palette, Type } from '@/constants/theme';
 import { CurrentGroupProvider } from '@/hooks/use-current-group';
-import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/supabaseClient';
 
+// Off-white — pure #fff glares against the bar, so the icons sit just under it.
+const TAB_ICON = '#E8E8EA';
+
+// Outline vs filled is the only thing separating the active tab from the rest,
+// so every tab draws its symbol identically otherwise.
+function TabIcon({ name, color }: { name: ComponentProps<typeof IconSymbol>['name']; color: string }) {
+  return <IconSymbol size={25} style={styles.tabIcon} name={name} color={color} />;
+}
+
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
   const { session } = useSession();
   // null = still checking, false = profile incomplete, true = good to go
   const [complete, setComplete] = useState<boolean | null>(null);
@@ -61,44 +69,62 @@ export default function TabLayout() {
     <CurrentGroupProvider>
       <Tabs
         screenOptions={{
-          tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
+          // One colour for both states — the active tab is marked by a filled
+          // symbol against the others' outlines, not by a tint change.
+          tabBarActiveTintColor: TAB_ICON,
+          tabBarInactiveTintColor: TAB_ICON,
           headerShown: false,
           tabBarButton: HapticTab,
-          tabBarLabelStyle: { fontFamily: FontFamily.medium },
+          // Icons only. Each screen keeps its `title`, which is what the tab
+          // still announces to screen readers.
+          tabBarShowLabel: false,
         }}>
         <Tabs.Screen
           name="index"
           options={{
             title: 'Explore',
-            tabBarIcon: ({ color }) => <IconSymbol size={28} name="flame.fill" color={color} />,
+            // Hand-drawn rather than an SF Symbol — the wrapper matches what
+            // TabIcon gives the others, so the row still shares its edges.
+            tabBarIcon: ({ color, focused }) => (
+              <View style={styles.tabIcon}>
+                <House size={25} color={color} filled={focused} />
+              </View>
+            ),
           }}
         />
         <Tabs.Screen
           name="received"
           options={{
             title: 'Received',
-            tabBarIcon: ({ color }) => <IconSymbol size={28} name="tray.fill" color={color} />,
+            tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'tray.fill' : 'tray'} color={color} />,
           }}
         />
         <Tabs.Screen
           name="groups"
           options={{
             title: 'Groups',
-            tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.3.fill" color={color} />,
+            tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'person.3.fill' : 'person.3'} color={color} />,
           }}
         />
         <Tabs.Screen
           name="chats"
           options={{
             title: 'Chats',
-            tabBarIcon: ({ color }) => <IconSymbol size={28} name="bubble.left.and.bubble.right.fill" color={color} />,
+            tabBarIcon: ({ color, focused }) => (
+              <TabIcon
+                name={focused ? 'bubble.left.and.bubble.right.fill' : 'bubble.left.and.bubble.right'}
+                color={color}
+              />
+            ),
           }}
         />
         <Tabs.Screen
           name="profile"
           options={{
             title: 'Profile',
-            tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.fill" color={color} />,
+            tabBarIcon: ({ color, focused }) => (
+              <TabIcon name={focused ? 'person.crop.circle.fill' : 'person.crop.circle'} color={color} />
+            ),
           }}
         />
       </Tabs>
@@ -107,6 +133,20 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
+  // IconSymbol draws into a square and scales each symbol to fit it, so the
+  // wide ones (person.3, the chat bubbles) hit the width first and come out
+  // shorter than the narrow ones. Widening the box past any symbol's aspect
+  // leaves height as the only binding side, so all five stand exactly as tall
+  // as `size` — same top edge, same bottom edge — and centre horizontally.
+  // The margin shifts every icon by the same amount, so the shared edges hold.
+  tabIcon: {
+    width: 56,
+    marginTop: 4,
+    // Only bites when this wraps a child (the house) rather than styling the
+    // symbol itself.
+    alignItems: 'center',
+  },
+
   center: {
     flex: 1,
     alignItems: 'center',

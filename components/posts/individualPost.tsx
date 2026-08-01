@@ -72,16 +72,22 @@ interface Props {
   // Passed only where the viewer may edit — its presence is what puts the
   // pencil beside the name, so Discover and the member-profile modal get none.
   onToggleEdit?: () => void;
+  // Two instances of this post exist during the edit transition — a read copy
+  // underneath and an edit copy sliding over it. The read one reports its row
+  // up through `onLoaded`; the screen hands it back as `initialData`, so the
+  // edit copy mounts from data already in memory rather than fetching again.
+  onLoaded?: (data: PersonData | null) => void;
+  initialData?: PersonData | null;
   ref?: Ref<IndividualPostHandle>;
 }
 
-export default function IndividualPost({ personId, creating = false, editMode = false, standalone = false, onSave, onDirty, onToggleEdit, ref }: Props) {
+export default function IndividualPost({ personId, creating = false, editMode = false, standalone = false, onSave, onDirty, onToggleEdit, onLoaded, initialData, ref }: Props) {
 
   const isEditMode = creating || editMode;
 
   // State - read mode
-  const [data, setData] = useState<PersonData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<PersonData | null>(initialData ?? null);
+  const [loading, setLoading] = useState(!initialData);
   // Each photo's own aspect ratio (snapped to a standard), indexed by photo
   // slot. Null until picked / first loaded.
   const [photoAspects, setPhotoAspects] = useState<(number | null)[]>([null, null]);
@@ -101,9 +107,17 @@ export default function IndividualPost({ personId, creating = false, editMode = 
 
   // Fetch person data, then pre-fill the form from it. `editMode` is
   // deliberately not a dependency: the pencil has to flip into edit mode
-  // without a refetch, which would wipe any edits in progress.
+  // without a refetch, which would wipe any edits in progress. Neither is
+  // `initialData` — it seeds the first render only.
   useEffect(() => {
     setPhotoAspects([null, null]);
+    // Handed the row by whoever already fetched it (the edit overlay), so this
+    // instance can mount fully formed instead of round-tripping again.
+    if (initialData) {
+      prefillFromData(initialData);
+      if (initialData.qa.length === 0) fetchRandomPersonQuestions().then(setQuestions);
+      return;
+    }
     fetchPerson(personId).then(async result => {
       setData(result);
       if (result) prefillFromData(result);
@@ -113,7 +127,9 @@ export default function IndividualPost({ personId, creating = false, editMode = 
         setQuestions(await fetchRandomPersonQuestions());
       }
       setLoading(false);
+      onLoaded?.(result);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personId]);
 
   // Pre-fill the edit form from fetched data; also re-run after a save so the
