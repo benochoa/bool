@@ -493,9 +493,11 @@ const styles = StyleSheet.create({
   // screen provides top clearance there. Home and the profile-setup gate
   // are embedded under a header that already accounts for the status bar.
   contentStandalone: {
-    // Clears the modal's floating back arrow (top: 60) — the header row is
-    // now a 64px circle + name, tall enough to collide with the arrow at 60.
-    paddingTop: 100,
+    // Roughly where the profile tab's own header leaves off (60 top padding +
+    // its 24pt icons), less a nudge — a modal has no header above it, so it
+    // can sit a little higher. The floating back arrow is at the left, clear
+    // of the centred picture, so it needs no vertical clearance.
+    paddingTop: 68,
   },
 
   // Q&A — a roomy white card with its text block vertically centered.

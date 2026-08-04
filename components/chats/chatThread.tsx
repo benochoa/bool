@@ -1,8 +1,11 @@
 import { StyleSheet, View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Alert } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
+import { Image } from 'expo-image';
 import { supabase } from '@/supabaseClient';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { ChevronRight } from '@/assets/symbols/ChevronRight';
+import IndividualPost from '@/components/posts/individualPost';
+import { ZoomRoot } from '@/components/posts/zoomOverlay';
 import ChatDetails from './chatDetails';
 import { FontFamily, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
@@ -27,13 +30,16 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [openPersonId, setOpenPersonId] = useState<string | null>(null);
 
   const scrollViewRef = useRef<ScrollView>(null);
-  const senderNames = useRef(new Map<string, string>());
+  // Sender details already seen, so a live message doesn't refetch the person
+  // just to label and picture it.
+  const senders = useRef(new Map<string, { name: string; profilePicUrl: string | null }>());
 
   useEffect(() => {
     fetchMessages(myGroupId, otherGroupId).then(msgs => {
-      msgs.forEach(m => senderNames.current.set(m.senderId, m.senderName));
+      msgs.forEach(m => senders.current.set(m.senderId, { name: m.senderName, profilePicUrl: m.senderProfilePicUrl }));
       setMessages(msgs);
       setLoading(false);
     });
@@ -54,18 +60,19 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
           const row = payload.new;
           if (row.group_2_id !== g2) return;
 
-          let senderName = senderNames.current.get(row.sender_id);
-          if (!senderName) {
+          let sender = senders.current.get(row.sender_id);
+          if (!sender) {
             const person = await fetchPerson(row.sender_id);
-            senderName = person?.name ?? '...';
-            senderNames.current.set(row.sender_id, senderName);
+            sender = { name: person?.name ?? '...', profilePicUrl: person?.profilePicUrl ?? null };
+            senders.current.set(row.sender_id, sender);
           }
 
           setMessages(prev => [...prev, {
             id: row.id,
             senderGroupId: row.sender_group_id,
             senderId: row.sender_id,
-            senderName,
+            senderName: sender.name,
+            senderProfilePicUrl: sender.profilePicUrl,
             body: row.body,
             createdAt: row.created_at,
           }]);
@@ -115,6 +122,18 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
         />
       </Modal>
 
+      {/* Sender's profile, opened from their picture beside a message. */}
+      <Modal visible={openPersonId !== null} animationType="slide" onRequestClose={() => setOpenPersonId(null)}>
+        <ZoomRoot>
+          <View style={styles.container}>
+            <TouchableOpacity style={styles.floatingBack} onPress={() => setOpenPersonId(null)}>
+              <ChevronLeft size={28} color="#000" />
+            </TouchableOpacity>
+            {openPersonId && <IndividualPost personId={openPersonId} standalone />}
+          </View>
+        </ZoomRoot>
+      </Modal>
+
       {loading ? (
         <ActivityIndicator style={styles.loader} />
       ) : (
@@ -131,8 +150,19 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
               const isMine = m.senderId === session?.user.id;
               return (
                 <View key={m.id} style={[styles.bubbleRow, isMine && styles.bubbleRowMine]}>
+                  {/* Theirs is labelled by picture and name; yours needs
+                      neither — being on the right says who sent it. */}
+                  {!isMine && (
+                    <TouchableOpacity activeOpacity={0.7} onPress={() => setOpenPersonId(m.senderId)}>
+                      {m.senderProfilePicUrl ? (
+                        <Image source={{ uri: m.senderProfilePicUrl }} style={styles.senderPic} contentFit="cover" />
+                      ) : (
+                        <View style={styles.senderPic} />
+                      )}
+                    </TouchableOpacity>
+                  )}
                   <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}>
-                    <Text style={isMine ? styles.senderNameMine : styles.senderName}>{isMine ? 'You' : m.senderName}</Text>
+                    {!isMine && <Text style={styles.senderName}>{m.senderName}</Text>}
                     <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine]}>{m.body}</Text>
                   </View>
                 </View>
@@ -222,7 +252,28 @@ const styles = StyleSheet.create({
   bubbleRow: {
     flexDirection: 'row',
     justifyContent: 'flex-start',
+    // Centred against the bubble, so the picture stays on its midline however
+    // many lines the message runs to.
+    alignItems: 'center',
     marginBottom: 12,
+  },
+
+  // The profile modal draws from the top, so its back button floats over it.
+  floatingBack: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    height: 44,
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+
+  senderPic: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#ddd',
+    marginRight: 8,
   },
 
   bubbleRowMine: {
@@ -248,13 +299,6 @@ const styles = StyleSheet.create({
     ...Type.caption,
     fontFamily: FontFamily.semiBold,
     color: '#777',
-    marginBottom: 2,
-  },
-
-  senderNameMine: {
-    ...Type.caption,
-    fontFamily: FontFamily.semiBold,
-    color: '#ccc',
     marginBottom: 2,
   },
 
