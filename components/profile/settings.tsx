@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/supabaseClient';
@@ -43,7 +44,7 @@ export default function Settings({ onClose }: Props) {
 
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={onClose}>
-          <Text style={styles.backArrow}>←</Text>
+          <ChevronLeft size={28} color="#000" />
         </TouchableOpacity>
         <Text style={styles.title}>Settings</Text>
       </View>
@@ -91,11 +92,6 @@ const styles = StyleSheet.create({
 
   backButton: {
     marginRight: 16,
-  },
-
-  backArrow: {
-    fontSize: 28,
-    color: '#000',
   },
 
   title: {

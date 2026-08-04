@@ -18,9 +18,13 @@ interface Props {
   onCreate: () => void;
   onJoin: () => void;
   onClose: () => void;
+  // Fires once the sheet has finished sliding out and this modal is really
+  // gone. Anything that opens a modal of its own has to wait for it: iOS drops
+  // a presentation requested while another modal is still on screen.
+  onClosed?: () => void;
 }
 
-export default function GroupSwitcher({ visible, groups, onSelect, onCreate, onJoin, onClose }: Props) {
+export default function GroupSwitcher({ visible, groups, onSelect, onCreate, onJoin, onClose, onClosed }: Props) {
 
   // Modal's own "slide" animates the tint along with the sheet. Driving the
   // sheet here instead lets the tint be instant in both directions — which
@@ -35,8 +39,12 @@ export default function GroupSwitcher({ visible, groups, onSelect, onCreate, onJ
       duration: visible ? 250 : 200,
       useNativeDriver: true,
     }).start(({ finished }) => {
-      if (finished && !visible) setMounted(false);
+      if (finished && !visible) {
+        setMounted(false);
+        onClosed?.();
+      }
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, translateY]);
 
   return (

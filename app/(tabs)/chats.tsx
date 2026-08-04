@@ -1,4 +1,5 @@
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Modal } from 'react-native';
+import { Image } from 'expo-image';
 import { useState, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import ChatThread from '@/components/chats/chatThread';
@@ -48,10 +49,17 @@ export default function ChatsScreen() {
             style={styles.previewRow}
             onPress={() => setSelected(preview)}
           >
-            <Text style={styles.previewName}>{preview.otherGroupName}</Text>
-            <Text style={styles.previewMessage} numberOfLines={1}>
-              {preview.lastMessage ?? 'No messages yet'}
-            </Text>
+            {preview.imageUrl ? (
+              <Image source={{ uri: preview.imageUrl }} style={styles.previewPhoto} contentFit="cover" />
+            ) : (
+              <View style={styles.previewPhotoPlaceholder} />
+            )}
+            <View style={styles.previewText}>
+              <Text style={styles.previewName} numberOfLines={1}>{preview.otherGroupName}</Text>
+              <Text style={styles.previewMessage} numberOfLines={1}>
+                {preview.lastMessage ?? 'No messages yet'}
+              </Text>
+            </View>
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -100,10 +108,32 @@ const styles = StyleSheet.create({
     color: '#555',
   },
   previewRow: {
-    paddingVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
     paddingHorizontal: 20,
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
+  },
+  // Taller than the two lines of text beside it, so the photo — not the text —
+  // sets the row's height and fills most of it.
+  previewPhoto: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    backgroundColor: '#eee',
+  },
+  previewPhotoPlaceholder: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    backgroundColor: '#ddd',
+  },
+  // Name over message, both flush to the same left edge.
+  previewText: {
+    flex: 1,
+    marginLeft: 14,
+    alignItems: 'flex-start',
   },
   previewName: {
     ...Type.header,

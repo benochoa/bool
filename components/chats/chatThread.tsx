@@ -1,6 +1,9 @@
-import { StyleSheet, View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Alert } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/supabaseClient';
+import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
+import { ChevronRight } from '@/assets/symbols/ChevronRight';
+import ChatDetails from './chatDetails';
 import { FontFamily, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { canonicalPair } from '@/lib/canonicalPair';
@@ -23,6 +26,7 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   const [loading, setLoading] = useState(true);
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const scrollViewRef = useRef<ScrollView>(null);
   const senderNames = useRef(new Map<string, string>());
@@ -94,10 +98,22 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
 
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={onClose}>
-          <Text style={styles.backArrow}>←</Text>
+          <ChevronLeft size={28} color="#000" />
         </TouchableOpacity>
-        <Text style={styles.title}>{otherGroupName}</Text>
+        {/* Name and chevron are one target — both open who's in the chat. */}
+        <TouchableOpacity style={styles.titleRow} onPress={() => setDetailsOpen(true)}>
+          <Text style={styles.title} numberOfLines={1}>{otherGroupName}</Text>
+          <ChevronRight />
+        </TouchableOpacity>
       </View>
+
+      <Modal visible={detailsOpen} animationType="slide" onRequestClose={() => setDetailsOpen(false)}>
+        <ChatDetails
+          myGroupId={myGroupId}
+          otherGroupId={otherGroupId}
+          onClose={() => setDetailsOpen(false)}
+        />
+      </Modal>
 
       {loading ? (
         <ActivityIndicator style={styles.loader} />
@@ -167,14 +183,18 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
 
-  backArrow: {
-    fontSize: 28,
-    color: '#000',
+  // Shrinks rather than pushing the chevron off the row on a long name.
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 1,
   },
 
   title: {
     ...Type.header,
     color: '#000',
+    flexShrink: 1,
   },
 
   loader: {
@@ -251,7 +271,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingTop: 12,
+    // Lifts the composer clear of the bottom edge — the padding sits below the
+    // border, so the rule stays tight to the row rather than floating.
+    paddingBottom: 44,
     borderTopWidth: 1,
     borderTopColor: '#eee',
   },

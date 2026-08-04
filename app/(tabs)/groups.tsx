@@ -45,6 +45,8 @@ export default function GroupsScreen() {
   // leave; `editMode` alone would unmount it mid-animation.
   const [editorMounted, setEditorMounted] = useState(false);
   const slide = useRef(new Animated.Value(WIDTH)).current;
+  // What the switcher asked for, held until the switcher is off screen.
+  const pendingAction = useRef<'create' | 'join' | null>(null);
 
   useEffect(() => {
     if (editMode) setEditorMounted(true);
@@ -158,9 +160,18 @@ export default function GroupsScreen() {
         groups={groupNames}
         // Edit mode belongs to the group you were editing, so switching leaves it.
         onSelect={(id) => { setCurrentGroupId(id); setSwitcherOpen(false); setEditMode(false); setDirty(false); }}
-        onCreate={() => { setSwitcherOpen(false); setCreating(true); }}
-        onJoin={() => { setSwitcherOpen(false); setJoining(true); }}
+        // Create and Join open modals of their own, which iOS refuses to
+        // present while the switcher is still on screen — so they're queued
+        // and fired from onClosed, once it has finished sliding out.
+        onCreate={() => { pendingAction.current = 'create'; setSwitcherOpen(false); }}
+        onJoin={() => { pendingAction.current = 'join'; setSwitcherOpen(false); }}
         onClose={() => setSwitcherOpen(false)}
+        onClosed={() => {
+          const next = pendingAction.current;
+          pendingAction.current = null;
+          if (next === 'create') setCreating(true);
+          else if (next === 'join') setJoining(true);
+        }}
       />
 
       {/* My groups */}

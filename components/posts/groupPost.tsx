@@ -1,15 +1,14 @@
 import {
   StyleSheet, View, Text, ScrollView, Dimensions,
   TouchableOpacity, Modal, ActivityIndicator, TextInput, Alert,
-  KeyboardAvoidingView, Platform, Share
+  KeyboardAvoidingView, Platform
 } from 'react-native';
 import { Ref, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { Image } from 'expo-image';
-import FontAwesome6 from '@expo/vector-icons/FontAwesome6';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '@/supabaseClient';
 import { Pencil } from '@/assets/symbols/Pencil';
+import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { useKeyboardAwareScroll } from '@/hooks/use-keyboard-aware-scroll';
@@ -19,6 +18,7 @@ import { dissolveGroup } from '@/lib/dissolveGroup';
 import { removeMember } from '@/lib/removeMember';
 import { makeGroupLeader } from '@/lib/makeGroupLeader';
 import IndividualPost from './individualPost';
+import MembersCard from './membersCard';
 import MemberManagement, { MemberRect } from './memberManagement';
 import ZoomableImage from './zoomableImage';
 import CardReorder, { EDIT_CARD_HEIGHT, EDIT_CARD_WIDTH } from './cardReorder';
@@ -71,34 +71,6 @@ async function fetchRandomGroupQuestions(): Promise<string[]> {
     .single();
   const all: string[] = data?.questions ?? [];
   return [...all].sort(() => Math.random() - 0.5).slice(0, 3);
-}
-
-// Member row subcomponent — name arrives with the group fetch, no fetching here.
-function MemberRow({ name, profilePicUrl, isGroupLeader, onPress, onLongPress }: {
-  name: string; profilePicUrl: string | null; isGroupLeader: boolean;
-  onPress: () => void; onLongPress?: (rect: MemberRect) => void;
-}) {
-  const rowRef = useRef<React.ComponentRef<typeof TouchableOpacity>>(null);
-  return (
-    <TouchableOpacity
-      ref={rowRef}
-      style={styles.memberRow}
-      onPress={onPress}
-      onLongPress={() => rowRef.current?.measureInWindow((x, y, width, height) => onLongPress?.({ x, y, width, height }))}
-    >
-      {profilePicUrl ? (
-        <Image source={{ uri: profilePicUrl }} style={styles.memberCircle} contentFit="cover" />
-      ) : (
-        <View style={styles.memberCircle} />
-      )}
-      <Text style={styles.memberName}>{name}</Text>
-      {isGroupLeader && (
-        <View style={styles.crownWrap}>
-          <FontAwesome6 name="crown" size={14} color="#000" solid />
-        </View>
-      )}
-    </TouchableOpacity>
-  );
 }
 
 // Lets the screen that owns the edit pencil drive the save from its own menu.
@@ -593,7 +565,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
       {/* Back arrow (creation flow) */}
       {creating && onClose && (
         <TouchableOpacity style={styles.backButton} onPress={onClose}>
-          <Text style={styles.backArrow}>←</Text>
+          <ChevronLeft size={28} color="#000" />
         </TouchableOpacity>
       )}
 
@@ -632,40 +604,28 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
 
       {/* Members card — unlike Q&A, this has no per-item padding, so it
           needs the card's horizontal inset restored directly. */}
-      <View style={[styles.card, styles.membersCard]}>
-        {data ? (
-          <>
-            {data.members.map(m => (
-              <MemberRow
-                key={m.id}
-                name={m.name}
-                profilePicUrl={m.profilePicUrl}
-                isGroupLeader={m.id === data.created_by}
-                onPress={() => setSelectedMember(m.id)}
-                onLongPress={(rect) => {
-                  // Managing members is an edit, so it lives in edit mode —
-                  // and never on yourself.
-                  if (!isEditMode || !session?.user || m.id === session.user.id) return;
-                  // Force the clear band to the full members-card width (card is
-                  // centered at CARD_WIDTH), keeping only the measured vertical.
-                  setManageRect({ x: (width - CARD_WIDTH) / 2, y: rect.y, width: CARD_WIDTH, height: rect.height });
-                  setManagedMember({ id: m.id, name: m.name, profilePicUrl: m.profilePicUrl });
-                }}
-              />
-            ))}
-            {isLeader && data.invite_code && (
-              <View style={styles.inviteRow}>
-                <Text style={styles.inviteLabel}>Invite code: {data.invite_code}</Text>
-                <TouchableOpacity onPress={() => Share.share({ message: `Join my group on bool — use invite code ${data.invite_code}` })}>
-                  <Text style={styles.shareText}>Share</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </>
-        ) : (
+      {data ? (
+        <MembersCard
+          style={styles.membersCard}
+          members={data.members}
+          leaderId={data.created_by}
+          inviteCode={isLeader ? data.invite_code : null}
+          onSelectMember={setSelectedMember}
+          onManageMember={(m, rect) => {
+            // Managing members is an edit, so it lives in edit mode — and
+            // never on yourself.
+            if (!isEditMode || !session?.user || m.id === session.user.id) return;
+            // Force the clear band to the full members-card width (card is
+            // centered at CARD_WIDTH), keeping only the measured vertical.
+            setManageRect({ x: (width - CARD_WIDTH) / 2, y: rect.y, width: CARD_WIDTH, height: rect.height });
+            setManagedMember({ id: m.id, name: m.name, profilePicUrl: m.profilePicUrl });
+          }}
+        />
+      ) : (
+        <View style={[styles.card, styles.membersCard]}>
           <Text style={styles.membersPlaceholder}>Members — coming soon</Text>
-        )}
-      </View>
+        </View>
+      )}
 
       {/* Leave group (non-leader members only) */}
       {canLeave && (
@@ -702,7 +662,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
         <ZoomRoot>
         <View style={styles.modalContainer}>
           <TouchableOpacity style={styles.backButton} onPress={() => setSelectedMember(null)}>
-            <Text style={styles.backArrow}>←</Text>
+            <ChevronLeft size={28} color="#000" />
           </TouchableOpacity>
           {selectedMember && <IndividualPost personId={selectedMember} standalone />}
         </View>
@@ -892,62 +852,13 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
 
-  // Members — per-row padding (not card-level) so the crown below can sit
-  // flush at right: 8 from the row's own border box, aligned with the
-  // "..." buttons elsewhere on the card.
-  memberRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-    paddingHorizontal: 16,
-  },
-
-  memberCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#ccc',
-    marginRight: 12,
-  },
-
-  // Leader crown — pinned to the row's right edge, in line with the name.
-  crownWrap: {
-    position: 'absolute',
-    right: 18,
-    top: 0,
-    bottom: 0,
-    justifyContent: 'center',
-  },
-
-  memberName: {
-    ...Type.body,
-    color: '#000',
-  },
-
+  // Only the pre-save creation flow reaches this — a saved group always has
+  // members, and renders MembersCard instead.
   membersPlaceholder: {
     ...Type.label,
     fontFamily: FontFamily.regular,
     color: '#aaa',
     textAlign: 'center',
-  },
-
-  inviteRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 4,
-    paddingHorizontal: 16,
-  },
-
-  inviteLabel: {
-    ...Type.label,
-    color: '#555',
-  },
-
-  shareText: {
-    ...Type.label,
-    fontFamily: FontFamily.bold,
-    color: '#43a047',
   },
 
   // Save button
@@ -991,9 +902,5 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
 
-  backArrow: {
-    fontSize: 28,
-    color: '#000',
-  },
 
 });

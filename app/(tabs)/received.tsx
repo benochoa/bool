@@ -1,4 +1,5 @@
 import { CheckMark } from '@/assets/symbols/CheckMark';
+import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { XMark } from '@/assets/symbols/XMark';
 import GroupPost from '@/components/posts/groupPost';
 import { ZoomRoot } from '@/components/posts/zoomOverlay';
@@ -103,7 +104,7 @@ export default function ReceivedScreen() {
         <ZoomRoot>
         <View style={styles.detailModal}>
           <TouchableOpacity style={styles.detailBack} onPress={() => setDetail(null)}>
-            <Text style={styles.detailBackArrow}>←</Text>
+            <ChevronLeft size={28} color="#000" />
           </TouchableOpacity>
           {detail && <GroupPost groupId={detail.suggestingGroupId} />}
           {detail?.status === 'sent' && isLeader && (
@@ -166,11 +167,6 @@ const styles = StyleSheet.create({
     top: 60,
     left: 20,
     zIndex: 10,
-  },
-
-  detailBackArrow: {
-    fontSize: 28,
-    color: '#000',
   },
 
   // Leader-only Approve/Reject, floating at the bottom of the detail modal

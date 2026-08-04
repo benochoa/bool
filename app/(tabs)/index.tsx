@@ -1,4 +1,5 @@
 import { CheckMark } from '@/assets/symbols/CheckMark';
+import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { PaperPlane } from '@/assets/symbols/PaperPlane';
 import { XMark } from '@/assets/symbols/XMark';
 import GroupPost from '@/components/posts/groupPost';
@@ -261,7 +262,7 @@ export default function ExploreScreen() {
         <ZoomRoot>
         <View style={styles.detailModal}>
           <TouchableOpacity style={styles.detailBack} onPress={() => setDetail(null)}>
-            <Text style={styles.detailBackArrow}>←</Text>
+            <ChevronLeft size={28} color="#000" />
           </TouchableOpacity>
           {detail && <GroupPost groupId={detail.targetGroupId} />}
           {detail?.status === 'pending' && isLeader && (
@@ -401,11 +402,6 @@ const styles = StyleSheet.create({
     top: 60,
     left: 20,
     zIndex: 10,
-  },
-
-  detailBackArrow: {
-    fontSize: 28,
-    color: '#000',
   },
 
   // Leader-only Send/Remove, floating at the bottom of the detail modal

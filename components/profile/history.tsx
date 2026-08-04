@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { fetchGroupNames, GroupName } from '@/lib/fetchGroupNames';
@@ -28,7 +29,7 @@ export default function History({ onClose }: Props) {
 
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={onClose}>
-          <Text style={styles.backArrow}>←</Text>
+          <ChevronLeft size={28} color="#000" />
         </TouchableOpacity>
         <Text style={styles.title}>History</Text>
       </View>
@@ -67,11 +68,6 @@ const styles = StyleSheet.create({
 
   backButton: {
     marginRight: 16,
-  },
-
-  backArrow: {
-    fontSize: 28,
-    color: '#000',
   },
 
   title: {
