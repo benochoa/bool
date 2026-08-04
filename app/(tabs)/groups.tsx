@@ -1,19 +1,20 @@
 import {
-  StyleSheet, View, Text, TouchableOpacity, Modal,
+  StyleSheet, View, Text, TouchableOpacity,
   ActivityIndicator, Alert, Animated, Dimensions
 } from 'react-native';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigation } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import GroupPost, { GroupPostHandle } from '@/components/posts/groupPost';
 import { GroupData } from '@/lib/fetchGroup';
-import { ZoomRoot } from '@/components/posts/zoomOverlay';
+import PersonPanel from '@/components/posts/personPanel';
 import GroupSwitcher from '@/components/groups/groupSwitcher';
 import JoinGroup from '@/components/groups/joinGroup';
+import SlideOver from '@/components/ui/slideOver';
 import { ChevronDown } from '@/assets/symbols/ChevronDown';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { Palette, Type } from '@/constants/theme';
 import { useCurrentGroup } from '@/hooks/use-current-group';
+import { useHideTabBar } from '@/hooks/use-hide-tab-bar';
 import { useSession } from '@/hooks/use-session';
 import { fetchGroupNames, GroupName } from '@/lib/fetchGroupNames';
 
@@ -30,6 +31,9 @@ export default function GroupsScreen() {
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [groupNames, setGroupNames] = useState<GroupName[]>([]);
   const [joining, setJoining] = useState(false);
+  // A member's profile, opened from the post's members card. It lives here
+  // rather than in the post so it can cover the switcher band.
+  const [openPersonId, setOpenPersonId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
   // Set by the post on its first edit; leaving edit mode re-reads the saved
   // row, so anything unsaved is dropped unless it's saved on the way out.
@@ -61,10 +65,7 @@ export default function GroupsScreen() {
 
   // Editing takes over the whole screen: with the bar hidden there's no way to
   // leave the tab mid-edit, so unsaved work can't be stranded behind a switch.
-  const navigation = useNavigation();
-  useEffect(() => {
-    navigation.setOptions({ tabBarStyle: editMode ? { display: 'none' } : undefined });
-  }, [navigation, editMode]);
+  useHideTabBar(editMode);
 
   // One query resolves every switcher name — the menu rows and the active
   // label both read from it.
@@ -194,6 +195,7 @@ export default function GroupsScreen() {
               groupId={currentGroupId}
               isMember
               topInset={100}
+              onSelectMember={setOpenPersonId}
               onLoaded={setSnapshot}
               // Only the leader gets a pencil, so only the leader gets the toggle.
               onToggleEdit={isLeader ? enterEditMode : undefined}
@@ -212,6 +214,7 @@ export default function GroupsScreen() {
                 isMember
                 topInset={100}
                 editMode
+                onSelectMember={setOpenPersonId}
                 initialData={snapshot}
                 onDirty={() => setDirty(true)}
                 onLeft={() => { setEditMode(false); refreshGroups(); }}
@@ -225,12 +228,13 @@ export default function GroupsScreen() {
       {/* Join group modal */}
       <JoinGroup visible={joining} onClose={() => setJoining(false)} onJoined={refreshGroups} />
 
-      {/* Create group modal */}
-      <Modal visible={creating} animationType="slide" onRequestClose={() => setCreating(false)}>
-        <ZoomRoot>
-          <GroupPost creating onClose={() => { setCreating(false); refreshGroups(); }} />
-        </ZoomRoot>
-      </Modal>
+      {/* Create group */}
+      <SlideOver visible={creating} onRequestClose={() => setCreating(false)}>
+        <GroupPost creating onClose={() => { setCreating(false); refreshGroups(); }} />
+      </SlideOver>
+
+      {/* Last, so a member's profile covers the post that opened it. */}
+      <PersonPanel personId={openPersonId} onClose={() => setOpenPersonId(null)} />
 
     </View>
   );

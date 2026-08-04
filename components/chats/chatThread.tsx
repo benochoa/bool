@@ -1,11 +1,11 @@
-import { StyleSheet, View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Alert } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
 import { Image } from 'expo-image';
 import { supabase } from '@/supabaseClient';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { ChevronRight } from '@/assets/symbols/ChevronRight';
-import IndividualPost from '@/components/posts/individualPost';
-import { ZoomRoot } from '@/components/posts/zoomOverlay';
+import PersonPanel from '@/components/posts/personPanel';
+import SlideOver from '@/components/ui/slideOver';
 import ChatDetails from './chatDetails';
 import { FontFamily, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
@@ -114,26 +114,6 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
         </TouchableOpacity>
       </View>
 
-      <Modal visible={detailsOpen} animationType="slide" onRequestClose={() => setDetailsOpen(false)}>
-        <ChatDetails
-          myGroupId={myGroupId}
-          otherGroupId={otherGroupId}
-          onClose={() => setDetailsOpen(false)}
-        />
-      </Modal>
-
-      {/* Sender's profile, opened from their picture beside a message. */}
-      <Modal visible={openPersonId !== null} animationType="slide" onRequestClose={() => setOpenPersonId(null)}>
-        <ZoomRoot>
-          <View style={styles.container}>
-            <TouchableOpacity style={styles.floatingBack} onPress={() => setOpenPersonId(null)}>
-              <ChevronLeft size={28} color="#000" />
-            </TouchableOpacity>
-            {openPersonId && <IndividualPost personId={openPersonId} standalone />}
-          </View>
-        </ZoomRoot>
-      </Modal>
-
       {loading ? (
         <ActivityIndicator style={styles.loader} />
       ) : (
@@ -189,6 +169,19 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
           <Text style={styles.sendButtonText}>{sending ? '...' : '↑'}</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Panels come last so they cover the thread rather than sliding in
+          underneath it. */}
+      <SlideOver visible={detailsOpen} onRequestClose={() => setDetailsOpen(false)}>
+        <ChatDetails
+          myGroupId={myGroupId}
+          otherGroupId={otherGroupId}
+          onClose={() => setDetailsOpen(false)}
+        />
+      </SlideOver>
+
+      {/* Sender's profile, opened from their picture beside a message. */}
+      <PersonPanel personId={openPersonId} onClose={() => setOpenPersonId(null)} />
 
     </KeyboardAvoidingView>
   );
@@ -256,16 +249,6 @@ const styles = StyleSheet.create({
     // many lines the message runs to.
     alignItems: 'center',
     marginBottom: 12,
-  },
-
-  // The profile modal draws from the top, so its back button floats over it.
-  floatingBack: {
-    position: 'absolute',
-    top: 60,
-    left: 20,
-    height: 44,
-    justifyContent: 'center',
-    zIndex: 2,
   },
 
   senderPic: {

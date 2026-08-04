@@ -8,6 +8,7 @@ import IndividualPost from '@/components/posts/individualPost';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Palette, Type } from '@/constants/theme';
 import { CurrentGroupProvider } from '@/hooks/use-current-group';
+import { HideTabBarProvider, useTabBarHidden } from '@/hooks/use-hide-tab-bar';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/supabaseClient';
 
@@ -67,68 +68,82 @@ export default function TabLayout() {
 
   return (
     <CurrentGroupProvider>
-      <Tabs
-        screenOptions={{
-          // One colour for both states — the active tab is marked by a filled
-          // symbol against the others' outlines, not by a tint change.
-          tabBarActiveTintColor: TAB_ICON,
-          tabBarInactiveTintColor: TAB_ICON,
-          headerShown: false,
-          tabBarButton: HapticTab,
-          // Icons only. Each screen keeps its `title`, which is what the tab
-          // still announces to screen readers.
-          tabBarShowLabel: false,
-        }}>
-        <Tabs.Screen
-          name="index"
-          options={{
-            title: 'Explore',
-            // Hand-drawn rather than an SF Symbol — the wrapper matches what
-            // TabIcon gives the others, so the row still shares its edges.
-            tabBarIcon: ({ color, focused }) => (
-              <View style={styles.tabIcon}>
-                <House size={25} color={color} filled={focused} />
-              </View>
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="received"
-          options={{
-            title: 'Received',
-            tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'tray.fill' : 'tray'} color={color} />,
-          }}
-        />
-        <Tabs.Screen
-          name="groups"
-          options={{
-            title: 'Groups',
-            tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'person.3.fill' : 'person.3'} color={color} />,
-          }}
-        />
-        <Tabs.Screen
-          name="chats"
-          options={{
-            title: 'Chats',
-            tabBarIcon: ({ color, focused }) => (
-              <TabIcon
-                name={focused ? 'bubble.left.and.bubble.right.fill' : 'bubble.left.and.bubble.right'}
-                color={color}
-              />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="profile"
-          options={{
-            title: 'Profile',
-            tabBarIcon: ({ color, focused }) => (
-              <TabIcon name={focused ? 'person.crop.circle.fill' : 'person.crop.circle'} color={color} />
-            ),
-          }}
-        />
-      </Tabs>
+      <HideTabBarProvider>
+        <AppTabs />
+      </HideTabBarProvider>
     </CurrentGroupProvider>
+  );
+}
+
+// Split out so it can read the hidden count from the provider above it. The bar
+// draws over every screen, so a slide-over panel or an edit screen can only
+// cover it by asking for it to go away.
+function AppTabs() {
+  const tabBarHidden = useTabBarHidden();
+
+  return (
+    <Tabs
+      screenOptions={{
+        // One colour for both states — the active tab is marked by a filled
+        // symbol against the others' outlines, not by a tint change.
+        tabBarActiveTintColor: TAB_ICON,
+        tabBarInactiveTintColor: TAB_ICON,
+        headerShown: false,
+        tabBarButton: HapticTab,
+        // Icons only. Each screen keeps its `title`, which is what the tab
+        // still announces to screen readers.
+        tabBarShowLabel: false,
+        tabBarStyle: tabBarHidden ? { display: 'none' } : undefined,
+      }}>
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: 'Explore',
+          // Hand-drawn rather than an SF Symbol — the wrapper matches what
+          // TabIcon gives the others, so the row still shares its edges.
+          tabBarIcon: ({ color, focused }) => (
+            <View style={styles.tabIcon}>
+              <House size={25} color={color} filled={focused} />
+            </View>
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="received"
+        options={{
+          title: 'Received',
+          tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'tray.fill' : 'tray'} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="groups"
+        options={{
+          title: 'Groups',
+          tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'person.3.fill' : 'person.3'} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="chats"
+        options={{
+          title: 'Chats',
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon
+              name={focused ? 'bubble.left.and.bubble.right.fill' : 'bubble.left.and.bubble.right'}
+              color={color}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profile',
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name={focused ? 'person.crop.circle.fill' : 'person.crop.circle'} color={color} />
+          ),
+        }}
+      />
+    </Tabs>
   );
 }
 

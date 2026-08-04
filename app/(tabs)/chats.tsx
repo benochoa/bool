@@ -1,8 +1,9 @@
-import { StyleSheet, View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Modal } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
 import { useState, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import ChatThread from '@/components/chats/chatThread';
+import SlideOver from '@/components/ui/slideOver';
 import { FontFamily, Type } from '@/constants/theme';
 import { fetchChatPreviews, ChatPreview } from '@/lib/fetchChatPreviews';
 import { useCurrentGroup } from '@/hooks/use-current-group';
@@ -64,11 +65,7 @@ export default function ChatsScreen() {
         </ScrollView>
       )}
 
-      <Modal
-        visible={selected !== null}
-        animationType="slide"
-        onRequestClose={() => setSelected(null)}
-      >
+      <SlideOver visible={selected !== null} onRequestClose={() => setSelected(null)}>
         {selected && currentGroupId && (
           <ChatThread
             myGroupId={currentGroupId}
@@ -77,7 +74,7 @@ export default function ChatsScreen() {
             onClose={() => setSelected(null)}
           />
         )}
-      </Modal>
+      </SlideOver>
     </View>
   );
 }

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigation } from 'expo-router';
 import {
-  ActivityIndicator, Alert, Animated, Dimensions, Modal, StyleSheet, Text,
+  ActivityIndicator, Alert, Animated, Dimensions, StyleSheet, Text,
   TouchableOpacity, View,
 } from 'react-native';
 import History from '@/components/profile/history';
@@ -9,8 +8,10 @@ import IndividualPost, { IndividualPostHandle } from '@/components/posts/individ
 import { PersonData } from '@/lib/fetchPerson';
 import Settings from '@/components/profile/settings';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import SlideOver from '@/components/ui/slideOver';
 import { Palette, Type } from '@/constants/theme';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
+import { useHideTabBar } from '@/hooks/use-hide-tab-bar';
 import { useSession } from '@/hooks/use-session';
 
 // How far offscreen the editor rests — a full screen width to the right.
@@ -38,10 +39,7 @@ export default function ProfileScreen() {
 
   // Editing takes over the whole screen: with the bar hidden there's no way to
   // leave the tab mid-edit, so unsaved work can't be stranded behind a switch.
-  const navigation = useNavigation();
-  useEffect(() => {
-    navigation.setOptions({ tabBarStyle: editMode ? { display: 'none' } : undefined });
-  }, [navigation, editMode]);
+  useHideTabBar(editMode);
 
   useEffect(() => {
     if (editMode) setEditorMounted(true);
@@ -159,13 +157,13 @@ export default function ProfileScreen() {
         )}
       </View>
 
-      <Modal visible={historyOpen} animationType="slide" onRequestClose={() => setHistoryOpen(false)}>
+      <SlideOver visible={historyOpen} onRequestClose={() => setHistoryOpen(false)}>
         <History onClose={() => setHistoryOpen(false)} />
-      </Modal>
+      </SlideOver>
 
-      <Modal visible={settingsOpen} animationType="slide" onRequestClose={() => setSettingsOpen(false)}>
+      <SlideOver visible={settingsOpen} onRequestClose={() => setSettingsOpen(false)}>
         <Settings onClose={() => setSettingsOpen(false)} />
-      </Modal>
+      </SlideOver>
     </View>
   );
 }

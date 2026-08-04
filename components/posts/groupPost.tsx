@@ -1,6 +1,6 @@
 import {
   StyleSheet, View, Text, ScrollView, Dimensions,
-  TouchableOpacity, Modal, ActivityIndicator, TextInput, Alert,
+  TouchableOpacity, ActivityIndicator, TextInput, Alert,
   KeyboardAvoidingView, Platform
 } from 'react-native';
 import { Ref, useEffect, useImperativeHandle, useRef, useState } from 'react';
@@ -17,12 +17,10 @@ import { leaveGroup } from '@/lib/leaveGroup';
 import { dissolveGroup } from '@/lib/dissolveGroup';
 import { removeMember } from '@/lib/removeMember';
 import { makeGroupLeader } from '@/lib/makeGroupLeader';
-import IndividualPost from './individualPost';
 import MembersCard from './membersCard';
 import MemberManagement, { MemberRect } from './memberManagement';
 import ZoomableImage from './zoomableImage';
 import CardReorder, { EDIT_CARD_HEIGHT, EDIT_CARD_WIDTH } from './cardReorder';
-import { ZoomRoot } from './zoomOverlay';
 import { snapToStandardAspect, DEFAULT_ASPECT } from '@/lib/aspectRatio';
 import {
   CardSlot, DEFAULT_GROUP_CARD_ORDER, photoSlotsFromUrls, reconcileCardOrder,
@@ -109,17 +107,21 @@ interface Props {
   // post keeps scrolling under that header — and the post keeps owning its
   // scroll view, which is what lets it scroll a focused card into view.
   topInset?: number;
+  // Tapping a member opens their profile, but the panel that shows it belongs
+  // to the screen, not to this post: rendered from in here it would draw under
+  // whatever floating chrome the screen puts over the post — a back chevron,
+  // the groups switcher. Left off, member rows are inert.
+  onSelectMember?: (personId: string) => void;
   ref?: Ref<GroupPostHandle>;
 }
 
-export default function GroupPost({ groupId, creating = false, editMode = false, onClose, isMember = false, onLeft, onDissolved, onDirty, onToggleEdit, onLoaded, initialData, topInset, ref }: Props) {
+export default function GroupPost({ groupId, creating = false, editMode = false, onClose, isMember = false, onLeft, onDissolved, onDirty, onToggleEdit, onLoaded, initialData, topInset, onSelectMember, ref }: Props) {
 
   const { session } = useSession();
 
   // State - read mode
   const [data, setData] = useState<GroupData | null>(initialData ?? null);
   const [loading, setLoading] = useState(!creating && !initialData);
-  const [selectedMember, setSelectedMember] = useState<string | null>(null);
   // Leader-only member popover (opened by long-pressing a member row).
   const [managedMember, setManagedMember] = useState<{ id: string; name: string; profilePicUrl: string | null } | null>(null);
   const [manageRect, setManageRect] = useState<MemberRect | null>(null);
@@ -610,7 +612,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
           members={data.members}
           leaderId={data.created_by}
           inviteCode={isLeader ? data.invite_code : null}
-          onSelectMember={setSelectedMember}
+          onSelectMember={id => onSelectMember?.(id)}
           onManageMember={(m, rect) => {
             // Managing members is an edit, so it lives in edit mode — and
             // never on yourself.
@@ -652,22 +654,6 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
           )}
         </TouchableOpacity>
       )}
-
-      {/* Member profile modal */}
-      <Modal
-        visible={selectedMember !== null}
-        animationType="slide"
-        onRequestClose={() => setSelectedMember(null)}
-      >
-        <ZoomRoot>
-        <View style={styles.modalContainer}>
-          <TouchableOpacity style={styles.backButton} onPress={() => setSelectedMember(null)}>
-            <ChevronLeft size={28} color="#000" />
-          </TouchableOpacity>
-          {selectedMember && <IndividualPost personId={selectedMember} standalone />}
-        </View>
-        </ZoomRoot>
-      </Modal>
 
       {/* Leader-only member management popover */}
       <MemberManagement
@@ -889,12 +875,7 @@ const styles = StyleSheet.create({
     color: '#e53935',
   },
 
-  // Modal / back
-  modalContainer: {
-    flex: 1,
-    backgroundColor: Palette.background,
-  },
-
+  // Back (creation flow)
   backButton: {
     position: 'absolute',
     top: 60,

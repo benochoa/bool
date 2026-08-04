@@ -4,7 +4,8 @@ import { PaperPlane } from '@/assets/symbols/PaperPlane';
 import { XMark } from '@/assets/symbols/XMark';
 import GroupPost from '@/components/posts/groupPost';
 import GroupPostPreview from '@/components/posts/groupPostPreview';
-import { ZoomRoot } from '@/components/posts/zoomOverlay';
+import PersonPanel from '@/components/posts/personPanel';
+import SlideOver from '@/components/ui/slideOver';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useSession } from '@/hooks/use-session';
 import { fetchActiveGroupIds } from '@/lib/fetchActiveGroupIds';
@@ -17,7 +18,7 @@ import { supabase } from '@/supabaseClient';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function ExploreScreen() {
 
@@ -31,6 +32,9 @@ export default function ExploreScreen() {
   const [seenGroupIds, setSeenGroupIds] = useState<Set<string>>(new Set());
   const [suggestions, setSuggestions] = useState<GroupSuggestion[]>([]);
   const [detail, setDetail] = useState<GroupSuggestion | null>(null);
+  // A member's profile, opened from either post's members card. It belongs to
+  // the screen so it covers the detail panel's own back chevron.
+  const [openPersonId, setOpenPersonId] = useState<string | null>(null);
   const [receivedGroupIds, setReceivedGroupIds] = useState<string[]>([]);
   const [matchedGroupIds, setMatchedGroupIds] = useState<string[]>([]);
   const [isLeader, setIsLeader] = useState(false);
@@ -213,7 +217,7 @@ export default function ExploreScreen() {
             </View>
           ) : (
             <>
-              <GroupPost groupId={currentCardGroupId} />
+              <GroupPost groupId={currentCardGroupId} onSelectMember={setOpenPersonId} />
 
               {/* Check / X buttons */}
               <View style={styles.buttonRow}>
@@ -257,14 +261,13 @@ export default function ExploreScreen() {
         </View>
       )}
 
-      {/* Detail modal — full group, with leader Send/Remove for pending items */}
-      <Modal visible={detail !== null} animationType="slide" onRequestClose={() => setDetail(null)}>
-        <ZoomRoot>
+      {/* Detail panel — full group, with leader Send/Remove for pending items */}
+      <SlideOver visible={detail !== null} onRequestClose={() => setDetail(null)}>
         <View style={styles.detailModal}>
           <TouchableOpacity style={styles.detailBack} onPress={() => setDetail(null)}>
             <ChevronLeft size={28} color="#000" />
           </TouchableOpacity>
-          {detail && <GroupPost groupId={detail.targetGroupId} />}
+          {detail && <GroupPost groupId={detail.targetGroupId} onSelectMember={setOpenPersonId} />}
           {detail?.status === 'pending' && isLeader && (
             <View style={styles.modalLeaderRow}>
               <TouchableOpacity style={styles.xButton} onPress={() => { handleLeaderRemove(detail.targetGroupId); setDetail(null); }}>
@@ -276,8 +279,10 @@ export default function ExploreScreen() {
             </View>
           )}
         </View>
-        </ZoomRoot>
-      </Modal>
+      </SlideOver>
+
+      {/* Last, so a member's profile covers the post that opened it. */}
+      <PersonPanel personId={openPersonId} onClose={() => setOpenPersonId(null)} />
 
     </View>
   );

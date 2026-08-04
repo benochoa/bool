@@ -2,8 +2,9 @@ import { CheckMark } from '@/assets/symbols/CheckMark';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { XMark } from '@/assets/symbols/XMark';
 import GroupPost from '@/components/posts/groupPost';
-import { ZoomRoot } from '@/components/posts/zoomOverlay';
 import GroupPostPreview from '@/components/posts/groupPostPreview';
+import PersonPanel from '@/components/posts/personPanel';
+import SlideOver from '@/components/ui/slideOver';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useSession } from '@/hooks/use-session';
@@ -12,7 +13,7 @@ import { fetchReceivedGroups, ReceivedGroup } from '@/lib/fetchReceivedGroups';
 import { supabase } from '@/supabaseClient';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function ReceivedScreen() {
 
@@ -21,6 +22,9 @@ export default function ReceivedScreen() {
 
   const [received, setReceived] = useState<ReceivedGroup[]>([]);
   const [detail, setDetail] = useState<ReceivedGroup | null>(null);
+  // A member's profile, opened from the post's members card. It belongs to the
+  // screen so it covers the detail panel's own back chevron.
+  const [openPersonId, setOpenPersonId] = useState<string | null>(null);
   const [isLeader, setIsLeader] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -99,14 +103,13 @@ export default function ReceivedScreen() {
         </ScrollView>
       )}
 
-      {/* Detail modal — full group, with leader Approve/Reject for incoming items */}
-      <Modal visible={detail !== null} animationType="slide" onRequestClose={() => setDetail(null)}>
-        <ZoomRoot>
+      {/* Detail panel — full group, with leader Approve/Reject for incoming items */}
+      <SlideOver visible={detail !== null} onRequestClose={() => setDetail(null)}>
         <View style={styles.detailModal}>
           <TouchableOpacity style={styles.detailBack} onPress={() => setDetail(null)}>
             <ChevronLeft size={28} color="#000" />
           </TouchableOpacity>
-          {detail && <GroupPost groupId={detail.suggestingGroupId} />}
+          {detail && <GroupPost groupId={detail.suggestingGroupId} onSelectMember={setOpenPersonId} />}
           {detail?.status === 'sent' && isLeader && (
             <View style={styles.modalLeaderRow}>
               <TouchableOpacity style={styles.xButton} onPress={() => { handleReject(detail.suggestingGroupId); setDetail(null); }}>
@@ -118,8 +121,10 @@ export default function ReceivedScreen() {
             </View>
           )}
         </View>
-        </ZoomRoot>
-      </Modal>
+      </SlideOver>
+
+      {/* Last, so a member's profile covers the post that opened it. */}
+      <PersonPanel personId={openPersonId} onClose={() => setOpenPersonId(null)} />
     </View>
   );
 }

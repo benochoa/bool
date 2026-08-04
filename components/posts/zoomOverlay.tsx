@@ -30,9 +30,9 @@ export function useZoomOverlay() {
   return ctx;
 }
 
-// Gesture root + overlay, together. Used once at the app root, and again inside
-// each Modal that shows a post — a Modal is a separate window, so it needs its
-// own gesture root and overlay; the app-root ones can't reach into it.
+// Gesture root + overlay, together. Used once, at the app root: every post now
+// shows in an ordinary view (a screen or a SlideOver panel), so they all sit
+// under this root. A Modal would be a separate window and would need its own.
 export function ZoomRoot({ children }: { children: ReactNode }) {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

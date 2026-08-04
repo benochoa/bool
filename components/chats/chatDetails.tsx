@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator, Dimensions, Modal, ScrollView, StyleSheet, Text,
+  ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text,
   TouchableOpacity, View,
 } from 'react-native';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { ChevronRight } from '@/assets/symbols/ChevronRight';
 import GroupPost from '@/components/posts/groupPost';
-import IndividualPost from '@/components/posts/individualPost';
 import MembersCard from '@/components/posts/membersCard';
-import { ZoomRoot } from '@/components/posts/zoomOverlay';
+import PersonPanel from '@/components/posts/personPanel';
+import SlideOver from '@/components/ui/slideOver';
 import { Palette, Type } from '@/constants/theme';
 import { fetchGroup, GroupData } from '@/lib/fetchGroup';
 
@@ -81,28 +81,19 @@ export default function ChatDetails({ myGroupId, otherGroupId, onClose }: Props)
       )}
 
       {/* Group post — read-only, so no pencil and no leave/dissolve. */}
-      <Modal visible={openGroupId !== null} animationType="slide" onRequestClose={() => setOpenGroupId(null)}>
-        <ZoomRoot>
-          <View style={styles.container}>
-            <TouchableOpacity style={styles.floatingBack} onPress={() => setOpenGroupId(null)}>
-              <ChevronLeft size={28} color="#000" />
-            </TouchableOpacity>
-            {openGroupId && <GroupPost groupId={openGroupId} topInset={100} />}
-          </View>
-        </ZoomRoot>
-      </Modal>
+      <SlideOver visible={openGroupId !== null} onRequestClose={() => setOpenGroupId(null)}>
+        <View style={styles.container}>
+          <TouchableOpacity style={styles.floatingBack} onPress={() => setOpenGroupId(null)}>
+            <ChevronLeft size={28} color="#000" />
+          </TouchableOpacity>
+          {openGroupId && (
+            <GroupPost groupId={openGroupId} topInset={100} onSelectMember={setOpenPersonId} />
+          )}
+        </View>
+      </SlideOver>
 
-      {/* Member profile */}
-      <Modal visible={openPersonId !== null} animationType="slide" onRequestClose={() => setOpenPersonId(null)}>
-        <ZoomRoot>
-          <View style={styles.container}>
-            <TouchableOpacity style={styles.floatingBack} onPress={() => setOpenPersonId(null)}>
-              <ChevronLeft size={28} color="#000" />
-            </TouchableOpacity>
-            {openPersonId && <IndividualPost personId={openPersonId} standalone />}
-          </View>
-        </ZoomRoot>
-      </Modal>
+      {/* Member profile — last, so it covers the group post above too. */}
+      <PersonPanel personId={openPersonId} onClose={() => setOpenPersonId(null)} />
 
     </View>
   );
