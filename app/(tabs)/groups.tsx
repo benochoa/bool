@@ -271,14 +271,18 @@ const styles = StyleSheet.create({
     color: Palette.muted,
   },
 
-  // Current group switcher
+  // Current group switcher — pinned, and opaque from the very top of the
+  // screen down, so the post's own name scrolls out of sight underneath it
+  // instead of sliding through the band.
   switcherWrap: {
     position: 'absolute',
-    top: 60,
+    top: 0,
     left: 0,
     right: 0,
+    paddingTop: 60,
+    backgroundColor: Palette.background,
     alignItems: 'center',
-    zIndex: 2,
+    zIndex: 3,
   },
 
   switcherButton: {
