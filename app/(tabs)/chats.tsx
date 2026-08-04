@@ -28,41 +28,41 @@ export default function ChatsScreen() {
     }, [currentGroupId])
   );
 
-  if (loading) {
-    return <ActivityIndicator style={styles.loader} />;
-  }
-
-  if (previews.length === 0) {
-    return (
-      <View style={styles.emptyContainer}>
-        <Text style={styles.emptyText}>No matches yet.</Text>
-      </View>
-    );
-  }
-
   return (
-    <>
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        {previews.map(preview => (
-          <TouchableOpacity
-            key={preview.otherGroupId}
-            style={styles.previewRow}
-            onPress={() => setSelected(preview)}
-          >
-            {preview.imageUrl ? (
-              <Image source={{ uri: preview.imageUrl }} style={styles.previewPhoto} contentFit="cover" />
-            ) : (
-              <View style={styles.previewPhotoPlaceholder} />
-            )}
-            <View style={styles.previewText}>
-              <Text style={styles.previewName} numberOfLines={1}>{preview.otherGroupName}</Text>
-              <Text style={styles.previewMessage} numberOfLines={1}>
-                {preview.lastMessage ?? 'No messages yet'}
-              </Text>
-            </View>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+    <View style={styles.container}>
+      <View style={styles.headerBand}>
+        <Text style={styles.headerTitle}>Chats</Text>
+      </View>
+
+      {loading ? (
+        <ActivityIndicator style={styles.loader} />
+      ) : previews.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>No matches yet.</Text>
+        </View>
+      ) : (
+        <ScrollView contentContainerStyle={styles.content}>
+          {previews.map(preview => (
+            <TouchableOpacity
+              key={preview.otherGroupId}
+              style={styles.previewRow}
+              onPress={() => setSelected(preview)}
+            >
+              {preview.imageUrl ? (
+                <Image source={{ uri: preview.imageUrl }} style={styles.previewPhoto} contentFit="cover" />
+              ) : (
+                <View style={styles.previewPhotoPlaceholder} />
+              )}
+              <View style={styles.previewText}>
+                <Text style={styles.previewName} numberOfLines={1}>{preview.otherGroupName}</Text>
+                <Text style={styles.previewMessage} numberOfLines={1}>
+                  {preview.lastMessage ?? 'No messages yet'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
 
       <Modal
         visible={selected !== null}
@@ -78,7 +78,7 @@ export default function ChatsScreen() {
           />
         )}
       </Modal>
-    </>
+    </View>
   );
 }
 
@@ -86,14 +86,24 @@ const styles = StyleSheet.create({
   loader: {
     flex: 1,
     alignSelf: 'center',
-    marginTop: 100,
   },
   container: {
     flex: 1,
     backgroundColor: '#fff',
   },
+  // Page title — the same 44pt band at top: 60 the other tabs use.
+  headerBand: {
+    marginTop: 60,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    ...Type.title,
+    color: '#000',
+  },
   content: {
-    paddingTop: 60,
+    paddingTop: 16,
     paddingBottom: 40,
   },
   emptyContainer: {

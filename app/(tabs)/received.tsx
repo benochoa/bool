@@ -67,37 +67,37 @@ export default function ReceivedScreen() {
     }
   }
 
-  if (loading) {
-    return <ActivityIndicator style={styles.loader} />;
-  }
-
-  if (received.length === 0) {
-    return (
-      <View style={styles.emptyContainer}>
-        <Text style={styles.emptyText}>Nothing received yet.</Text>
-      </View>
-    );
-  }
-
   // Incoming (awaiting approval) on top, matched (green) below.
   const incomingItems = received.filter(r => r.status === 'sent');
   const matchedItems = received.filter(r => r.status === 'matched');
 
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.previewList}>
-        {[...incomingItems, ...matchedItems].map(r => (
-          <GroupPostPreview
-            key={r.suggestingGroupId}
-            groupName={r.groupName}
-            firstImageUrl={r.firstImageUrl}
-            suggesterPicUrl={null}
-            hideSuggesterPic
-            tint={r.status === 'matched' ? 'green' : undefined}
-            onPress={() => setDetail(r)}
-          />
-        ))}
-      </ScrollView>
+      <View style={styles.headerBand}>
+        <Text style={styles.headerTitle}>Received</Text>
+      </View>
+
+      {loading ? (
+        <ActivityIndicator style={styles.loader} />
+      ) : received.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>Nothing received yet.</Text>
+        </View>
+      ) : (
+        <ScrollView contentContainerStyle={styles.previewList}>
+          {[...incomingItems, ...matchedItems].map(r => (
+            <GroupPostPreview
+              key={r.suggestingGroupId}
+              groupName={r.groupName}
+              firstImageUrl={r.firstImageUrl}
+              suggesterPicUrl={null}
+              hideSuggesterPic
+              tint={r.status === 'matched' ? 'green' : undefined}
+              onPress={() => setDetail(r)}
+            />
+          ))}
+        </ScrollView>
+      )}
 
       {/* Detail modal — full group, with leader Approve/Reject for incoming items */}
       <Modal visible={detail !== null} animationType="slide" onRequestClose={() => setDetail(null)}>
@@ -128,7 +128,6 @@ const styles = StyleSheet.create({
   loader: {
     flex: 1,
     alignSelf: 'center',
-    marginTop: 100,
   },
 
   container: {
@@ -136,9 +135,22 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.background,
   },
 
+  // Page title — the same 44pt band at top: 60 the other tabs use.
+  headerBand: {
+    marginTop: 60,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  headerTitle: {
+    ...Type.title,
+    color: '#000',
+  },
+
   previewList: {
     alignItems: 'center',
-    paddingTop: 60,
+    paddingTop: 16,
     paddingBottom: 40,
   },
 
