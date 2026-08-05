@@ -1,7 +1,8 @@
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
+import { supabase } from '@/supabaseClient';
 import ChatThread from '@/components/chats/chatThread';
 import SlideOver from '@/components/ui/slideOver';
 import { FontFamily, Type } from '@/constants/theme';
@@ -28,6 +29,47 @@ export default function ChatsScreen() {
       });
     }, [currentGroupId])
   );
+
+  // Live updates, so a preview's last message changes under you and a brand
+  // new chat appears without leaving the tab. Two things move this list: a
+  // message in any of your threads, and a match creating a thread that isn't
+  // here yet. Each preview is a joined row (name, photo, newest message), so
+  // an event re-runs the fetcher rather than patching a row.
+  useEffect(() => {
+    if (!currentGroupId) return;
+
+    const refetch = () => { fetchChatPreviews(currentGroupId).then(setPreviews); };
+
+    const channel = supabase
+      .channel(`chat-previews-${currentGroupId}`)
+      // Which side of the pair you are depends on canonicalPair's ordering,
+      // and a filter takes one condition, so both halves need a listener.
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `group_1_id=eq.${currentGroupId}` },
+        refetch
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `group_2_id=eq.${currentGroupId}` },
+        refetch
+      )
+      // A new match is a chat that isn't in the list yet — and it can be one
+      // you sent or one you received.
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'group_suggestions', filter: `target_group_id=eq.${currentGroupId}` },
+        refetch
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'group_suggestions', filter: `suggesting_group_id=eq.${currentGroupId}` },
+        refetch
+      )
+      .subscribe(status => console.log('[realtime] chat previews channel:', status));
+
+    return () => { supabase.removeChannel(channel); };
+  }, [currentGroupId]);
 
   return (
     <View style={styles.container}>

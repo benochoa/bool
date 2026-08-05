@@ -104,6 +104,31 @@ export default function ExploreScreen() {
     refreshAll();
   }, [activeTab, refreshAll]);
 
+  // Live updates for the Pending feed, so a member's swipe, a leader's send,
+  // or the other group's approval shows up without leaving the tab. Only the
+  // suggestions are refetched: the Pending sections and the Discover feed's
+  // "already related" exclusions both read from them, and nothing else on this
+  // screen changes in response to your own group's outgoing suggestions.
+  useEffect(() => {
+    if (!currentGroupId) return;
+
+    const channel = supabase
+      .channel(`pending-${currentGroupId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'group_suggestions',
+          filter: `suggesting_group_id=eq.${currentGroupId}`,
+        },
+        () => { fetchGroupSuggestions(currentGroupId).then(setSuggestions); }
+      )
+      .subscribe(status => console.log('[realtime] pending channel:', status));
+
+    return () => { supabase.removeChannel(channel); };
+  }, [currentGroupId]);
+
   // Groups a candidate should be hidden for: already suggested by my group,
   // already shares a member with my group (this also hides my own group,
   // since its members are by definition 100% of "my group's members"),

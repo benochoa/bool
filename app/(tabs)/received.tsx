@@ -12,7 +12,7 @@ import { fetchGroup } from '@/lib/fetchGroup';
 import { fetchReceivedGroups, ReceivedGroup } from '@/lib/fetchReceivedGroups';
 import { supabase } from '@/supabaseClient';
 import { useFocusEffect } from '@react-navigation/native';
-import { Fragment, useCallback, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function ReceivedScreen() {
@@ -45,6 +45,31 @@ export default function ReceivedScreen() {
       }
     }, [currentGroupId, session])
   );
+
+  // Live updates, so sitting on this tab is enough to see a suggestion arrive
+  // or turn into a match — same channel/subscribe shape the chat thread uses.
+  // The payload is a bare group_suggestions row (no group name, no photo), so
+  // an event re-runs the fetcher that joins those in rather than patching the
+  // list from it.
+  useEffect(() => {
+    if (!currentGroupId) return;
+
+    const channel = supabase
+      .channel(`received-${currentGroupId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'group_suggestions',
+          filter: `target_group_id=eq.${currentGroupId}`,
+        },
+        () => { fetchReceivedGroups(currentGroupId).then(setReceived); }
+      )
+      .subscribe(status => console.log('[realtime] received channel:', status));
+
+    return () => { supabase.removeChannel(channel); };
+  }, [currentGroupId]);
 
   async function handleApprove(suggestingGroupId: string) {
     if (!currentGroupId) return;

@@ -96,7 +96,14 @@ export default function SlideOver({ visible, onRequestClose, children }: Props) 
 
   return (
     <GestureDetector gesture={pan}>
-      <Animated.View style={[StyleSheet.absoluteFill, styles.panel, slide]}>
+      {/* Deaf on the way out: it stays mounted for the slide, and every back
+          chevron in the app sits at the same spot, so a second tap right after
+          closing would otherwise land on this panel instead of the screen it
+          just uncovered — and read as the back button not working. */}
+      <Animated.View
+        style={[StyleSheet.absoluteFill, styles.panel, slide]}
+        pointerEvents={visible ? 'auto' : 'none'}
+      >
         {visible ? children : held.current}
       </Animated.View>
     </GestureDetector>
