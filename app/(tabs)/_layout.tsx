@@ -1,3 +1,4 @@
+import { DarkTheme } from '@react-navigation/native';
 import { Tabs } from 'expo-router';
 import React, { ComponentProps, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -14,11 +15,14 @@ import { supabase } from '@/supabaseClient';
 
 // Off-white — pure #fff glares against the bar, so the icons sit just under it.
 const TAB_ICON = '#E8E8EA';
+// Shared by the SF Symbols and the hand-drawn house, so the row can't end up
+// with one icon a different size from the rest.
+const TAB_ICON_SIZE = 22;
 
 // Outline vs filled is the only thing separating the active tab from the rest,
 // so every tab draws its symbol identically otherwise.
 function TabIcon({ name, color }: { name: ComponentProps<typeof IconSymbol>['name']; color: string }) {
-  return <IconSymbol size={25} style={styles.tabIcon} name={name} color={color} />;
+  return <IconSymbol size={TAB_ICON_SIZE} style={styles.tabIcon} name={name} color={color} />;
 }
 
 export default function TabLayout() {
@@ -93,7 +97,7 @@ function AppTabs() {
         // Icons only. Each screen keeps its `title`, which is what the tab
         // still announces to screen readers.
         tabBarShowLabel: false,
-        tabBarStyle: tabBarHidden ? { display: 'none' } : undefined,
+        tabBarStyle: tabBarHidden ? { display: 'none' } : styles.tabBar,
       }}>
       <Tabs.Screen
         name="index"
@@ -103,7 +107,7 @@ function AppTabs() {
           // TabIcon gives the others, so the row still shares its edges.
           tabBarIcon: ({ color, focused }) => (
             <View style={styles.tabIcon}>
-              <House size={25} color={color} filled={focused} />
+              <House size={TAB_ICON_SIZE} color={color} filled={focused} />
             </View>
           ),
         }}
@@ -148,6 +152,14 @@ function AppTabs() {
 }
 
 const styles = StyleSheet.create({
+  // Dark whatever the system scheme is, rather than following it — taken from
+  // React Navigation's own dark theme so it is that bar, not an approximation
+  // of it. The off-white icons above were only ever cut for this background.
+  tabBar: {
+    backgroundColor: DarkTheme.colors.card,
+    borderTopColor: DarkTheme.colors.border,
+  },
+
   // IconSymbol draws into a square and scales each symbol to fit it, so the
   // wide ones (person.3, the chat bubbles) hit the width first and come out
   // shorter than the narrow ones. Widening the box past any symbol's aspect

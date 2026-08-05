@@ -225,12 +225,21 @@ export default function GroupsScreen() {
         </View>
       )}
 
-      {/* Join group modal */}
-      <JoinGroup visible={joining} onClose={() => setJoining(false)} onJoined={refreshGroups} />
+      {/* Join group modal. Joining is a deliberate act, so it also switches to
+          the group you just joined rather than leaving you on the old one. */}
+      <JoinGroup
+        visible={joining}
+        onClose={() => setJoining(false)}
+        onJoined={id => { setCurrentGroupId(id); refreshGroups(); }}
+      />
 
       {/* Create group */}
       <SlideOver visible={creating} onRequestClose={() => setCreating(false)}>
-        <GroupPost creating onClose={() => { setCreating(false); refreshGroups(); }} />
+        <GroupPost
+          creating
+          onClose={() => { setCreating(false); refreshGroups(); }}
+          onCreated={id => { setCurrentGroupId(id); setCreating(false); refreshGroups(); }}
+        />
       </SlideOver>
 
       {/* Last, so a member's profile covers the post that opened it. */}

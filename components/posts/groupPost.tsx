@@ -85,6 +85,10 @@ interface Props {
   // straight from the fetched row, so the leader sees what everyone else sees.
   editMode?: boolean;
   onClose?: () => void;
+  // Fired once a creation has actually landed, with the new group's id — the
+  // check is the end of the flow, so the screen that opened it closes on this
+  // rather than waiting for the back chevron.
+  onCreated?: (groupId: string) => void;
   // Set when the viewer is a member of this group (i.e. viewed from the groups
   // tab, not explore) — surfaces Leave (non-leaders) or Dissolve (the leader).
   isMember?: boolean;
@@ -115,7 +119,7 @@ interface Props {
   ref?: Ref<GroupPostHandle>;
 }
 
-export default function GroupPost({ groupId, creating = false, editMode = false, onClose, isMember = false, onLeft, onDissolved, onDirty, onToggleEdit, onLoaded, initialData, topInset, onSelectMember, ref }: Props) {
+export default function GroupPost({ groupId, creating = false, editMode = false, onClose, onCreated, isMember = false, onLeft, onDissolved, onDirty, onToggleEdit, onLoaded, initialData, topInset, onSelectMember, ref }: Props) {
 
   const { session } = useSession();
 
@@ -357,7 +361,11 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
     }
 
     setSaving(false);
+    // Still worth setting even though the screen is about to leave: it retires
+    // the check for the length of the slide-out, so a second tap can't land on
+    // it and create the group twice.
     setSaved(true);
+    onCreated?.(newGroupId);
     return true;
   }
 
@@ -694,9 +702,12 @@ const styles = StyleSheet.create({
   // Only the standalone creation flow needs this — it clears the absolutely
   // positioned back button, since nothing else on screen provides top
   // clearance there. Every other usage is embedded under a screen (tab row,
-  // list header) that already accounts for the status bar.
+  // list header) that already accounts for the status bar. The chevron starts
+  // at 60 and is 28 tall, so clearing it takes more than the 60 it sits at —
+  // this is the same 100 the groups tab passes as `topInset` to clear its own
+  // floating band.
   contentWithBackButton: {
-    paddingTop: 60,
+    paddingTop: 100,
   },
 
   // Members card box — rows carry their own horizontal padding, so the crown

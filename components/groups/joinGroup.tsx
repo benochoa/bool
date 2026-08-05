@@ -9,7 +9,8 @@ import { useSession } from '@/hooks/use-session';
 interface Props {
   visible: boolean;
   onClose: () => void;
-  onJoined: () => void;
+  // The group just joined, so the caller can switch to it.
+  onJoined: (groupId: string) => void;
 }
 
 export default function JoinGroup({ visible, onClose, onJoined }: Props) {
@@ -63,7 +64,7 @@ export default function JoinGroup({ visible, onClose, onJoined }: Props) {
     }
 
     setCodeInput('');
-    onJoined();
+    onJoined(data.id);
     onClose();
   }
 
