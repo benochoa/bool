@@ -1,0 +1,81 @@
+// Dial codes for the login screen's country picker. Alphabetical, so the list
+// is predictable to scan — the default means most people never open it.
+//
+// This is a common-countries list, not the full ITU one: a code that isn't here
+// can't be signed in with, so add rather than work around it. Dial codes are not
+// unique (the whole NANP is +1), which is why `name` is the key.
+export interface Country {
+  name: string;
+  dial: string;
+}
+
+export const DEFAULT_DIAL = '+1';
+
+export const COUNTRIES: Country[] = [
+  { name: 'Argentina', dial: '+54' },
+  { name: 'Australia', dial: '+61' },
+  { name: 'Austria', dial: '+43' },
+  { name: 'Bangladesh', dial: '+880' },
+  { name: 'Belgium', dial: '+32' },
+  { name: 'Brazil', dial: '+55' },
+  { name: 'Canada', dial: '+1' },
+  { name: 'Chile', dial: '+56' },
+  { name: 'China', dial: '+86' },
+  { name: 'Colombia', dial: '+57' },
+  { name: 'Costa Rica', dial: '+506' },
+  { name: 'Czechia', dial: '+420' },
+  { name: 'Denmark', dial: '+45' },
+  { name: 'Dominican Republic', dial: '+1' },
+  { name: 'Ecuador', dial: '+593' },
+  { name: 'Egypt', dial: '+20' },
+  { name: 'El Salvador', dial: '+503' },
+  { name: 'Finland', dial: '+358' },
+  { name: 'France', dial: '+33' },
+  { name: 'Germany', dial: '+49' },
+  { name: 'Ghana', dial: '+233' },
+  { name: 'Greece', dial: '+30' },
+  { name: 'Guatemala', dial: '+502' },
+  { name: 'Hong Kong', dial: '+852' },
+  { name: 'Hungary', dial: '+36' },
+  { name: 'India', dial: '+91' },
+  { name: 'Indonesia', dial: '+62' },
+  { name: 'Ireland', dial: '+353' },
+  { name: 'Israel', dial: '+972' },
+  { name: 'Italy', dial: '+39' },
+  { name: 'Jamaica', dial: '+1' },
+  { name: 'Japan', dial: '+81' },
+  { name: 'Kenya', dial: '+254' },
+  { name: 'Malaysia', dial: '+60' },
+  { name: 'Mexico', dial: '+52' },
+  { name: 'Morocco', dial: '+212' },
+  { name: 'Netherlands', dial: '+31' },
+  { name: 'New Zealand', dial: '+64' },
+  { name: 'Nigeria', dial: '+234' },
+  { name: 'Norway', dial: '+47' },
+  { name: 'Pakistan', dial: '+92' },
+  { name: 'Panama', dial: '+507' },
+  { name: 'Peru', dial: '+51' },
+  { name: 'Philippines', dial: '+63' },
+  { name: 'Poland', dial: '+48' },
+  { name: 'Portugal', dial: '+351' },
+  { name: 'Puerto Rico', dial: '+1' },
+  { name: 'Romania', dial: '+40' },
+  { name: 'Russia', dial: '+7' },
+  { name: 'Saudi Arabia', dial: '+966' },
+  { name: 'Singapore', dial: '+65' },
+  { name: 'South Africa', dial: '+27' },
+  { name: 'South Korea', dial: '+82' },
+  { name: 'Spain', dial: '+34' },
+  { name: 'Sweden', dial: '+46' },
+  { name: 'Switzerland', dial: '+41' },
+  { name: 'Taiwan', dial: '+886' },
+  { name: 'Thailand', dial: '+66' },
+  { name: 'Turkey', dial: '+90' },
+  { name: 'Ukraine', dial: '+380' },
+  { name: 'United Arab Emirates', dial: '+971' },
+  { name: 'United Kingdom', dial: '+44' },
+  { name: 'United States', dial: '+1' },
+  { name: 'Uruguay', dial: '+598' },
+  { name: 'Venezuela', dial: '+58' },
+  { name: 'Vietnam', dial: '+84' },
+];
