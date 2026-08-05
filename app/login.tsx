@@ -70,7 +70,7 @@ export default function LoginScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <Image source={require('@/assets/images/bool-logo-3.png')} style={styles.logo} contentFit="contain" />
+      <Image source={require('@/assets/images/bool-logo-new.png')} style={styles.logo} contentFit="contain" />
 
       {stage === 'phone' ? (
         <>
@@ -157,11 +157,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   logo: {
-    // The drawing's own 4:3, so the file is never squashed. It carries a fifth
-    // of its height as whitespace top and bottom, which is most of the gap the
-    // wordmark used to hold in its margin.
+    // The file's own ratio (863x461), so it is never squashed.
     width: 240,
-    aspectRatio: 4 / 3,
+    aspectRatio: 863 / 461,
     maxWidth: '100%',
     alignSelf: 'center',
     marginBottom: 24,
