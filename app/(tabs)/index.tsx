@@ -17,7 +17,7 @@ import { fetchReceivedGroupIds } from '@/lib/fetchReceivedGroupIds';
 import { supabase } from '@/supabaseClient';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function ExploreScreen() {
@@ -172,9 +172,13 @@ export default function ExploreScreen() {
 
   // Derived
   const done = remainingGroupIds.length === 0;
-  const groupFeedItems = suggestions.filter(s => s.status === 'pending');
-  const sentFeedItems = suggestions.filter(s => s.status === 'sent');
-  const matchedFeedItems = suggestions.filter(s => s.status === 'matched');
+  // The Pending feed in funnel order, each stage under its own heading — the
+  // tints alone (colour, B&W, green) don't say which stage a tile is at.
+  const pendingSections = [
+    { label: 'Pending', items: suggestions.filter(s => s.status === 'pending') },
+    { label: 'Sent', items: suggestions.filter(s => s.status === 'sent') },
+    { label: 'Matched', items: suggestions.filter(s => s.status === 'matched') },
+  ];
 
   // Tab row (reused in all three feeds)
   const tabRow = (
@@ -233,10 +237,10 @@ export default function ExploreScreen() {
         </View>
       )}
 
-      {/* Pending feed — suggested (color) on top, sent (B&W) below */}
+      {/* Pending feed — suggested (color), then sent (B&W), then matched */}
       {activeTab === 'Pending' && (
         <View style={styles.feedContainer}>
-          {groupFeedItems.length === 0 && sentFeedItems.length === 0 && matchedFeedItems.length === 0 ? (
+          {pendingSections.every(section => section.items.length === 0) ? (
             <>
               {tabRow}
               <View style={styles.doneContainer}>
@@ -246,15 +250,22 @@ export default function ExploreScreen() {
           ) : (
             <ScrollView contentContainerStyle={styles.previewList}>
               {tabRow}
-              {[...groupFeedItems, ...sentFeedItems, ...matchedFeedItems].map(s => (
-                <GroupPostPreview
-                  key={s.targetGroupId}
-                  groupName={s.groupName}
-                  firstImageUrl={s.firstImageUrl}
-                  suggesterPicUrl={s.suggestedByPicUrl}
-                  tint={s.status === 'sent' ? 'bw' : s.status === 'matched' ? 'green' : undefined}
-                  onPress={() => setDetail(s)}
-                />
+              {/* A heading only where there's something under it. Fragments, so
+                  the tiles stay one flat column rather than nesting per stage. */}
+              {pendingSections.map(section => section.items.length === 0 ? null : (
+                <Fragment key={section.label}>
+                  <Text style={styles.sectionLabel}>{section.label}</Text>
+                  {section.items.map(s => (
+                    <GroupPostPreview
+                      key={s.targetGroupId}
+                      groupName={s.groupName}
+                      firstImageUrl={s.firstImageUrl}
+                      suggesterPicUrl={s.suggestedByPicUrl}
+                      tint={s.status === 'sent' ? 'bw' : s.status === 'matched' ? 'green' : undefined}
+                      onPress={() => setDetail(s)}
+                    />
+                  ))}
+                </Fragment>
               ))}
             </ScrollView>
           )}
@@ -315,6 +326,17 @@ const styles = StyleSheet.create({
   previewList: {
     alignItems: 'center',
     paddingBottom: 40,
+  },
+
+  // Heading over each stage of the Pending feed. Stretched across the feed and
+  // inset by the tiles' own 20pt, so a heading and its cards share a left edge.
+  sectionLabel: {
+    ...Type.label,
+    alignSelf: 'stretch',
+    paddingHorizontal: 20,
+    color: '#777',
+    marginTop: 8,
+    marginBottom: 8,
   },
 
   tabButton: {

@@ -12,7 +12,7 @@ import { fetchGroup } from '@/lib/fetchGroup';
 import { fetchReceivedGroups, ReceivedGroup } from '@/lib/fetchReceivedGroups';
 import { supabase } from '@/supabaseClient';
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useState } from 'react';
+import { Fragment, useCallback, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function ReceivedScreen() {
@@ -71,9 +71,13 @@ export default function ReceivedScreen() {
     }
   }
 
-  // Incoming (awaiting approval) on top, matched (green) below.
-  const incomingItems = received.filter(r => r.status === 'sent');
-  const matchedItems = received.filter(r => r.status === 'matched');
+  // Each stage under its own heading: awaiting your approval on top, matched
+  // below. The first is stored as `sent` — the sender's word for it; from this
+  // side of the funnel it's what you've received.
+  const sections = [
+    { label: 'Received', items: received.filter(r => r.status === 'sent') },
+    { label: 'Matched', items: received.filter(r => r.status === 'matched') },
+  ];
 
   return (
     <View style={styles.container}>
@@ -89,16 +93,23 @@ export default function ReceivedScreen() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.previewList}>
-          {[...incomingItems, ...matchedItems].map(r => (
-            <GroupPostPreview
-              key={r.suggestingGroupId}
-              groupName={r.groupName}
-              firstImageUrl={r.firstImageUrl}
-              suggesterPicUrl={null}
-              hideSuggesterPic
-              tint={r.status === 'matched' ? 'green' : undefined}
-              onPress={() => setDetail(r)}
-            />
+          {/* A heading only where there's something under it. Fragments, so the
+              tiles stay one flat column rather than nesting per stage. */}
+          {sections.map(section => section.items.length === 0 ? null : (
+            <Fragment key={section.label}>
+              <Text style={styles.sectionLabel}>{section.label}</Text>
+              {section.items.map(r => (
+                <GroupPostPreview
+                  key={r.suggestingGroupId}
+                  groupName={r.groupName}
+                  firstImageUrl={r.firstImageUrl}
+                  suggesterPicUrl={null}
+                  hideSuggesterPic
+                  tint={r.status === 'matched' ? 'green' : undefined}
+                  onPress={() => setDetail(r)}
+                />
+              ))}
+            </Fragment>
           ))}
         </ScrollView>
       )}
@@ -157,6 +168,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 16,
     paddingBottom: 40,
+  },
+
+  // Heading over each stage of the feed. Stretched across the list and inset by
+  // the tiles' own 20pt, so a heading and its cards share a left edge.
+  sectionLabel: {
+    ...Type.label,
+    alignSelf: 'stretch',
+    paddingHorizontal: 20,
+    color: '#777',
+    marginTop: 8,
+    marginBottom: 8,
   },
 
   emptyContainer: {
