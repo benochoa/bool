@@ -17,13 +17,13 @@ import { fetchReceivedGroupIds } from '@/lib/fetchReceivedGroupIds';
 import { supabase } from '@/supabaseClient';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useFocusEffect } from '@react-navigation/native';
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function ExploreScreen() {
 
   const { session } = useSession();
-  const { currentGroupId } = useCurrentGroup();
+  const { currentGroupId, loadingGroups } = useCurrentGroup();
 
   // State
   const [activeTab, setActiveTab] = useState<'Discover' | 'Pending'>('Discover');
@@ -39,6 +39,8 @@ export default function ExploreScreen() {
   const [matchedGroupIds, setMatchedGroupIds] = useState<string[]>([]);
   const [isLeader, setIsLeader] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Identifies the newest refresh, so a slower earlier one can't overwrite it.
+  const refreshRun = useRef(0);
 
   // Pulls everything this screen needs fresh from Supabase. Called on focus
   // (leaving/returning to the Explore tab) and again whenever the Discover/
@@ -47,29 +49,48 @@ export default function ExploreScreen() {
   // is fetched here too even though it has no tab of its own on this screen —
   // it's only used to keep already-related groups out of the Discover feed.
   const refreshAll = useCallback(() => {
-    Promise.all([fetchActiveGroupIds(), fetchAllGroupMembers()]).then(([ids, members]) => {
-      setGroupIds(ids);
-      setAllMembers(members);
-      setLoading(false);
-    });
+    // Nothing is worth fetching until it's known which group we're acting as:
+    // a run started with no group would filter against nobody's membership and
+    // clear `loading` with an empty exclusion set, painting a card the real
+    // data then removes.
+    if (loadingGroups) return;
 
-    if (!currentGroupId) {
-      setSuggestions([]);
-      setReceivedGroupIds([]);
-      setMatchedGroupIds([]);
-      setIsLeader(false);
-      return;
-    }
+    // Supersedes any run still in flight. Focus and the sub-tab effect both
+    // fire on mount, so runs do overlap, and the older one resolving last
+    // would otherwise clobber the newer result.
+    const run = ++refreshRun.current;
 
-    fetchGroupSuggestions(currentGroupId).then(setSuggestions);
+    // Everything the deck filters on has to land in one go. Clearing `loading`
+    // as soon as the candidate list arrives paints a card that the exclusions
+    // still in flight would have removed — which is why a different group used
+    // to flash before the real one settled.
+    const scoped: Promise<[GroupSuggestion[], string[], string[]]> = currentGroupId
+      ? Promise.all([
+          fetchGroupSuggestions(currentGroupId),
+          fetchReceivedGroupIds(currentGroupId),
+          fetchMatchedGroupIds(currentGroupId),
+        ])
+      : Promise.resolve([[], [], []]);
 
-    fetchReceivedGroupIds(currentGroupId).then(setReceivedGroupIds);
-    fetchMatchedGroupIds(currentGroupId).then(setMatchedGroupIds);
+    Promise.all([fetchActiveGroupIds(), fetchAllGroupMembers(), scoped]).then(
+      ([ids, members, [nextSuggestions, nextReceived, nextMatched]]) => {
+        if (run !== refreshRun.current) return;
+        setGroupIds(ids);
+        setAllMembers(members);
+        setSuggestions(nextSuggestions);
+        setReceivedGroupIds(nextReceived);
+        setMatchedGroupIds(nextMatched);
+        setLoading(false);
+      }
+    );
 
-    if (session?.user) {
+    // Only gates the leader-only buttons, so it can settle on its own.
+    if (currentGroupId && session?.user) {
       fetchGroup(currentGroupId).then(g => setIsLeader(g?.created_by === session.user.id));
+    } else {
+      setIsLeader(false);
     }
-  }, [currentGroupId, session]);
+  }, [currentGroupId, session, loadingGroups]);
 
   // Refetch on focus (switching to Explore from another tab)...
   useFocusEffect(
@@ -173,11 +194,13 @@ export default function ExploreScreen() {
   // Derived
   const done = remainingGroupIds.length === 0;
   // The Pending feed in funnel order, each stage under its own heading — the
-  // tints alone (colour, B&W, green) don't say which stage a tile is at.
+  // tints alone (colour, B&W, green) don't say which stage a tile is at. The
+  // headings name who the stage is waiting on, so none of them repeats the
+  // "Pending" tab they sit under.
   const pendingSections = [
-    { label: 'Pending', items: suggestions.filter(s => s.status === 'pending') },
-    { label: 'Sent', items: suggestions.filter(s => s.status === 'sent') },
-    { label: 'Matched', items: suggestions.filter(s => s.status === 'matched') },
+    { label: 'Waiting on your leader...', items: suggestions.filter(s => s.status === 'pending') },
+    { label: 'Waiting on them...', items: suggestions.filter(s => s.status === 'sent') },
+    { label: "It's a match!", items: suggestions.filter(s => s.status === 'matched') },
   ];
 
   // Tab row (reused in all three feeds)
@@ -201,7 +224,9 @@ export default function ExploreScreen() {
     </View>
   );
 
-  if (loading) {
+  // loadingGroups too: until the acting-as group is known, the feed would be
+  // filtered against nobody's membership and could even offer your own group.
+  if (loading || loadingGroups) {
     return <ActivityIndicator style={styles.loader} />;
   }
 
@@ -331,7 +356,7 @@ const styles = StyleSheet.create({
   // Heading over each stage of the Pending feed. Stretched across the feed and
   // inset by the tiles' own 20pt, so a heading and its cards share a left edge.
   sectionLabel: {
-    ...Type.label,
+    ...Type.bodyBold,
     alignSelf: 'stretch',
     paddingHorizontal: 20,
     color: '#777',

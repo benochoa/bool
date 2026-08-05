@@ -73,10 +73,10 @@ export default function ReceivedScreen() {
 
   // Each stage under its own heading: awaiting your approval on top, matched
   // below. The first is stored as `sent` — the sender's word for it; from this
-  // side of the funnel it's what you've received.
+  // side of the funnel it's waiting on your leader.
   const sections = [
-    { label: 'Received', items: received.filter(r => r.status === 'sent') },
-    { label: 'Matched', items: received.filter(r => r.status === 'matched') },
+    { label: 'Waiting on your leader...', items: received.filter(r => r.status === 'sent') },
+    { label: "It's a match!", items: received.filter(r => r.status === 'matched') },
   ];
 
   return (
@@ -173,7 +173,7 @@ const styles = StyleSheet.create({
   // Heading over each stage of the feed. Stretched across the list and inset by
   // the tiles' own 20pt, so a heading and its cards share a left edge.
   sectionLabel: {
-    ...Type.label,
+    ...Type.bodyBold,
     alignSelf: 'stretch',
     paddingHorizontal: 20,
     color: '#777',
