@@ -20,6 +20,10 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+// Leads the Discover deck when it qualifies, ahead of the id ordering the
+// feed otherwise follows.
+const PINNED_GROUP_ID = 'Group-7';
+
 export default function ExploreScreen() {
 
   const { session } = useSession();
@@ -143,11 +147,19 @@ export default function ExploreScreen() {
       ...matchedGroupIds,
     ]);
 
-    return groupIds.filter(id => {
+    const eligible = groupIds.filter(id => {
       if (alreadyRelated.has(id)) return false;
       const candidateMemberIds = allMembers.filter(m => m.groupId === id).map(m => m.personId);
       return !candidateMemberIds.some(personId => myMemberIds.has(personId));
     });
+
+    // Pinned to the front, but only if it got through the filters above — it is
+    // dealt like any other card otherwise. Everything else keeps the id order
+    // the fetcher returns.
+    return [
+      ...eligible.filter(id => id === PINNED_GROUP_ID),
+      ...eligible.filter(id => id !== PINNED_GROUP_ID),
+    ];
   }, [groupIds, allMembers, suggestions, receivedGroupIds, matchedGroupIds, currentGroupId]);
 
   // Cards already acted on this session (checked or X'd) but not yet reflected
@@ -385,7 +397,10 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     paddingHorizontal: 20,
     color: '#777',
-    marginTop: 8,
+    // The gap between sections is this plus the tile's own 16 below it, so 32
+    // here doubles the 24 that separated them. The 8 underneath stays put —
+    // widening it too would float the heading off its own cards.
+    marginTop: 32,
     marginBottom: 8,
   },
 

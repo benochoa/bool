@@ -202,7 +202,10 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     paddingHorizontal: 20,
     color: '#777',
-    marginTop: 8,
+    // The gap between sections is this plus the tile's own 16 below it, so 32
+    // here doubles the 24 that separated them. The 8 underneath stays put —
+    // widening it too would float the heading off its own cards.
+    marginTop: 32,
     marginBottom: 8,
   },
 
