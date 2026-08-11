@@ -158,8 +158,8 @@ export default function ChatsScreen() {
                       {preview.lastMessage ?? 'No messages yet'}
                     </Text>
                     {preview.lastMessageAt && (
-                      <Text style={[styles.previewAge, unread && styles.unread]} numberOfLines={1}>
-                        {'   ·   '}{formatRelativeTime(preview.lastMessageAt)}
+                      <Text style={styles.previewAge} numberOfLines={1}>
+                        {' · '}{formatRelativeTime(preview.lastMessageAt)}
                       </Text>
                     )}
                   </View>
@@ -273,10 +273,12 @@ const styles = StyleSheet.create({
     color: '#777',
     flexShrink: 0,
   },
-  // Overlaid on all three lines of an unseen chat — only weight and colour, so
-  // each keeps the size it has when read.
+  // Overlaid on the name and message of an unseen chat — only weight and
+  // colour, so each keeps the size it has when read. The age is left out: it's
+  // context, not part of what's new.
   unread: {
     fontFamily: FontFamily.bold,
     color: '#000',
   },
+
 });
