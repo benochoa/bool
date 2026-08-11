@@ -315,9 +315,9 @@ export default function ExploreScreen() {
             {/* Both headings render even with nothing under them, so the two
                 stages stay discoverable on an empty feed. Fragments, so the
                 tiles stay one flat column rather than nesting per stage. */}
-            {pendingSections.map(section => (
+            {pendingSections.map((section, i) => (
               <Fragment key={section.label}>
-                <Text style={styles.sectionLabel}>{section.label}</Text>
+                <Text style={[styles.sectionLabel, i > 0 && styles.sectionLabelStacked]}>{section.label}</Text>
                 {section.items.length === 0 ? (
                   <Text style={styles.sectionEmpty}>{section.empty}</Text>
                 ) : section.items.map(s => (
@@ -405,6 +405,12 @@ const styles = StyleSheet.create({
     // widening it too would float the heading off its own cards.
     marginTop: 32,
     marginBottom: 8,
+  },
+
+  // Every heading but the first opens a stage that follows another one, so it
+  // needs a bigger break above it than the first needs below the tab row.
+  sectionLabelStacked: {
+    marginTop: 64,
   },
 
   // Stands in for the tiles of an empty stage: smaller than the heading above

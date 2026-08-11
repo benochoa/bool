@@ -7,27 +7,43 @@ import ChatThread from '@/components/chats/chatThread';
 import SlideOver from '@/components/ui/slideOver';
 import { FontFamily, Type } from '@/constants/theme';
 import { fetchChatPreviews, ChatPreview } from '@/lib/fetchChatPreviews';
+import { fetchChatReads, chatReadKey } from '@/lib/fetchChatReads';
+import { formatRelativeTime } from '@/lib/formatRelativeTime';
+import { markChatRead } from '@/lib/markChatRead';
 import { useCurrentGroup } from '@/hooks/use-current-group';
+import { useSession } from '@/hooks/use-session';
 
 export default function ChatsScreen() {
 
   const { currentGroupId } = useCurrentGroup();
+  const { session } = useSession();
   const [previews, setPreviews] = useState<ChatPreview[]>([]);
+  // When this user last closed each chat, keyed by chatReadKey. A row whose
+  // newest message is younger than its entry here — or that has no entry at
+  // all — hasn't been seen yet.
+  const [reads, setReads] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<ChatPreview | null>(null);
 
+  const userId = session?.user.id;
+
   useFocusEffect(
     useCallback(() => {
-      if (!currentGroupId) {
+      if (!currentGroupId || !userId) {
         setPreviews([]);
         setLoading(false);
         return;
       }
-      fetchChatPreviews(currentGroupId).then(rows => {
-        setPreviews(rows);
-        setLoading(false);
-      });
-    }, [currentGroupId])
+      // Both together: a preview painted before its read timestamp lands would
+      // show every chat bold for a frame.
+      Promise.all([fetchChatPreviews(currentGroupId), fetchChatReads(userId)]).then(
+        ([rows, nextReads]) => {
+          setPreviews(rows);
+          setReads(nextReads);
+          setLoading(false);
+        }
+      );
+    }, [currentGroupId, userId])
   );
 
   // Live updates, so a preview's last message changes under you and a brand
@@ -71,6 +87,31 @@ export default function ChatsScreen() {
     return () => { supabase.removeChannel(channel); };
   }, [currentGroupId]);
 
+  // Closing the thread is what marks it seen — every way out of it (chevron,
+  // Android back, swipe) comes through here, and messages that arrived while
+  // you had it open are ones you saw. The panel closes first; the write is
+  // reflected locally so the row un-bolds without refetching the list, and
+  // skipped on failure so a row never claims to be read when the table
+  // disagrees.
+  async function handleCloseThread() {
+    const chat = selected;
+    setSelected(null);
+    if (!chat || !currentGroupId || !userId) return;
+
+    const lastReadAt = await markChatRead(userId, currentGroupId, chat.otherGroupId);
+    if (!lastReadAt) return;
+    setReads(prev => new Map(prev).set(chatReadKey(currentGroupId, chat.otherGroupId), lastReadAt));
+  }
+
+  // Timestamps come from two places — Postgres for the message, the device for
+  // the read — so they're parsed rather than compared as strings.
+  function isUnread(preview: ChatPreview): boolean {
+    if (!preview.lastMessageAt || !currentGroupId) return false;
+    const lastRead = reads.get(chatReadKey(currentGroupId, preview.otherGroupId));
+    if (!lastRead) return true;
+    return new Date(preview.lastMessageAt).getTime() > new Date(lastRead).getTime();
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.headerBand}>
@@ -85,35 +126,52 @@ export default function ChatsScreen() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.content}>
-          {previews.map(preview => (
-            <TouchableOpacity
-              key={preview.otherGroupId}
-              style={styles.previewRow}
-              onPress={() => setSelected(preview)}
-            >
-              {preview.imageUrl ? (
-                <Image source={{ uri: preview.imageUrl }} style={styles.previewPhoto} contentFit="cover" />
-              ) : (
-                <View style={styles.previewPhotoPlaceholder} />
-              )}
-              <View style={styles.previewText}>
-                <Text style={styles.previewName} numberOfLines={1}>{preview.otherGroupName}</Text>
-                <Text style={styles.previewMessage} numberOfLines={1}>
-                  {preview.lastMessage ?? 'No messages yet'}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          ))}
+          {previews.map(preview => {
+            // Unread collapses the row's three shades into one bold black, so
+            // the whole row reads as new rather than just its name.
+            const unread = isUnread(preview);
+            return (
+              <TouchableOpacity
+                key={preview.otherGroupId}
+                style={styles.previewRow}
+                onPress={() => setSelected(preview)}
+              >
+                {preview.imageUrl ? (
+                  <Image source={{ uri: preview.imageUrl }} style={styles.previewPhoto} contentFit="cover" />
+                ) : (
+                  <View style={styles.previewPhotoPlaceholder} />
+                )}
+                <View style={styles.previewText}>
+                  <Text style={[styles.previewName, unread && styles.unread]} numberOfLines={1}>
+                    {preview.otherGroupName}
+                  </Text>
+                  {/* Message and age on one line. The message shrinks and
+                      truncates; the age never does, so it stays readable however
+                      long the message is. */}
+                  <View style={styles.previewMessageRow}>
+                    <Text style={[styles.previewMessage, unread && styles.unread]} numberOfLines={1}>
+                      {preview.lastMessage ?? 'No messages yet'}
+                    </Text>
+                    {preview.lastMessageAt && (
+                      <Text style={[styles.previewAge, unread && styles.unread]} numberOfLines={1}>
+                        {' · '}{formatRelativeTime(preview.lastMessageAt)}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
       )}
 
-      <SlideOver visible={selected !== null} onRequestClose={() => setSelected(null)}>
+      <SlideOver visible={selected !== null} onRequestClose={handleCloseThread}>
         {selected && currentGroupId && (
           <ChatThread
             myGroupId={currentGroupId}
             otherGroupId={selected.otherGroupId}
             otherGroupName={selected.otherGroupName}
-            onClose={() => setSelected(null)}
+            onClose={handleCloseThread}
           />
         )}
       </SlideOver>
@@ -159,7 +217,7 @@ const styles = StyleSheet.create({
   previewRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 10,
     paddingHorizontal: 20,
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
@@ -167,14 +225,14 @@ const styles = StyleSheet.create({
   // Taller than the two lines of text beside it, so the photo — not the text —
   // sets the row's height and fills most of it.
   previewPhoto: {
-    width: 60,
-    height: 60,
+    width: 52,
+    height: 52,
     borderRadius: 8,
     backgroundColor: '#eee',
   },
   previewPhotoPlaceholder: {
-    width: 60,
-    height: 60,
+    width: 52,
+    height: 52,
     borderRadius: 8,
     backgroundColor: '#ddd',
   },
@@ -185,13 +243,35 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   previewName: {
-    ...Type.header,
-    color: '#000',
-    marginBottom: 4,
+    ...Type.bodyBold,
+    // Softer than black, but still clearly ahead of the #777 message and age
+    // below it, so the name stays the row's first read.
+    color: '#444',
+    marginBottom: 3,
+  },
+  // Message beside its age. The row is what lets the message shrink around a
+  // timestamp that keeps its full width.
+  previewMessageRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    alignSelf: 'stretch',
   },
   previewMessage: {
     ...Type.label,
     fontFamily: FontFamily.regular,
     color: '#777',
+    flexShrink: 1,
+  },
+  previewAge: {
+    ...Type.label,
+    fontFamily: FontFamily.regular,
+    color: '#777',
+    flexShrink: 0,
+  },
+  // Overlaid on all three lines of an unseen chat — only weight and colour, so
+  // each keeps the size it has when read.
+  unread: {
+    fontFamily: FontFamily.bold,
+    color: '#000',
   },
 });
