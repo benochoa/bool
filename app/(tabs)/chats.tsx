@@ -159,7 +159,7 @@ export default function ChatsScreen() {
                     </Text>
                     {preview.lastMessageAt && (
                       <Text style={[styles.previewAge, unread && styles.unread]} numberOfLines={1}>
-                        {' · '}{formatRelativeTime(preview.lastMessageAt)}
+                        {'   ·   '}{formatRelativeTime(preview.lastMessageAt)}
                       </Text>
                     )}
                   </View>
