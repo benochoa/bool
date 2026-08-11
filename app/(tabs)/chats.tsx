@@ -12,11 +12,13 @@ import { formatRelativeTime } from '@/lib/formatRelativeTime';
 import { markChatRead } from '@/lib/markChatRead';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useSession } from '@/hooks/use-session';
+import { useTabBadges } from '@/hooks/use-tab-badges';
 
 export default function ChatsScreen() {
 
   const { currentGroupId } = useCurrentGroup();
   const { session } = useSession();
+  const { refreshBadges } = useTabBadges();
   const [previews, setPreviews] = useState<ChatPreview[]>([]);
   // When this user last closed each chat, keyed by chatReadKey. A row whose
   // newest message is younger than its entry here — or that has no entry at
@@ -101,6 +103,9 @@ export default function ChatsScreen() {
     const lastReadAt = await markChatRead(userId, currentGroupId, chat.otherGroupId);
     if (!lastReadAt) return;
     setReads(prev => new Map(prev).set(chatReadKey(currentGroupId, chat.otherGroupId), lastReadAt));
+    // Writing to chat_reads emits nothing the tab bar's channel listens for, so
+    // its unread count has to be told to catch up.
+    refreshBadges();
   }
 
   // Timestamps come from two places — Postgres for the message, the device for

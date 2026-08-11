@@ -11,6 +11,7 @@ import { Palette, Type } from '@/constants/theme';
 import { CurrentGroupProvider } from '@/hooks/use-current-group';
 import { HideTabBarProvider, useTabBarHidden } from '@/hooks/use-hide-tab-bar';
 import { useSession } from '@/hooks/use-session';
+import { TabBadgeProvider, useTabBadges } from '@/hooks/use-tab-badges';
 import { supabase } from '@/supabaseClient';
 
 // Off-white — pure #fff glares against the bar, so the icons sit just under it.
@@ -72,9 +73,11 @@ export default function TabLayout() {
 
   return (
     <CurrentGroupProvider>
-      <HideTabBarProvider>
-        <AppTabs />
-      </HideTabBarProvider>
+      <TabBadgeProvider>
+        <HideTabBarProvider>
+          <AppTabs />
+        </HideTabBarProvider>
+      </TabBadgeProvider>
     </CurrentGroupProvider>
   );
 }
@@ -84,6 +87,7 @@ export default function TabLayout() {
 // cover it by asking for it to go away.
 function AppTabs() {
   const tabBarHidden = useTabBarHidden();
+  const { pending, received, unread } = useTabBadges();
 
   return (
     <Tabs
@@ -103,6 +107,9 @@ function AppTabs() {
         name="index"
         options={{
           title: 'Explore',
+          // Undefined rather than 0: a badge with nothing in it still draws.
+          tabBarBadge: pending > 0 ? pending : undefined,
+          tabBarBadgeStyle: styles.tabBadge,
           // Hand-drawn rather than an SF Symbol — the wrapper matches what
           // TabIcon gives the others, so the row still shares its edges.
           tabBarIcon: ({ color, focused }) => (
@@ -116,6 +123,8 @@ function AppTabs() {
         name="received"
         options={{
           title: 'Received',
+          tabBarBadge: received > 0 ? received : undefined,
+          tabBarBadgeStyle: styles.tabBadge,
           tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'tray.fill' : 'tray'} color={color} />,
         }}
       />
@@ -130,6 +139,8 @@ function AppTabs() {
         name="chats"
         options={{
           title: 'Chats',
+          tabBarBadge: unread > 0 ? unread : undefined,
+          tabBarBadgeStyle: styles.tabBadge,
           tabBarIcon: ({ color, focused }) => (
             <TabIcon
               name={focused ? 'bubble.left.and.bubble.right.fill' : 'bubble.left.and.bubble.right'}
@@ -166,6 +177,15 @@ const styles = StyleSheet.create({
   // leaves height as the only binding side, so all five stand exactly as tall
   // as `size` — same top edge, same bottom edge — and centre horizontally.
   // The margin shifts every icon by the same amount, so the shared edges hold.
+  // Red circle, white number. Stated rather than inherited: the bar is styled
+  // from the dark theme but the navigator itself is on the light one, so the
+  // default badge colour would come from the wrong palette.
+  tabBadge: {
+    backgroundColor: '#FF3B30',
+    color: '#fff',
+    fontSize: 11,
+  },
+
   tabIcon: {
     width: 56,
     marginTop: 4,
