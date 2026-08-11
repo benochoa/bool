@@ -20,7 +20,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-// Leads the Discover deck when it qualifies, ahead of the id ordering the
+// Leads the For You deck when it qualifies, ahead of the id ordering the
 // feed otherwise follows.
 const PINNED_GROUP_ID = 'Group-7';
 
@@ -30,7 +30,7 @@ export default function ExploreScreen() {
   const { currentGroupId, loadingGroups } = useCurrentGroup();
 
   // State
-  const [activeTab, setActiveTab] = useState<'Discover' | 'Pending'>('Discover');
+  const [activeTab, setActiveTab] = useState<'ForYou' | 'Pending'>('ForYou');
   const [groupIds, setGroupIds] = useState<string[]>([]);
   const [allMembers, setAllMembers] = useState<GroupMemberRow[]>([]);
   const [seenGroupIds, setSeenGroupIds] = useState<Set<string>>(new Set());
@@ -47,11 +47,11 @@ export default function ExploreScreen() {
   const refreshRun = useRef(0);
 
   // Pulls everything this screen needs fresh from Supabase. Called on focus
-  // (leaving/returning to the Explore tab) and again whenever the Discover/
-  // Group/Sent sub-tab changes, since switching between those never triggers
+  // (leaving/returning to the Explore tab) and again whenever the For You/
+  // Pending sub-tab changes, since switching between those never triggers
   // a focus event — the screen itself never unmounts. Received/matched data
   // is fetched here too even though it has no tab of its own on this screen —
-  // it's only used to keep already-related groups out of the Discover feed.
+  // it's only used to keep already-related groups out of the For You feed.
   const refreshAll = useCallback(() => {
     // Nothing is worth fetching until it's known which group we're acting as:
     // a run started with no group would filter against nobody's membership and
@@ -231,13 +231,21 @@ export default function ExploreScreen() {
   // Derived
   const done = remainingGroupIds.length === 0;
   // The Pending feed in funnel order, each stage under its own heading — the
-  // tints alone (colour, B&W, green) don't say which stage a tile is at. The
-  // headings name who the stage is waiting on, so none of them repeats the
-  // "Pending" tab they sit under.
+  // tints alone (colour, B&W) don't say which stage a tile is at. The headings
+  // name who the stage is waiting on, so neither repeats the "Pending" tab they
+  // sit under. Matched suggestions have left this feed entirely — they live in
+  // Chats now.
   const pendingSections = [
-    { label: 'Waiting on your leader...', items: suggestions.filter(s => s.status === 'pending') },
-    { label: 'Waiting on them...', items: suggestions.filter(s => s.status === 'sent') },
-    { label: "It's a match!", items: suggestions.filter(s => s.status === 'matched') },
+    {
+      label: 'Waiting on your leader...',
+      items: suggestions.filter(s => s.status === 'pending'),
+      empty: 'No groups suggested by your friends',
+    },
+    {
+      label: 'Waiting on them...',
+      items: suggestions.filter(s => s.status === 'sent'),
+      empty: 'No match requests sent yet',
+    },
   ];
 
   // Tab row (reused in all three feeds)
@@ -245,9 +253,9 @@ export default function ExploreScreen() {
     <View style={styles.tabRow}>
       <TouchableOpacity
         style={styles.tabButton}
-        onPress={() => setActiveTab('Discover')}
+        onPress={() => setActiveTab('ForYou')}
       >
-        <Text style={[styles.tabText, activeTab === 'Discover' && styles.tabTextActive]}>Discover</Text>
+        <Text style={[styles.tabText, activeTab === 'ForYou' && styles.tabTextActive]}>For You</Text>
       </TouchableOpacity>
 
       <Text style={styles.tabDivider}>|</Text>
@@ -270,11 +278,11 @@ export default function ExploreScreen() {
   return (
     <View style={styles.container}>
 
-      {/* Discover feed */}
-      {activeTab === 'Discover' && (
+      {/* For You feed */}
+      {activeTab === 'ForYou' && (
         <View style={styles.feedContainer}>
 
-          {/* Discover / Pending toggle */}
+          {/* For You / Pending toggle */}
           {tabRow}
 
           {done ? (
@@ -299,38 +307,32 @@ export default function ExploreScreen() {
         </View>
       )}
 
-      {/* Pending feed — suggested (color), then sent (B&W), then matched */}
+      {/* Pending feed — suggested (color), then sent (B&W) */}
       {activeTab === 'Pending' && (
         <View style={styles.feedContainer}>
-          {pendingSections.every(section => section.items.length === 0) ? (
-            <>
-              {tabRow}
-              <View style={styles.doneContainer}>
-                <Text style={styles.doneText}>Nothing here yet.</Text>
-              </View>
-            </>
-          ) : (
-            <ScrollView contentContainerStyle={styles.previewList}>
-              {tabRow}
-              {/* A heading only where there's something under it. Fragments, so
-                  the tiles stay one flat column rather than nesting per stage. */}
-              {pendingSections.map(section => section.items.length === 0 ? null : (
-                <Fragment key={section.label}>
-                  <Text style={styles.sectionLabel}>{section.label}</Text>
-                  {section.items.map(s => (
-                    <GroupPostPreview
-                      key={s.targetGroupId}
-                      groupName={s.groupName}
-                      firstImageUrl={s.firstImageUrl}
-                      suggesterPicUrl={s.suggestedByPicUrl}
-                      tint={s.status === 'sent' ? 'bw' : s.status === 'matched' ? 'green' : undefined}
-                      onPress={() => setDetail(s)}
-                    />
-                  ))}
-                </Fragment>
-              ))}
-            </ScrollView>
-          )}
+          <ScrollView contentContainerStyle={styles.previewList}>
+            {tabRow}
+            {/* Both headings render even with nothing under them, so the two
+                stages stay discoverable on an empty feed. Fragments, so the
+                tiles stay one flat column rather than nesting per stage. */}
+            {pendingSections.map(section => (
+              <Fragment key={section.label}>
+                <Text style={styles.sectionLabel}>{section.label}</Text>
+                {section.items.length === 0 ? (
+                  <Text style={styles.sectionEmpty}>{section.empty}</Text>
+                ) : section.items.map(s => (
+                  <GroupPostPreview
+                    key={s.targetGroupId}
+                    groupName={s.groupName}
+                    firstImageUrl={s.firstImageUrl}
+                    suggesterPicUrl={s.suggestedByPicUrl}
+                    tint={s.status === 'sent' ? 'bw' : undefined}
+                    onPress={() => setDetail(s)}
+                  />
+                ))}
+              </Fragment>
+            ))}
+          </ScrollView>
         </View>
       )}
 
@@ -393,15 +395,31 @@ const styles = StyleSheet.create({
   // Heading over each stage of the Pending feed. Stretched across the feed and
   // inset by the tiles' own 20pt, so a heading and its cards share a left edge.
   sectionLabel: {
-    ...Type.bodyBold,
+    fontFamily: FontFamily.bold,
+    fontSize: 20,
     alignSelf: 'stretch',
     paddingHorizontal: 20,
-    color: '#777',
+    color: '#000',
     // The gap between sections is this plus the tile's own 16 below it, so 32
     // here doubles the 24 that separated them. The 8 underneath stays put —
     // widening it too would float the heading off its own cards.
     marginTop: 32,
     marginBottom: 8,
+  },
+
+  // Stands in for the tiles of an empty stage: smaller than the heading above
+  // it, greyed and centred so it reads as an absence rather than another
+  // heading. Kept to one compact line — reserving a full tile's height twice
+  // over would push the second stage off-screen. The wide margin below keeps
+  // the next heading from crowding it, since there's no tile in between.
+  sectionEmpty: {
+    fontFamily: FontFamily.regular,
+    fontSize: 16,
+    alignSelf: 'stretch',
+    textAlign: 'center',
+    color: '#777',
+    paddingVertical: 20,
+    marginBottom: 64,
   },
 
   tabButton: {

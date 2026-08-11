@@ -4,10 +4,10 @@
 
 Social matchmaking app for **groups** (not individuals): a group swipes on other groups; mutual interest → a match → a group chat. Built with Expo SDK 54, expo-router 6 (file-based routing), React Native 0.81, React 19, TypeScript. Backend is **Supabase** (Postgres + Auth + Storage + RPC).
 
-**The matching funnel:** a member swipes ✓ on another group in **Discover** → creates a `pending` `group_suggestion` → the group leader reviews it in **Pending** and Sends it (`sent`) → the target group sees it in **Received** and approves (`matched`) → both groups get a **Chat**.
+**The matching funnel:** a member swipes ✓ on another group in **For You** → creates a `pending` `group_suggestion` → the group leader reviews it in **Pending** and Sends it (`sent`) → the target group sees it in **Received** and approves (`matched`) → both groups get a **Chat**. Pending and Received show only the stages still waiting on someone; once a suggestion is `matched` it leaves both and lives in Chats.
 
 - `app/_layout.tsx` — root stack (login gate); `app/(tabs)/_layout.tsx` — bottom tabs, wraps everything in `CurrentGroupProvider`, and gates on profile completion
-- `app/(tabs)/` — `index` (Explore: Discover/Pending sub-tabs), `received`, `groups`, `chats`, `profile`
+- `app/(tabs)/` — `index` (Explore: For You/Pending sub-tabs), `received`, `groups`, `chats`, `profile`
 - `components/` — `groupPost` / `individualPost` (full read+edit cards), `groupPostPreview` (photo tile), `chatThread`, `settings`, `history`, `ui/icon-symbol` (SF Symbols → MaterialIcons)
 - `lib/` — one small single-purpose Supabase fetcher per file (see conventions); plus `sendMessage`, `canonicalPair`, `supabaseClient` (at repo root)
 - `hooks/` — `use-current-group` (which group you're acting as), `use-session`, `use-color-scheme`
@@ -24,7 +24,7 @@ Social matchmaking app for **groups** (not individuals): a group swipes on other
 ## Naming conventions (established, keep consistent)
 
 - **"current" = the group you're acting as** (`currentGroupId`, `useCurrentGroup`). **"active" = membership status** (`status='active'`, `fetchMyActiveGroupIds`). Keep these two senses distinct — do not reintroduce "active group" for the acting-as concept.
-- Membership fetchers: `fetchMyActiveGroupIds` (my current groups) vs `fetchMyAllTimeGroupIds` (ever, for History) vs `fetchActiveGroupIds` (every active group app-wide, for Discover — excludes dissolved).
+- Membership fetchers: `fetchMyActiveGroupIds` (my current groups) vs `fetchMyAllTimeGroupIds` (ever, for History) vs `fetchActiveGroupIds` (every active group app-wide, for For You — excludes dissolved).
 - Only `status='active'` members define a group — filter membership reads accordingly (`fetchGroup`, `fetchAllGroupMembers`, `fetchMyActiveGroupIds`).
 
 ## Commands

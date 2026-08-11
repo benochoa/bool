@@ -11,7 +11,7 @@ interface Props {
   groupName: string;
   firstImageUrl: string | null;
   suggesterPicUrl: string | null;
-  tint?: 'bw' | 'green';
+  tint?: 'bw';
   onPress: () => void;
   hideSuggesterPic?: boolean;
 }
@@ -43,9 +43,6 @@ export default function GroupPostPreview({ groupName, firstImageUrl, suggesterPi
       ) : (
         <Image source={{ uri: firstImageUrl }} style={styles.photo} contentFit="cover" />
       )}
-
-      {/* Green wash over the photo to mark a match. */}
-      {tint === 'green' && <View style={styles.greenOverlay} pointerEvents="none" />}
 
       {/* Suggester profile pic — top-right, stays in color even on greyed-out tiles.
           Suppressed entirely on screens with no suggester to attribute (Received). */}
@@ -81,11 +78,6 @@ const styles = StyleSheet.create({
     width: CARD_WIDTH,
     height: CARD_HEIGHT,
     backgroundColor: '#ddd',
-  },
-
-  greenOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(67,160,71,0.28)',
   },
 
   suggesterPic: {
