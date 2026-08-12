@@ -112,3 +112,49 @@ create policy "authenticated read/write" on messages for all to authenticated us
 -- Realtime does not stream changes for any table until it's added to this
 -- publication — easy to forget, and there is no error, just silence.
 alter publication supabase_realtime add table messages;
+
+-- Migration (run separately): read state for Chats. One row per user per chat,
+-- stamped when that user closes the thread — a chat whose newest message is
+-- younger than this (or that has no row at all) is unread, which is what bolds
+-- its preview row. Keyed by the canonical pair, same ordering as messages.
+create table chat_reads (
+  user_id      uuid not null references auth.users (id) on delete cascade,
+  group_1_id   text not null references groups (id) on delete cascade,
+  group_2_id   text not null references groups (id) on delete cascade,
+  last_read_at timestamptz not null default now(),
+  primary key (user_id, group_1_id, group_2_id)
+);
+
+-- Unlike the tables above, this one is per-user rather than shared: everything
+-- else here is group content, but who has read what is nobody else's business.
+alter table chat_reads enable row level security;
+
+create policy chat_reads_select_own on chat_reads
+  for select using (auth.uid() = user_id);
+create policy chat_reads_insert_own on chat_reads
+  for insert with check (auth.uid() = user_id);
+create policy chat_reads_update_own on chat_reads
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Migration (run separately): the red dot on the Chats tab. Counts chats with
+-- something unread in them, not messages — hence the group by on the pair.
+-- Messages you sent yourself never count. The user comes from auth.uid() rather
+-- than an argument, so one member can't ask for another's count.
+create or replace function get_unread_chat_count(my_group_id text)
+returns integer
+language sql
+stable
+as $$
+  select count(*)::int from (
+    select m.group_1_id, m.group_2_id
+    from messages m
+    left join chat_reads r
+      on  r.user_id    = auth.uid()
+      and r.group_1_id = m.group_1_id
+      and r.group_2_id = m.group_2_id
+    where (m.group_1_id = my_group_id or m.group_2_id = my_group_id)
+      and m.sender_id <> auth.uid()
+      and (r.last_read_at is null or m.created_at > r.last_read_at)
+    group by m.group_1_id, m.group_2_id
+  ) unread_chats;
+$$;

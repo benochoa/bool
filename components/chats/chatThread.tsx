@@ -2,17 +2,26 @@ import { StyleSheet, View, Text, ScrollView, TextInput, TouchableOpacity, Activi
 import { useEffect, useRef, useState } from 'react';
 import { Image } from 'expo-image';
 import { supabase } from '@/supabaseClient';
+import { Camera } from '@/assets/symbols/Camera';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { ChevronRight } from '@/assets/symbols/ChevronRight';
+import { Microphone } from '@/assets/symbols/Microphone';
+import { PaperPlane } from '@/assets/symbols/PaperPlane';
+import { PictureFrame } from '@/assets/symbols/PictureFrame';
 import PersonPanel from '@/components/posts/personPanel';
 import SlideOver from '@/components/ui/slideOver';
 import ChatDetails from './chatDetails';
-import { FontFamily, Type } from '@/constants/theme';
+import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { canonicalPair } from '@/lib/canonicalPair';
 import { fetchMessages, Message } from '@/lib/fetchMessages';
 import { fetchPerson } from '@/lib/fetchPerson';
 import { sendMessage } from '@/lib/sendMessage';
+
+// The three composer icons are drawn at one size and one colour — they're a set,
+// and the row only reads as one control if they match.
+const MEDIA_ICON_SIZE = 26;
+const MEDIA_ICON_COLOR = '#555';
 
 interface Props {
   myGroupId: string;
@@ -87,6 +96,15 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
     scrollViewRef.current?.scrollToEnd({ animated: true });
   }, [messages.length]);
 
+  // Which half of the composer is showing.
+  const typing = body.length > 0;
+
+  // Phase 1 is the composer's shape only — taking a photo, picking one and
+  // recording a voice message each land their behaviour in a later pass.
+  function handleTakePhoto() {}
+  function handlePickPhoto() {}
+  function handleRecordVoice() {}
+
   async function handleSend() {
     const trimmed = body.trim();
     if (!trimmed || !session?.user) return;
@@ -152,7 +170,17 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
         </ScrollView>
       )}
 
+      {/* Composer. Empty, it offers the three ways to send something that isn't
+          typed; from the first character on, those give way to the send button
+          — the row never holds both. Keyed off the raw text rather than its
+          trimmed form, so a leading space still counts as having started. */}
       <View style={styles.inputRow}>
+        {!typing && (
+          <TouchableOpacity style={styles.mediaButton} onPress={handleTakePhoto}>
+            <Camera size={MEDIA_ICON_SIZE} color={MEDIA_ICON_COLOR} />
+          </TouchableOpacity>
+        )}
+
         <TextInput
           style={styles.input}
           placeholder="Message..."
@@ -161,13 +189,25 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
           onChangeText={setBody}
           multiline
         />
-        <TouchableOpacity
-          style={[styles.sendButton, (!body.trim() || sending) && styles.sendButtonDisabled]}
-          onPress={handleSend}
-          disabled={!body.trim() || sending}
-        >
-          <Text style={styles.sendButtonText}>{sending ? '...' : '↑'}</Text>
-        </TouchableOpacity>
+
+        {typing ? (
+          <TouchableOpacity
+            style={[styles.sendButton, (!body.trim() || sending) && styles.sendButtonDisabled]}
+            onPress={handleSend}
+            disabled={!body.trim() || sending}
+          >
+            <PaperPlane size={22} color="#fff" />
+          </TouchableOpacity>
+        ) : (
+          <>
+            <TouchableOpacity style={styles.mediaButton} onPress={handleRecordVoice}>
+              <Microphone size={MEDIA_ICON_SIZE} color={MEDIA_ICON_COLOR} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.mediaButton} onPress={handlePickPhoto}>
+              <PictureFrame size={MEDIA_ICON_SIZE} color={MEDIA_ICON_COLOR} />
+            </TouchableOpacity>
+          </>
+        )}
       </View>
 
       {/* Panels come last so they cover the thread rather than sliding in
@@ -297,6 +337,7 @@ const styles = StyleSheet.create({
   inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
+    gap: 6,
     paddingHorizontal: 20,
     paddingTop: 12,
     // Lifts the composer clear of the bottom edge — the padding sits below the
@@ -315,26 +356,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     backgroundColor: '#f5f5f5',
     borderRadius: 20,
-    marginRight: 8,
+  },
+
+  // Bare icon, no chrome — the send button is the only filled control in the
+  // row, which is what marks it as the one that commits.
+  mediaButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   sendButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#43a047',
+    backgroundColor: Palette.confirm,
     alignItems: 'center',
     justifyContent: 'center',
   },
 
   sendButtonDisabled: {
     backgroundColor: '#ccc',
-  },
-
-  sendButtonText: {
-    fontSize: 18,
-    color: '#fff',
-    fontWeight: 'bold',
   },
 
 });
