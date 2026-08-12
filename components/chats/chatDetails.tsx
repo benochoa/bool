@@ -71,9 +71,13 @@ export default function ChatDetails({ myGroupId, otherGroupId, onClose }: Props)
         <ActivityIndicator style={styles.loader} />
       ) : (
         <ScrollView contentContainerStyle={styles.content}>
-          <Text style={styles.title}>
-            {theirs?.name ?? '...'} x {mine?.name ?? '...'}
-          </Text>
+          {/* Three lines rather than one: a long pair of names used to wrap
+              wherever it happened to run out of room. */}
+          <View style={styles.titleBlock}>
+            <Text style={styles.title}>{theirs?.name ?? '...'}</Text>
+            <Text style={styles.title}>+</Text>
+            <Text style={styles.title}>{mine?.name ?? '...'}</Text>
+          </View>
 
           {groupSection(theirs, otherGroupId)}
           {groupSection(mine, myGroupId)}
@@ -139,13 +143,19 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
 
+  // The margins live on the block so the three lines stack tight against each
+  // other and only the pair as a whole is spaced off its surroundings.
+  titleBlock: {
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 24,
+    paddingHorizontal: 20,
+  },
+
   title: {
     ...Type.title,
     color: '#000',
     textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 24,
-    paddingHorizontal: 20,
   },
 
   // Sits above its own members card, aligned to the card's left edge.

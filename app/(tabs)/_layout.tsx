@@ -19,11 +19,16 @@ const TAB_ICON = '#E8E8EA';
 // Shared by the SF Symbols and the hand-drawn house, so the row can't end up
 // with one icon a different size from the rest.
 const TAB_ICON_SIZE = 22;
+// Same symbols, heavier strokes. The house is an SVG rather than a symbol, so
+// it carries the weight in its own stroke width instead — the two are matched
+// by eye, not by a shared number.
+const TAB_ICON_WEIGHT = 'semibold';
+const TAB_HOUSE_STROKE = 2.8;
 
 // Outline vs filled is the only thing separating the active tab from the rest,
 // so every tab draws its symbol identically otherwise.
 function TabIcon({ name, color }: { name: ComponentProps<typeof IconSymbol>['name']; color: string }) {
-  return <IconSymbol size={TAB_ICON_SIZE} style={styles.tabIcon} name={name} color={color} />;
+  return <IconSymbol size={TAB_ICON_SIZE} style={styles.tabIcon} name={name} color={color} weight={TAB_ICON_WEIGHT} />;
 }
 
 export default function TabLayout() {
@@ -107,14 +112,16 @@ function AppTabs() {
         name="index"
         options={{
           title: 'Explore',
-          // Undefined rather than 0: a badge with nothing in it still draws.
-          tabBarBadge: pending > 0 ? pending : undefined,
-          tabBarBadgeStyle: styles.tabBadge,
+          // Empty string, not the count: this one only says "something's
+          // waiting" — the number itself lives on the Pending sub-tab inside
+          // the screen. Undefined still means no badge at all.
+          tabBarBadge: pending > 0 ? '' : undefined,
+          tabBarBadgeStyle: styles.tabDot,
           // Hand-drawn rather than an SF Symbol — the wrapper matches what
           // TabIcon gives the others, so the row still shares its edges.
           tabBarIcon: ({ color, focused }) => (
             <View style={styles.tabIcon}>
-              <House size={TAB_ICON_SIZE} color={color} filled={focused} />
+              <House size={TAB_ICON_SIZE} color={color} filled={focused} strokeWidth={TAB_HOUSE_STROKE} />
             </View>
           ),
         }}
@@ -139,8 +146,10 @@ function AppTabs() {
         name="chats"
         options={{
           title: 'Chats',
-          tabBarBadge: unread > 0 ? unread : undefined,
-          tabBarBadgeStyle: styles.tabBadge,
+          // A dot like Explore's: the bolded rows in the list are where the
+          // count actually lives.
+          tabBarBadge: unread > 0 ? '' : undefined,
+          tabBarBadgeStyle: styles.tabDot,
           tabBarIcon: ({ color, focused }) => (
             <TabIcon
               name={focused ? 'bubble.left.and.bubble.right.fill' : 'bubble.left.and.bubble.right'}
@@ -180,10 +189,39 @@ const styles = StyleSheet.create({
   // Red circle, white number. Stated rather than inherited: the bar is styled
   // from the dark theme but the navigator itself is on the light one, so the
   // default badge colour would come from the wrong palette.
+  //
+  // The bar positions its badge at the icon's top-right (`end: -3, top: -3`);
+  // this moves it to the bottom-right. `top` has to be cleared rather than
+  // just adding `bottom`, since a badge with both edges set and a height of
+  // its own would stay pinned to the top one.
+  // Height, width and radius move together — the badge is a Text, so it's only
+  // a circle while all three agree.
   tabBadge: {
     backgroundColor: '#FF3B30',
     color: '#fff',
-    fontSize: 11,
+    fontSize: 10,
+    lineHeight: 15,
+    height: 16,
+    minWidth: 16,
+    borderRadius: 8,
+    top: undefined,
+    bottom: -4,
+    end: -4,
+  },
+
+  // The same badge with nothing in it — smaller, and no horizontal padding to
+  // stretch it out of round. Sits tighter to the icon than the numbered ones
+  // so a dot this size still reads as attached to it.
+  tabDot: {
+    backgroundColor: '#FF3B30',
+    height: 10,
+    minWidth: 10,
+    lineHeight: 10,
+    borderRadius: 5,
+    paddingHorizontal: 0,
+    top: undefined,
+    bottom: -2,
+    end: -2,
   },
 
   tabIcon: {

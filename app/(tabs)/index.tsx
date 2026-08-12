@@ -264,7 +264,17 @@ export default function ExploreScreen() {
         style={styles.tabButton}
         onPress={() => setActiveTab('Pending')}
       >
-        <Text style={[styles.tabText, activeTab === 'Pending' && styles.tabTextActive]}>Pending</Text>
+        {/* The badge hangs off the word, so it's anchored to a wrapper drawn
+            tight around it rather than to the button's padded box. Read from
+            the same list the Pending feed renders, so the two can't disagree. */}
+        <View>
+          <Text style={[styles.tabText, activeTab === 'Pending' && styles.tabTextActive]}>Pending</Text>
+          {pendingSections[0].items.length > 0 && (
+            <View style={styles.pendingBadge}>
+              <Text style={styles.pendingBadgeText}>{pendingSections[0].items.length}</Text>
+            </View>
+          )}
+        </View>
       </TouchableOpacity>
     </View>
   );
@@ -449,6 +459,30 @@ const styles = StyleSheet.create({
     fontSize: 24,
     color: '#ccc',
     alignSelf: 'center',
+  },
+
+  // Count of suggestions waiting on the leader, sitting just past the word's
+  // last letter on its midline. Absolute rather than a row beside the text, so
+  // the tab row doesn't jump sideways when the count appears or clears; the
+  // half-height negative margin is what centres it against `top: 50%`.
+  pendingBadge: {
+    position: 'absolute',
+    top: '50%',
+    marginTop: -11,
+    right: -28,
+    height: 22,
+    minWidth: 22,
+    borderRadius: 11,
+    paddingHorizontal: 5,
+    backgroundColor: '#FF3B30',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  pendingBadgeText: {
+    fontFamily: FontFamily.bold,
+    fontSize: 13,
+    color: '#fff',
   },
 
   feedContainer: {
