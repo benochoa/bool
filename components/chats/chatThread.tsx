@@ -1,5 +1,5 @@
 import { StyleSheet, View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, Alert } from 'react-native';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Image } from 'expo-image';
 import { supabase } from '@/supabaseClient';
 import { Camera } from '@/assets/symbols/Camera';
@@ -8,18 +8,24 @@ import { ChevronRight } from '@/assets/symbols/ChevronRight';
 import { Microphone } from '@/assets/symbols/Microphone';
 import { PaperPlane } from '@/assets/symbols/PaperPlane';
 import { PictureFrame } from '@/assets/symbols/PictureFrame';
+import { XMark } from '@/assets/symbols/XMark';
+import MessageActions, { BubbleRect } from '@/components/chats/messageActions';
+import ReactionRow from '@/components/chats/reactionRow';
+import VoiceMessage from '@/components/chats/voiceMessage';
 import PersonPanel from '@/components/posts/personPanel';
 import SlideOver from '@/components/ui/slideOver';
 import ChatDetails from './chatDetails';
+import * as Clipboard from 'expo-clipboard';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { canonicalPair } from '@/lib/canonicalPair';
+import { fetchMessageReactions, MessageReaction } from '@/lib/fetchMessageReactions';
 import { fetchMessages, Message } from '@/lib/fetchMessages';
 import { fetchPerson } from '@/lib/fetchPerson';
+import { setMessageReaction } from '@/lib/setMessageReaction';
 import { sendMessage } from '@/lib/sendMessage';
 import { uploadChatAudio } from '@/lib/uploadChatAudio';
 import { uploadChatPhoto } from '@/lib/uploadChatPhoto';
-import VoiceMessage from '@/components/chats/voiceMessage';
 import {
   AudioModule, RecordingPresets, setAudioModeAsync, useAudioRecorder, useAudioRecorderState,
 } from 'expo-audio';
@@ -60,6 +66,17 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   const [pending, setPending] = useState<{ uri: string; width: number; aspectRatio: number | null } | null>(null);
   const [sendingPhoto, setSendingPhoto] = useState(false);
   const [sendingVoice, setSendingVoice] = useState(false);
+  // The message whose actions are open, with where its bubble sat when pressed.
+  const [actionTarget, setActionTarget] = useState<{ message: Message; rect: BubbleRect } | null>(null);
+  // One entry per drawn bubble, so a long-press can measure the right one.
+  const bubbleRefs = useRef(new Map<number, View | null>());
+  const [reactions, setReactions] = useState<MessageReaction[]>([]);
+  const messageIds = useRef(new Set<number>());
+  // The message being answered, once Reply is picked and until it's sent.
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  // Where each row sits in the scroll content, recorded on layout so tapping a
+  // quote can jump back to the original.
+  const messageOffsets = useRef(new Map<number, number>());
 
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder);
@@ -78,7 +95,20 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
       setMessages(msgs);
       setLoading(false);
     });
+    fetchMessageReactions(myGroupId, otherGroupId).then(setReactions);
   }, [myGroupId, otherGroupId]);
+
+  // Reactions, keyed by the message they're on — the map is rebuilt rather than
+  // mutated so a reaction landing re-renders the message it belongs to.
+  const reactionsByMessage = useMemo(() => {
+    const map = new Map<number, MessageReaction[]>();
+    for (const r of reactions) {
+      const list = map.get(r.messageId);
+      if (list) list.push(r);
+      else map.set(r.messageId, [r]);
+    }
+    return map;
+  }, [reactions]);
 
   // Live delivery while the thread is open. postgres_changes filters only
   // support a single column=eq.value condition, so the pair is filtered by
@@ -112,14 +142,65 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
             kind: row.kind,
             mediaUrl: row.media_url,
             mediaAspectRatio: row.media_aspect_ratio,
+            deletedAt: row.deleted_at,
+            replyToId: row.reply_to_id,
             createdAt: row.created_at,
           }]);
+        }
+      )
+      // Rows are edited, not removed, when a message is deleted — so the other
+      // side learns about it through an update rather than a delete.
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages', filter: `group_1_id=eq.${g1}` },
+        payload => {
+          const row = payload.new;
+          if (row.group_2_id !== g2) return;
+          setMessages(prev => prev.map(m => m.id === row.id ? {
+            ...m,
+            body: row.body,
+            mediaUrl: row.media_url,
+            mediaAspectRatio: row.media_aspect_ratio,
+            deletedAt: row.deleted_at,
+          } : m));
         }
       )
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
   }, [myGroupId, otherGroupId]);
+
+  // Reactions live on their own channel, and unfiltered: a postgres_changes
+  // filter takes one column=value condition, and nothing on message_reactions
+  // identifies the chat — that's on the message it points at. So every event
+  // arrives and the ones for messages this thread isn't showing are dropped
+  // here. An event refetches rather than patching, since a delete's payload
+  // carries only the key.
+  useEffect(() => {
+    const [g1, g2] = canonicalPair(myGroupId, otherGroupId);
+
+    const channel = supabase
+      .channel(`reactions-${g1}-${g2}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'message_reactions' },
+        payload => {
+          const messageId = (payload.new as any)?.message_id ?? (payload.old as any)?.message_id;
+          if (!messageIds.current.has(messageId)) return;
+          fetchMessageReactions(myGroupId, otherGroupId).then(setReactions);
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [myGroupId, otherGroupId]);
+
+  // Which messages are on screen, for the reaction channel to filter against.
+  // A ref, so the subscription doesn't have to be torn down and rebuilt every
+  // time a message arrives.
+  useEffect(() => {
+    messageIds.current = new Set(messages.map(m => m.id));
+  }, [messages]);
 
   useEffect(() => {
     scrollViewRef.current?.scrollToEnd({ animated: true });
@@ -165,7 +246,10 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
       myGroupId, otherGroupId, myGroupId, session.user.id,
       // The body every count and preview reads, since neither can show a photo.
       'Photo',
-      { kind: 'image', url, aspectRatio: pending.aspectRatio }
+      {
+        media: { kind: 'image', url, aspectRatio: pending.aspectRatio },
+        replyToId: replyTo?.id ?? null,
+      }
     );
 
     setSendingPhoto(false);
@@ -174,6 +258,7 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
       return;
     }
     setPending(null);
+    setReplyTo(null);
   }
 
   // Hold the mic to record, release to send. The two handlers are a pair, and
@@ -217,24 +302,153 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
     const ok = url && await sendMessage(
       myGroupId, otherGroupId, myGroupId, session.user.id,
       'Voice message',
-      { kind: 'audio', url, aspectRatio: null }
+      { media: { kind: 'audio', url, aspectRatio: null }, replyToId: replyTo?.id ?? null }
     );
     setSendingVoice(false);
 
     if (!ok) Alert.alert('Send failed', 'Please try again.');
+    else setReplyTo(null);
+  }
+
+  // One line standing in for a message wherever it's being referred to rather
+  // than shown: in the quote inside a reply, and in the composer's reply bar.
+  function messageSnippet(m: Message): string {
+    if (m.deletedAt) return 'Deleted message';
+    if (m.kind === 'image') return 'Photo';
+    if (m.kind === 'audio') return 'Voice message';
+    return m.body;
+  }
+
+  // Puts the original back on screen when its quote is tapped. Rows record
+  // where they land as they lay out, so this is a lookup rather than a measure.
+  function scrollToMessage(id: number) {
+    const y = messageOffsets.current.get(id);
+    if (y === undefined) return;
+    scrollViewRef.current?.scrollTo({ y: Math.max(0, y - 80), animated: true });
+  }
+
+  // What goes inside a bubble. Shared with the long-press overlay, which draws
+  // the pressed message again on top of the blur — the copy has to be the same
+  // bubble, not an approximation of it.
+  function messageBubbleContent(m: Message, isMine: boolean) {
+    if (m.deletedAt) {
+      return (
+        <Text style={[styles.deletedText, isMine && styles.deletedTextMine]}>
+          {isMine ? 'You' : m.senderName} deleted this message
+        </Text>
+      );
+    }
+    const quoted = m.replyToId != null
+      ? messages.find(other => other.id === m.replyToId)
+      : undefined;
+
+    return (
+      <>
+        {/* The message being answered, above the answer itself. Tapping it goes
+            back to the original. */}
+        {quoted && (
+          <TouchableOpacity
+            style={[styles.quote, isMine ? styles.quoteMine : styles.quoteTheirs]}
+            onPress={() => scrollToMessage(quoted.id)}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.quoteName, isMine && styles.quoteTextMine]} numberOfLines={1}>
+              {quoted.senderId === session?.user.id ? 'You' : quoted.senderName}
+            </Text>
+            <Text style={[styles.quoteBody, isMine && styles.quoteTextMine]} numberOfLines={1}>
+              {messageSnippet(quoted)}
+            </Text>
+          </TouchableOpacity>
+        )}
+        {!isMine && <Text style={styles.senderName}>{m.senderName}</Text>}
+        {m.kind === 'image' && m.mediaUrl ? (
+          <Image
+            source={{ uri: m.mediaUrl }}
+            style={[styles.messagePhoto, { aspectRatio: m.mediaAspectRatio ?? 1 }]}
+            contentFit="cover"
+          />
+        ) : m.kind === 'audio' && m.mediaUrl ? (
+          <VoiceMessage url={m.mediaUrl} mine={isMine} />
+        ) : (
+          <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine]}>{m.body}</Text>
+        )}
+      </>
+    );
+  }
+
+  // Long-press opens the actions over the bubble, which means knowing where on
+  // screen that bubble is — hence the measure before anything is shown.
+  function openActions(message: Message) {
+    if (message.deletedAt) return;
+    const node = bubbleRefs.current.get(message.id);
+    if (!node) return;
+    node.measureInWindow((x, y, width, height) => {
+      setActionTarget({ message, rect: { x, y, width, height } });
+    });
+  }
+
+  // Setting the emoji you already have takes it off — the bar and the pills
+  // under a message both route through here, so they behave identically.
+  async function toggleReaction(messageId: number, emoji: string) {
+    if (!session?.user) return;
+    const userId = session.user.id;
+    const mine = reactionsByMessage.get(messageId)?.find(r => r.userId === userId);
+    const next = mine?.emoji === emoji ? null : emoji;
+
+    // Applied straight away: a tapback that waits on a round trip feels broken.
+    setReactions(prev => {
+      const others = prev.filter(r => !(r.messageId === messageId && r.userId === userId));
+      return next ? [...others, { messageId, userId, emoji: next }] : others;
+    });
+
+    const ok = await setMessageReaction(messageId, userId, next);
+    // Put the truth back if the write didn't land.
+    if (!ok) fetchMessageReactions(myGroupId, otherGroupId).then(setReactions);
+  }
+
+  async function handleCopy() {
+    if (!actionTarget) return;
+    await Clipboard.setStringAsync(actionTarget.message.body);
+    setActionTarget(null);
+  }
+
+  async function handleDelete() {
+    if (!actionTarget) return;
+    const id = actionTarget.message.id;
+    setActionTarget(null);
+
+    // The row survives; its contents don't. Blanking body matters beyond this
+    // screen — the Chats preview reads it straight out, so leaving the text
+    // there would keep showing a message its sender had deleted.
+    const deletedAt = new Date().toISOString();
+    const { error } = await supabase
+      .from('messages')
+      .update({ deleted_at: deletedAt, body: 'Deleted message', media_url: null, media_aspect_ratio: null })
+      .eq('id', id);
+    if (error) {
+      Alert.alert('Delete failed', 'Please try again.');
+      return;
+    }
+    setMessages(prev => prev.map(m => m.id === id
+      ? { ...m, deletedAt, body: 'Deleted message', mediaUrl: null, mediaAspectRatio: null }
+      : m));
   }
 
   async function handleSend() {
     const trimmed = body.trim();
     if (!trimmed || !session?.user) return;
     setSending(true);
-    const ok = await sendMessage(myGroupId, otherGroupId, myGroupId, session.user.id, trimmed);
+    const ok = await sendMessage(
+      myGroupId, otherGroupId, myGroupId, session.user.id, trimmed,
+      { replyToId: replyTo?.id ?? null }
+    );
     setSending(false);
     if (!ok) {
       Alert.alert('Send failed', 'Please try again.');
       return;
     }
     setBody('');
+    setReplyTo(null);
   }
 
   return (
@@ -266,7 +480,11 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
             messages.map(m => {
               const isMine = m.senderId === session?.user.id;
               return (
-                <View key={m.id} style={[styles.bubbleRow, isMine && styles.bubbleRowMine]}>
+                <View
+                  key={m.id}
+                  style={[styles.bubbleRow, isMine && styles.bubbleRowMine]}
+                  onLayout={e => { messageOffsets.current.set(m.id, e.nativeEvent.layout.y); }}
+                >
                   {/* Theirs is labelled by picture and name; yours needs
                       neither — being on the right says who sent it. */}
                   {!isMine && (
@@ -278,22 +496,28 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
                       )}
                     </TouchableOpacity>
                   )}
-                  <View style={[
-                    styles.bubble,
-                    isMine ? styles.bubbleMine : styles.bubbleTheirs,
-                    m.kind === 'image' && styles.bubblePhoto,
-                  ]}>
-                    {!isMine && <Text style={styles.senderName}>{m.senderName}</Text>}
-                    {m.kind === 'image' && m.mediaUrl ? (
-                      <Image
-                        source={{ uri: m.mediaUrl }}
-                        style={[styles.messagePhoto, { aspectRatio: m.mediaAspectRatio ?? 1 }]}
-                        contentFit="cover"
+                  {/* Bubble and its tapbacks share a column, so the pills sit
+                      under the message on the same side as it. */}
+                  <View style={[styles.bubbleColumn, isMine && styles.bubbleColumnMine]}>
+                    <TouchableOpacity
+                      activeOpacity={1}
+                      onLongPress={() => openActions(m)}
+                      ref={node => { bubbleRefs.current.set(m.id, node as unknown as View | null); }}
+                      style={[
+                        styles.bubble,
+                        isMine ? styles.bubbleMine : styles.bubbleTheirs,
+                        m.kind === 'image' && !m.deletedAt && styles.bubblePhoto,
+                      ]}
+                    >
+                      {messageBubbleContent(m, isMine)}
+                    </TouchableOpacity>
+
+                    {(reactionsByMessage.get(m.id)?.length ?? 0) > 0 && (
+                      <ReactionRow
+                        reactions={reactionsByMessage.get(m.id) ?? []}
+                        myUserId={session?.user.id}
+                        onToggle={emoji => toggleReaction(m.id, emoji)}
                       />
-                    ) : m.kind === 'audio' && m.mediaUrl ? (
-                      <VoiceMessage url={m.mediaUrl} mine={isMine} />
-                    ) : (
-                      <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine]}>{m.body}</Text>
                     )}
                   </View>
                 </View>
@@ -307,6 +531,22 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
           typed; from the first character on, those give way to the send button
           — the row never holds both. Keyed off the raw text rather than its
           trimmed form, so a leading space still counts as having started. */}
+      {/* What you're answering, above the composer until it's sent or dropped. */}
+      {replyTo && (
+        <View style={styles.replyBar}>
+          <View style={styles.replyAccent} />
+          <View style={styles.replyTextBlock}>
+            <Text style={styles.replyName} numberOfLines={1}>
+              Replying to {replyTo.senderId === session?.user.id ? 'yourself' : replyTo.senderName}
+            </Text>
+            <Text style={styles.replyBody} numberOfLines={1}>{messageSnippet(replyTo)}</Text>
+          </View>
+          <TouchableOpacity style={styles.replyCancel} onPress={() => setReplyTo(null)}>
+            <XMark size={16} color="#888" />
+          </TouchableOpacity>
+        </View>
+      )}
+
       <View style={styles.inputRow}>
         {!typing && !recorderState.isRecording && (
           <TouchableOpacity style={styles.mediaButton} onPress={handleTakePhoto}>
@@ -368,6 +608,43 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
           </>
         )}
       </View>
+
+      {/* Long-press actions. The bubble is drawn again here, over the blur, at
+          the spot it was measured at — so it looks lifted rather than moved. */}
+      {actionTarget && (
+        <MessageActions
+          rect={actionTarget.rect}
+          mine={actionTarget.message.senderId === session?.user.id}
+          canCopy={actionTarget.message.kind === 'text'}
+          myReaction={
+            reactionsByMessage.get(actionTarget.message.id)
+              ?.find(r => r.userId === session?.user.id)?.emoji ?? null
+          }
+          onReact={emoji => {
+            toggleReaction(actionTarget.message.id, emoji);
+            setActionTarget(null);
+          }}
+          onReply={() => {
+            setReplyTo(actionTarget.message);
+            setActionTarget(null);
+          }}
+          onCopy={handleCopy}
+          onDelete={handleDelete}
+          onClose={() => setActionTarget(null)}
+        >
+          <View style={[
+            styles.bubble,
+            styles.bubbleLifted,
+            actionTarget.message.senderId === session?.user.id ? styles.bubbleMine : styles.bubbleTheirs,
+            actionTarget.message.kind === 'image' && styles.bubblePhoto,
+          ]}>
+            {messageBubbleContent(
+              actionTarget.message,
+              actionTarget.message.senderId === session?.user.id
+            )}
+          </View>
+        </MessageActions>
+      )}
 
       {/* Confirm screen for a photo that hasn't been sent yet. Over everything,
           on black, so the photo is all there is to look at — and the only ways
@@ -483,8 +760,18 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
 
-  bubble: {
+  // Holds the bubble and anything hanging off it. The 75% cap moves here from
+  // the bubble so a long message and its tapbacks stay within the same width.
+  bubbleColumn: {
+    alignItems: 'flex-start',
     maxWidth: '75%',
+  },
+
+  bubbleColumnMine: {
+    alignItems: 'flex-end',
+  },
+
+  bubble: {
     borderRadius: 16,
     paddingVertical: 8,
     paddingHorizontal: 14,
@@ -517,13 +804,99 @@ const styles = StyleSheet.create({
     backgroundColor: '#e5e5e5',
   },
 
+  // The lifted copy fills the width it was measured at, so its text wraps
+  // exactly where the original did.
+  bubbleLifted: {
+    width: '100%',
+  },
+
+  // The quoted message inside a reply. An indented block with a rule down its
+  // left edge, the way a quotation reads anywhere else.
+  quote: {
+    borderLeftWidth: 2,
+    paddingLeft: 8,
+    marginBottom: 6,
+    maxWidth: '100%',
+  },
+
+  quoteTheirs: {
+    borderLeftColor: '#bbb',
+  },
+
+  quoteMine: {
+    borderLeftColor: 'rgba(255,255,255,0.5)',
+  },
+
+  quoteName: {
+    ...Type.caption,
+    fontFamily: FontFamily.semiBold,
+    color: '#666',
+  },
+
+  quoteBody: {
+    ...Type.caption,
+    color: '#666',
+  },
+
+  quoteTextMine: {
+    color: 'rgba(255,255,255,0.7)',
+  },
+
   bubbleText: {
     ...Type.body,
     color: '#000',
   },
 
+  // Tombstone left where a deleted message was. Italic and washed out, so it
+  // reads as an absence rather than as something someone wrote.
+  deletedText: {
+    ...Type.body,
+    fontStyle: 'italic',
+    color: '#888',
+  },
+
+  deletedTextMine: {
+    color: '#bbb',
+  },
+
   bubbleTextMine: {
     color: '#fff',
+  },
+
+  // Sits on the composer's own top rule, so the two read as one block.
+  replyBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    backgroundColor: '#f5f5f5',
+  },
+
+  replyAccent: {
+    width: 2,
+    alignSelf: 'stretch',
+    borderRadius: 1,
+    backgroundColor: Palette.confirm,
+  },
+
+  replyTextBlock: {
+    flex: 1,
+  },
+
+  replyName: {
+    ...Type.caption,
+    fontFamily: FontFamily.semiBold,
+    color: Palette.confirm,
+  },
+
+  replyBody: {
+    ...Type.caption,
+    color: '#666',
+  },
+
+  replyCancel: {
+    padding: 4,
   },
 
   inputRow: {

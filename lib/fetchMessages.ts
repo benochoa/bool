@@ -13,6 +13,13 @@ export interface Message {
   kind: 'text' | 'image' | 'audio';
   mediaUrl: string | null;
   mediaAspectRatio: number | null;
+  // Set once the sender deletes it. The row stays — ordering, and anything
+  // pointing at it, outlive the content — and the bubble becomes a tombstone.
+  deletedAt: string | null;
+  // The message this one is answering, if any. Resolved against the thread's
+  // own list rather than embedded — a thread loads whole, so the quoted message
+  // is already in hand, and a self-join here would be one more ambiguous embed.
+  replyToId: number | null;
   createdAt: string;
 }
 
@@ -21,10 +28,17 @@ export async function fetchMessages(groupIdA: string, groupIdB: string): Promise
 
   const { data, error } = await supabase
     .from('messages')
-    .select('id, sender_group_id, sender_id, body, kind, media_url, media_aspect_ratio, created_at, profiles(name, profile_pic_url)')
+    // profiles is reached explicitly through sender_id. message_reactions
+    // points at both messages and profiles, which PostgREST reads as a junction
+    // table — so without the hint there are two possible paths here and the
+    // embed is rejected as ambiguous.
+    .select('id, sender_group_id, sender_id, body, kind, media_url, media_aspect_ratio, deleted_at, reply_to_id, created_at, profiles!sender_id(name, profile_pic_url)')
     .eq('group_1_id', g1)
     .eq('group_2_id', g2)
     .order('created_at', { ascending: true });
+  // Loud on the way out: a select naming a column that doesn't exist yet fails
+  // the whole query, and an empty thread looks identical to a new one.
+  if (error) console.error('[fetchMessages]', error.message);
   if (error || !data) return [];
 
   return data.map(row => {
@@ -42,6 +56,8 @@ export async function fetchMessages(groupIdA: string, groupIdB: string): Promise
       kind: row.kind,
       mediaUrl: row.media_url,
       mediaAspectRatio: row.media_aspect_ratio,
+      deletedAt: row.deleted_at,
+      replyToId: row.reply_to_id,
       createdAt: row.created_at,
     };
   });

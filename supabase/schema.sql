@@ -174,3 +174,41 @@ insert into storage.buckets (id, name, public) values ('chat-media', 'chat-media
 
 create policy "authenticated read/write chat media" on storage.objects for all to authenticated
   using (bucket_id = 'chat-media') with check (bucket_id = 'chat-media');
+
+-- Migration (run separately): deleting a message. Soft, so the row stays put —
+-- ordering, and anything that later points at it, outlive the content. The
+-- delete itself blanks body and media_url, both because a delete that leaves
+-- the text in the table isn't one, and because get_chat_previews reads body
+-- directly: otherwise the Chats list would keep showing a deleted message.
+alter table messages add column deleted_at timestamptz;
+
+-- Migration (run separately): tapbacks. One reaction per person per message —
+-- the primary key is what enforces that, so picking a different emoji is an
+-- upsert that replaces rather than a second row. Nothing here identifies the
+-- chat (that's on the message it points at), which is why the client subscribes
+-- to the whole table and drops events for messages it isn't showing.
+create table message_reactions (
+  message_id bigint not null references messages (id) on delete cascade,
+  user_id    uuid   not null references profiles (id) on delete cascade,
+  emoji      text   not null,
+  created_at timestamptz not null default now(),
+  primary key (message_id, user_id)
+);
+
+alter table message_reactions enable row level security;
+
+create policy "authenticated read/write" on message_reactions for all to authenticated
+  using (true) with check (true);
+
+alter publication supabase_realtime add table message_reactions;
+
+-- Migration (run separately): replies. Self-referencing, and null on delete
+-- rather than cascade — deleting the message someone answered shouldn't take
+-- their answer with it; the reply just loses its quote. The client resolves the
+-- quoted message out of the thread it already loaded rather than embedding it.
+--
+-- Note: message_reactions above points at both messages and profiles, which
+-- PostgREST reads as a junction table between them. That makes a bare
+-- profiles(...) embed on messages ambiguous, so fetchMessages names its path
+-- explicitly: profiles!sender_id(...).
+alter table messages add column reply_to_id bigint references messages (id) on delete set null;

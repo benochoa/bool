@@ -10,13 +10,19 @@ export interface MessageMedia {
   aspectRatio: number | null;
 }
 
+interface SendOptions {
+  media?: MessageMedia;
+  // The message being answered, if this is a reply.
+  replyToId?: number | null;
+}
+
 export async function sendMessage(
   groupIdA: string,
   groupIdB: string,
   senderGroupId: string,
   senderId: string,
   body: string,
-  media?: MessageMedia
+  options: SendOptions = {}
 ): Promise<boolean> {
   const [g1, g2] = canonicalPair(groupIdA, groupIdB);
 
@@ -26,9 +32,10 @@ export async function sendMessage(
     sender_group_id: senderGroupId,
     sender_id: senderId,
     body,
-    kind: media?.kind ?? 'text',
-    media_url: media?.url ?? null,
-    media_aspect_ratio: media?.aspectRatio ?? null,
+    kind: options.media?.kind ?? 'text',
+    media_url: options.media?.url ?? null,
+    media_aspect_ratio: options.media?.aspectRatio ?? null,
+    reply_to_id: options.replyToId ?? null,
   });
   return !error;
 }
