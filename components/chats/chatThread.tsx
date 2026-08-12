@@ -17,11 +17,26 @@ import { canonicalPair } from '@/lib/canonicalPair';
 import { fetchMessages, Message } from '@/lib/fetchMessages';
 import { fetchPerson } from '@/lib/fetchPerson';
 import { sendMessage } from '@/lib/sendMessage';
+import { uploadChatAudio } from '@/lib/uploadChatAudio';
+import { uploadChatPhoto } from '@/lib/uploadChatPhoto';
+import VoiceMessage from '@/components/chats/voiceMessage';
+import {
+  AudioModule, RecordingPresets, setAudioModeAsync, useAudioRecorder, useAudioRecorderState,
+} from 'expo-audio';
+import * as ImagePicker from 'expo-image-picker';
 
 // The three composer icons are drawn at one size and one colour — they're a set,
 // and the row only reads as one control if they match.
 const MEDIA_ICON_SIZE = 26;
 const MEDIA_ICON_COLOR = '#555';
+// The mic and the pulse beside the timer, while a recording is running.
+const RECORDING_COLOR = '#FF3B30';
+
+// m:ss from the recorder's milliseconds.
+function formatRecordingTime(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
 
 interface Props {
   myGroupId: string;
@@ -40,6 +55,17 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   const [sending, setSending] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [openPersonId, setOpenPersonId] = useState<string | null>(null);
+  // A photo taken or picked but not sent yet — its presence is what puts the
+  // confirm screen up.
+  const [pending, setPending] = useState<{ uri: string; width: number; aspectRatio: number | null } | null>(null);
+  const [sendingPhoto, setSendingPhoto] = useState(false);
+  const [sendingVoice, setSendingVoice] = useState(false);
+
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(recorder);
+  // Whether the mic is still held down. A ref, not state: the async start path
+  // reads it after awaiting, and a re-render is not what it's waiting for.
+  const holding = useRef(false);
 
   const scrollViewRef = useRef<ScrollView>(null);
   // Sender details already seen, so a live message doesn't refetch the person
@@ -83,6 +109,9 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
             senderName: sender.name,
             senderProfilePicUrl: sender.profilePicUrl,
             body: row.body,
+            kind: row.kind,
+            mediaUrl: row.media_url,
+            mediaAspectRatio: row.media_aspect_ratio,
             createdAt: row.created_at,
           }]);
         }
@@ -99,11 +128,101 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   // Which half of the composer is showing.
   const typing = body.length > 0;
 
-  // Phase 1 is the composer's shape only — taking a photo, picking one and
-  // recording a voice message each land their behaviour in a later pass.
-  function handleTakePhoto() {}
-  function handlePickPhoto() {}
-  function handleRecordVoice() {}
+  // Both routes to a photo end in the same confirm screen, so they only differ
+  // in which picker they open.
+  async function handleTakePhoto() {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Camera access needed', 'Allow camera access to take a photo.');
+      return;
+    }
+    stagePhoto(await ImagePicker.launchCameraAsync({ quality: 1 }));
+  }
+
+  async function handlePickPhoto() {
+    stagePhoto(await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 }));
+  }
+
+  function stagePhoto(result: ImagePicker.ImagePickerResult) {
+    if (result.canceled) return;
+    const asset = result.assets[0];
+    setPending({
+      uri: asset.uri,
+      width: asset.width,
+      // Kept as the photo's real shape rather than snapped like the post cards:
+      // a message isn't sharing a carousel with anything, so nothing needs it
+      // to agree with a neighbour.
+      aspectRatio: asset.width && asset.height ? asset.width / asset.height : null,
+    });
+  }
+
+  async function handleSendPhoto() {
+    if (!pending || !session?.user) return;
+    setSendingPhoto(true);
+
+    const url = await uploadChatPhoto(myGroupId, otherGroupId, pending.uri, pending.width);
+    const ok = url && await sendMessage(
+      myGroupId, otherGroupId, myGroupId, session.user.id,
+      // The body every count and preview reads, since neither can show a photo.
+      'Photo',
+      { kind: 'image', url, aspectRatio: pending.aspectRatio }
+    );
+
+    setSendingPhoto(false);
+    if (!ok) {
+      Alert.alert('Send failed', 'Please try again.');
+      return;
+    }
+    setPending(null);
+  }
+
+  // Hold the mic to record, release to send. The two handlers are a pair, and
+  // the ref is what keeps them honest: permissions and prepare are async, so a
+  // quick tap can release before recording has even started.
+  async function handleRecordStart() {
+    holding.current = true;
+
+    const permission = await AudioModule.requestRecordingPermissionsAsync();
+    if (!permission.granted) {
+      holding.current = false;
+      Alert.alert('Microphone access needed', 'Allow microphone access to send a voice message.');
+      return;
+    }
+
+    await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true });
+    await recorder.prepareToRecordAsync();
+
+    // Let go while that was running — start nothing.
+    if (!holding.current) return;
+    recorder.record();
+  }
+
+  async function handleRecordEnd() {
+    const wasHolding = holding.current;
+    holding.current = false;
+    if (!wasHolding || !recorder.isRecording) return;
+
+    const heldFor = recorderState.durationMillis;
+    await recorder.stop();
+    // Recording mode routes playback through the earpiece on iOS, so it goes
+    // back off the moment the recording ends.
+    await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false });
+
+    const uri = recorder.uri;
+    // Anything this short was a tap on the mic, not a message.
+    if (!uri || heldFor < 1000 || !session?.user) return;
+
+    setSendingVoice(true);
+    const url = await uploadChatAudio(myGroupId, otherGroupId, uri);
+    const ok = url && await sendMessage(
+      myGroupId, otherGroupId, myGroupId, session.user.id,
+      'Voice message',
+      { kind: 'audio', url, aspectRatio: null }
+    );
+    setSendingVoice(false);
+
+    if (!ok) Alert.alert('Send failed', 'Please try again.');
+  }
 
   async function handleSend() {
     const trimmed = body.trim();
@@ -159,9 +278,23 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
                       )}
                     </TouchableOpacity>
                   )}
-                  <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}>
+                  <View style={[
+                    styles.bubble,
+                    isMine ? styles.bubbleMine : styles.bubbleTheirs,
+                    m.kind === 'image' && styles.bubblePhoto,
+                  ]}>
                     {!isMine && <Text style={styles.senderName}>{m.senderName}</Text>}
-                    <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine]}>{m.body}</Text>
+                    {m.kind === 'image' && m.mediaUrl ? (
+                      <Image
+                        source={{ uri: m.mediaUrl }}
+                        style={[styles.messagePhoto, { aspectRatio: m.mediaAspectRatio ?? 1 }]}
+                        contentFit="cover"
+                      />
+                    ) : m.kind === 'audio' && m.mediaUrl ? (
+                      <VoiceMessage url={m.mediaUrl} mine={isMine} />
+                    ) : (
+                      <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine]}>{m.body}</Text>
+                    )}
                   </View>
                 </View>
               );
@@ -175,20 +308,32 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
           — the row never holds both. Keyed off the raw text rather than its
           trimmed form, so a leading space still counts as having started. */}
       <View style={styles.inputRow}>
-        {!typing && (
+        {!typing && !recorderState.isRecording && (
           <TouchableOpacity style={styles.mediaButton} onPress={handleTakePhoto}>
             <Camera size={MEDIA_ICON_SIZE} color={MEDIA_ICON_COLOR} />
           </TouchableOpacity>
         )}
 
-        <TextInput
-          style={styles.input}
-          placeholder="Message..."
-          placeholderTextColor="#aaa"
-          value={body}
-          onChangeText={setBody}
-          multiline
-        />
+        {recorderState.isRecording ? (
+          // Takes the field's place while the mic is held, so the row keeps its
+          // shape and the only thing that changes is what it's telling you.
+          <View style={styles.recordingPill}>
+            <View style={styles.recordingDot} />
+            <Text style={styles.recordingTime}>
+              {formatRecordingTime(recorderState.durationMillis)}
+            </Text>
+            <Text style={styles.recordingHint}>Release to send</Text>
+          </View>
+        ) : (
+          <TextInput
+            style={styles.input}
+            placeholder="Message..."
+            placeholderTextColor="#aaa"
+            value={body}
+            onChangeText={setBody}
+            multiline
+          />
+        )}
 
         {typing ? (
           <TouchableOpacity
@@ -200,15 +345,50 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
           </TouchableOpacity>
         ) : (
           <>
-            <TouchableOpacity style={styles.mediaButton} onPress={handleRecordVoice}>
-              <Microphone size={MEDIA_ICON_SIZE} color={MEDIA_ICON_COLOR} />
+            <TouchableOpacity
+              style={styles.mediaButton}
+              onPressIn={handleRecordStart}
+              onPressOut={handleRecordEnd}
+              disabled={sendingVoice}
+            >
+              {sendingVoice ? (
+                <ActivityIndicator color={MEDIA_ICON_COLOR} />
+              ) : (
+                <Microphone
+                  size={MEDIA_ICON_SIZE}
+                  color={recorderState.isRecording ? RECORDING_COLOR : MEDIA_ICON_COLOR}
+                />
+              )}
             </TouchableOpacity>
-            <TouchableOpacity style={styles.mediaButton} onPress={handlePickPhoto}>
-              <PictureFrame size={MEDIA_ICON_SIZE} color={MEDIA_ICON_COLOR} />
-            </TouchableOpacity>
+            {!recorderState.isRecording && (
+              <TouchableOpacity style={styles.mediaButton} onPress={handlePickPhoto}>
+                <PictureFrame size={MEDIA_ICON_SIZE} color={MEDIA_ICON_COLOR} />
+              </TouchableOpacity>
+            )}
           </>
         )}
       </View>
+
+      {/* Confirm screen for a photo that hasn't been sent yet. Over everything,
+          on black, so the photo is all there is to look at — and the only ways
+          out are Cancel and Send. */}
+      {pending && (
+        <View style={styles.confirmOverlay}>
+          <Image source={{ uri: pending.uri }} style={styles.confirmPhoto} contentFit="contain" />
+          <View style={styles.confirmRow}>
+            <TouchableOpacity onPress={() => setPending(null)} disabled={sendingPhoto}>
+              <Text style={styles.confirmCancel}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleSendPhoto} disabled={sendingPhoto}>
+              {sendingPhoto ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.confirmSend}>Send</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       {/* Panels come last so they cover the thread rather than sliding in
           underneath it. */}
@@ -325,6 +505,18 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
 
+  // A photo fills its bubble, so the bubble becomes a thin frame around it
+  // rather than the padded box a line of text needs.
+  bubblePhoto: {
+    padding: 5,
+  },
+
+  messagePhoto: {
+    width: 220,
+    borderRadius: 12,
+    backgroundColor: '#e5e5e5',
+  },
+
   bubbleText: {
     ...Type.body,
     color: '#000',
@@ -358,6 +550,37 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
 
+  // Stands in for the text field while the mic is held: same height and radius,
+  // so nothing in the row moves when it appears.
+  recordingPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    height: 38,
+    paddingHorizontal: 14,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 20,
+  },
+
+  recordingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: RECORDING_COLOR,
+  },
+
+  recordingTime: {
+    ...Type.body,
+    color: '#000',
+  },
+
+  recordingHint: {
+    ...Type.label,
+    fontFamily: FontFamily.regular,
+    color: '#888',
+  },
+
   // Bare icon, no chrome — the send button is the only filled control in the
   // row, which is what marks it as the one that commits.
   mediaButton: {
@@ -378,6 +601,37 @@ const styles = StyleSheet.create({
 
   sendButtonDisabled: {
     backgroundColor: '#ccc',
+  },
+
+  // Photo confirm screen
+  confirmOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000',
+    zIndex: 5,
+  },
+
+  confirmPhoto: {
+    flex: 1,
+  },
+
+  confirmRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    paddingTop: 20,
+    paddingBottom: 48,
+  },
+
+  confirmCancel: {
+    ...Type.header,
+    color: '#fff',
+  },
+
+  confirmSend: {
+    ...Type.header,
+    fontFamily: FontFamily.bold,
+    color: '#fff',
   },
 
 });

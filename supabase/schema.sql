@@ -158,3 +158,19 @@ as $$
     group by m.group_1_id, m.group_2_id
   ) unread_chats;
 $$;
+
+-- Migration (run separately): photos (and, later, voice notes) in a chat. body
+-- stays not null and holds a readable label ('Photo') for anything that can't
+-- be rendered as text — get_chat_previews returns it as the last message, so a
+-- media message still reads properly in the Chats list with no change there.
+alter table messages add column kind text not null default 'text'
+  check (kind in ('text', 'image', 'audio'));
+alter table messages add column media_url text;
+alter table messages add column media_aspect_ratio numeric;
+
+-- Its own bucket rather than a folder in groups/people: this is per-message
+-- content with a different lifetime from a group's or a person's photos.
+insert into storage.buckets (id, name, public) values ('chat-media', 'chat-media', true);
+
+create policy "authenticated read/write chat media" on storage.objects for all to authenticated
+  using (bucket_id = 'chat-media') with check (bucket_id = 'chat-media');
