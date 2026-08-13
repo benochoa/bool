@@ -2,24 +2,50 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
-import { Palette, Type } from '@/constants/theme';
+import PastGroup from '@/components/profile/pastGroup';
+import SlideOver from '@/components/ui/slideOver';
+import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { fetchGroupNames, GroupName } from '@/lib/fetchGroupNames';
-import { fetchMyAllTimeGroupIds } from '@/lib/fetchMyAllTimeGroupIds';
+import { fetchMyPastGroups, PastMembershipStatus } from '@/lib/fetchMyPastGroups';
 
 interface Props {
   onClose: () => void;
 }
 
+// A past group: the group itself, plus your membership's record of how and when
+// it ended — which is both the section it belongs in and the cutoff its detail
+// panel uses.
+interface Row extends GroupName {
+  status: PastMembershipStatus;
+  statusAt: string;
+}
+
+// Dissolved first: it's the one nobody chose. Then the two ways a person leaves
+// a group, in that order.
+const SECTIONS: { status: PastMembershipStatus; heading: string }[] = [
+  { status: 'group_dissolved', heading: 'Groups dissolved…' },
+  { status: 'left', heading: 'Groups you left…' },
+  { status: 'kicked', heading: 'Groups you were removed from…' },
+];
+
 export default function History({ onClose }: Props) {
   const { session } = useSession();
-  const [groups, setGroups] = useState<GroupName[]>([]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
+  const [detail, setDetail] = useState<Row | null>(null);
 
   useEffect(() => {
     if (!session?.user) return;
-    fetchMyAllTimeGroupIds(session.user.id).then(async ids => {
-      setGroups(await fetchGroupNames(ids));
+    fetchMyPastGroups(session.user.id).then(async past => {
+      const names = await fetchGroupNames(past.map(p => p.groupId));
+      // Built from `past` rather than from `names`: the membership rows carry
+      // the newest-exit-first order, and the id lookup doesn't preserve it.
+      const byId = new Map(names.map(n => [n.id, n]));
+      setRows(past.flatMap(p => {
+        const group = byId.get(p.groupId);
+        return group ? [{ ...group, status: p.status, statusAt: p.statusAt }] : [];
+      }));
       setLoading(false);
     });
   }, [session]);
@@ -36,17 +62,42 @@ export default function History({ onClose }: Props) {
 
       {loading ? (
         <ActivityIndicator style={styles.loader} />
+      ) : rows.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>Nothing here yet.</Text>
+        </View>
       ) : (
         <ScrollView contentContainerStyle={styles.content}>
-          <Text style={styles.sectionHeader}>Your past groups</Text>
-          {groups.map(g => (
-            <View key={g.id} style={styles.row}>
-              <Text style={styles.rowText}>{g.name}</Text>
-              <IconSymbol name="chevron.right" size={18} color="#999" />
-            </View>
-          ))}
+          {SECTIONS.map(section => {
+            const groups = rows.filter(r => r.status === section.status);
+            // A heading with nothing under it says less than no heading does.
+            if (groups.length === 0) return null;
+            return (
+              <View key={section.status} style={styles.section}>
+                <Text style={styles.sectionHeader}>{section.heading}</Text>
+                {groups.map(g => (
+                  <TouchableOpacity key={g.id} style={styles.row} onPress={() => setDetail(g)}>
+                    <Text style={styles.rowText}>{g.name}</Text>
+                    <IconSymbol name="chevron.right" size={18} color="#999" />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            );
+          })}
         </ScrollView>
       )}
+
+      <SlideOver visible={detail !== null} onRequestClose={() => setDetail(null)}>
+        {detail && (
+          <PastGroup
+            groupId={detail.id}
+            groupName={detail.name}
+            firstImageUrl={detail.image_urls?.[0] ?? null}
+            statusAt={detail.statusAt}
+            onClose={() => setDetail(null)}
+          />
+        )}
+      </SlideOver>
 
     </View>
   );
@@ -80,9 +131,30 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
 
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  emptyText: {
+    ...Type.header,
+    fontFamily: FontFamily.regular,
+    color: '#555',
+  },
+
   content: {
     paddingHorizontal: 20,
+    // Sets the first heading well clear of the title, so "History" reads as the
+    // page rather than as another section label.
+    paddingTop: 24,
     paddingBottom: 40,
+  },
+
+  // Enough that the next heading reads as a new group of rows rather than
+  // another row.
+  section: {
+    marginBottom: 36,
   },
 
   sectionHeader: {

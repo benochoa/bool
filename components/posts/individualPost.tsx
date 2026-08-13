@@ -4,7 +4,7 @@ import { supabase } from '@/supabaseClient';
 import { Image } from 'expo-image';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
-import { Ref, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { ReactNode, Ref, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -82,10 +82,14 @@ interface Props {
   // edit copy mounts from data already in memory rather than fetching again.
   onLoaded?: (data: PersonData | null) => void;
   initialData?: PersonData | null;
+  // Controls belonging to the screen that are meant to scroll away with the
+  // post rather than sit pinned above it — the profile tab's history and
+  // settings icons. Drawn at the top right, where a fixed header would put them.
+  headerRight?: ReactNode;
   ref?: Ref<IndividualPostHandle>;
 }
 
-export default function IndividualPost({ personId, creating = false, editMode = false, standalone = false, onSave, onDirty, onToggleEdit, onLoaded, initialData, ref }: Props) {
+export default function IndividualPost({ personId, creating = false, editMode = false, standalone = false, onSave, onDirty, onToggleEdit, onLoaded, initialData, headerRight, ref }: Props) {
 
   const isEditMode = creating || editMode;
 
@@ -435,6 +439,11 @@ export default function IndividualPost({ personId, creating = false, editMode = 
       keyboardShouldPersistTaps="handled"
     >
 
+      {/* Inside the scroll on purpose: these leave with the content instead of
+          holding the top of the screen. Sized like the fixed header that used
+          to carry them, so nothing moves at rest. */}
+      {headerRight && <View style={styles.headerRight}>{headerRight}</View>}
+
       {/* Header — circular profile picture stacked above the name, centered */}
       <View style={styles.headerRow}>
         <View style={styles.profilePicWrap}>
@@ -522,6 +531,20 @@ const styles = StyleSheet.create({
   content: {
     alignItems: 'center',
     paddingBottom: 40,
+  },
+
+  // The row the profile tab's icons ride in. `content` centres its children,
+  // so this claims the full width to push them back to the right edge, and it
+  // carries the status-bar clearance the fixed header used to provide — which
+  // is what keeps everything below it exactly where it was.
+  headerRight: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 16,
+    paddingTop: 60,
+    paddingRight: 20,
   },
 
   // Only the standalone member-profile modal needs this — nothing else on

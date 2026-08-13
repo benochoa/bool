@@ -96,40 +96,28 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.container}>
-      {/* This header never scrolls, unlike the pencil inside the post — which
-          is why Done lives here: on a long profile the pencil scrolls out of
-          reach, leaving no way out of edit mode. Editing also takes over the
-          slot entirely, so history and settings simply aren't reachable until
-          you're done. */}
-      <View style={styles.header}>
-        {editMode ? (
-          <TouchableOpacity onPress={handleBack} hitSlop={8}>
-            <ChevronLeft size={26} color="#000" />
-          </TouchableOpacity>
-        ) : (
-          // Nothing on the left outside edit mode — an empty slot, so the
-          // header's space-between still pushes the icons to the right.
-          <View />
-        )}
-        {editMode ? (
-          saving ? (
-            <ActivityIndicator size={24} color={Palette.confirm} />
-          ) : (
-            // Inert until there is something to save, which is what the grey
-            // says — so Done never opens a confirmation over no changes.
-            <TouchableOpacity onPress={handleDone} disabled={!dirty}>
-              <Text style={[styles.doneText, !dirty && styles.doneTextIdle]}>Done</Text>
+      {/* Edit mode's controls only, floating rather than taking a band of its
+          own: the post below draws from the top, so history and settings can
+          ride inside its scroll and leave with the content. These can't — Done
+          has to stay put, since on a long profile the in-post pencil scrolls
+          out of reach and there'd be no way out of edit mode. box-none so the
+          empty area outside edit mode doesn't swallow taps meant for the post. */}
+      <View style={styles.header} pointerEvents="box-none">
+        {editMode && (
+          <>
+            <TouchableOpacity onPress={handleBack} hitSlop={8}>
+              <ChevronLeft size={26} color="#000" />
             </TouchableOpacity>
-          )
-        ) : (
-          <View style={styles.headerRight}>
-            <TouchableOpacity onPress={() => setHistoryOpen(true)}>
-              <IconSymbol name="book.fill" size={24} color="#000" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setSettingsOpen(true)}>
-              <IconSymbol name="gearshape.fill" size={24} color="#000" />
-            </TouchableOpacity>
-          </View>
+            {saving ? (
+              <ActivityIndicator size={24} color={Palette.confirm} />
+            ) : (
+              // Inert until there is something to save, which is what the grey
+              // says — so Done never opens a confirmation over no changes.
+              <TouchableOpacity onPress={handleDone} disabled={!dirty}>
+                <Text style={[styles.doneText, !dirty && styles.doneTextIdle]}>Done</Text>
+              </TouchableOpacity>
+            )}
+          </>
         )}
       </View>
       {/* The read copy stays mounted underneath, so the editor has something to
@@ -140,6 +128,16 @@ export default function ProfileScreen() {
           personId={session.user.id}
           onLoaded={setSnapshot}
           onToggleEdit={enterEditMode}
+          headerRight={
+            <>
+              <TouchableOpacity onPress={() => setHistoryOpen(true)}>
+                <IconSymbol name="book.fill" size={24} color="#000" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setSettingsOpen(true)}>
+                <IconSymbol name="gearshape.fill" size={24} color="#000" />
+              </TouchableOpacity>
+            </>
+          }
         />
 
         {editorMounted && (
@@ -173,27 +171,32 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Palette.background,
   },
+  // Over the post rather than above it, so the post owns the full height and
+  // its own top row can scroll. zIndex keeps it clear of the editor, which
+  // slides across the same space.
   header: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    height: 86,
     flexDirection: 'row',
-    // Logo at the left, history/settings at the right.
+    // Back at the left, Done at the right.
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingTop: 60,
     paddingHorizontal: 20,
   },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-  },
-  // Anchors the editor's absolute fill to the area below the header, so the
-  // header's own controls stay above it and never slide.
   body: {
     flex: 1,
   },
-  // Opaque, or the read copy underneath would show through it.
+  // Opaque, or the read copy underneath would show through it. The padding
+  // stands in for the header the read copy gets from its own top row — without
+  // it the edit copy would start under the floating Done.
   editor: {
     backgroundColor: Palette.background,
+    paddingTop: 86,
   },
   doneText: {
     ...Type.bodyBold,

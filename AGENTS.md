@@ -24,7 +24,7 @@ Social matchmaking app for **groups** (not individuals): a group swipes on other
 ## Naming conventions (established, keep consistent)
 
 - **"current" = the group you're acting as** (`currentGroupId`, `useCurrentGroup`). **"active" = membership status** (`status='active'`, `fetchMyActiveGroupIds`). Keep these two senses distinct — do not reintroduce "active group" for the acting-as concept.
-- Membership fetchers: `fetchMyActiveGroupIds` (my current groups) vs `fetchMyAllTimeGroupIds` (ever, for History) vs `fetchActiveGroupIds` (every active group app-wide, for For You — excludes dissolved).
+- Membership fetchers: `fetchMyActiveGroupIds` (my current groups) vs `fetchMyPastGroups` (groups I'm no longer in, with how and when each ended — for History) vs `fetchActiveGroupIds` (every active group app-wide, for For You — excludes dissolved).
 - Only `status='active'` members define a group — filter membership reads accordingly (`fetchGroup`, `fetchAllGroupMembers`, `fetchMyActiveGroupIds`).
 
 ## Commands

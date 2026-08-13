@@ -78,7 +78,10 @@ export default function ReceivedScreen() {
     if (!currentGroupId) return;
     const { error } = await supabase
       .from('group_suggestions')
-      .update({ status: 'matched' })
+      // Stamped here rather than derived from created_at, which is when the
+      // suggestion was swiped: History cuts a past group's matches off at the
+      // date you left, and that needs the moment the match actually happened.
+      .update({ status: 'matched', matched_at: new Date().toISOString() })
       .eq('suggesting_group_id', suggestingGroupId)
       .eq('target_group_id', currentGroupId);
     if (!error) {
