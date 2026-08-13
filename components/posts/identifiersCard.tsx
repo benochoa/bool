@@ -3,8 +3,17 @@ import {
   CITIES, COLLEGES, GENDER_OPTIONS, GROUP_AGE_OPTIONS, Identifiers,
   PERSON_AGE_OPTIONS, suggest,
 } from '@/lib/identifiers';
-import { useState } from 'react';
+import { BirthdayCake } from '@/assets/symbols/BirthdayCake';
+import { GraduationCap } from '@/assets/symbols/GraduationCap';
+import { Person } from '@/assets/symbols/Person';
+import { Skyscraper } from '@/assets/symbols/Skyscraper';
+import { ReactNode, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+
+// The icons stand in for the labels, so they're drawn at text weight rather
+// than as decoration.
+const ICON_SIZE = 27;
+const ICON_COLOR = '#555';
 
 // Four fields, same for a person and a group — only the age options differ.
 const FIELDS = ['Age', 'Gender', 'City', 'College'] as const;
@@ -14,24 +23,67 @@ interface ViewProps {
   identifiers: Identifiers;
 }
 
-// View mode: the values as a plain list. College is the one optional field, so
-// its row is dropped entirely when unset rather than left blank.
+// View mode: one bar, each field an icon beside its value, divided from the
+// next. No written labels — a cake, a head, a skyline and a mortarboard say
+// which is which, and four labels wouldn't fit across a card anyway. College is
+// the one optional field, so it drops out entirely when unset.
+const ICONS = {
+  Age: BirthdayCake,
+  Gender: Person,
+  City: Skyscraper,
+  College: GraduationCap,
+} as const;
+
 export function IdentifiersView({ identifiers }: ViewProps) {
-  const rows: [Field, string | null][] = [
-    ['Age', identifiers.age],
-    ['Gender', identifiers.gender],
-    ['City', identifiers.city],
-    ['College', identifiers.college],
-  ];
+  // Two rows of two, pairing a short value with a long one: age and gender need
+  // a few characters, city and college need room, so each row spends its width
+  // where it's needed instead of splitting evenly four ways.
+  function item(field: Field, value: string | null, wide: boolean) {
+    if (!value) return null;
+    const Icon = ICONS[field];
+    return (
+      <View style={[styles.viewItem, wide ? styles.viewItemWide : styles.viewItemNarrow]}>
+        <Icon size={ICON_SIZE} color={ICON_COLOR} />
+        <Text style={styles.viewValue} numberOfLines={1}>{value}</Text>
+      </View>
+    );
+  }
+
+  function row(left: ReactNode, right: ReactNode) {
+    if (!left && !right) return null;
+    return (
+      <View style={styles.viewRow}>
+        {left}
+        {/* Only between two present values — a missing College leaves Gender
+            alone on its row rather than trailing a rule. */}
+        {left && right && <View style={styles.viewDivider} />}
+        {right}
+      </View>
+    );
+  }
+
+  const topRow = row(item('Age', identifiers.age, false), item('City', identifiers.city, true));
+  const bottomRow = row(item('Gender', identifiers.gender, false), item('College', identifiers.college, true));
 
   return (
     <View style={styles.viewCard}>
-      {rows.map(([label, value]) => value ? (
-        <View key={label} style={styles.viewRow}>
-          <Text style={styles.viewLabel}>{label}</Text>
-          <Text style={styles.viewValue} numberOfLines={1}>{value}</Text>
+      {topRow}
+      {/* A rule under each column rather than one across the card, so it
+          separates age from gender and city from college without cutting
+          through the gap between the two halves. Each segment appears only
+          where there's something on both sides of it. */}
+      {topRow && bottomRow && (
+        <View style={styles.viewRow}>
+          <View style={styles.viewItemNarrow}>
+            {identifiers.age && identifiers.gender && <View style={styles.viewHLine} />}
+          </View>
+          <View style={styles.viewDividerGap} />
+          <View style={styles.viewItemWide}>
+            {identifiers.city && identifiers.college && <View style={styles.viewHLine} />}
+          </View>
         </View>
-      ) : null)}
+      )}
+      {bottomRow}
     </View>
   );
 }
@@ -129,7 +181,7 @@ export function IdentifiersEdit({ identifiers, onChange, variant, onFocusField }
         if (open !== null && !isOpen) return null;
 
         return (
-          <View key={field} style={styles.editField}>
+          <View key={field} style={[styles.editField, isOpen && styles.editFieldOpen]}>
             <TouchableOpacity
               style={styles.editRow}
               onPress={() => isOpen ? setOpen(null) : openField(field)}
@@ -158,33 +210,66 @@ export function IdentifiersEdit({ identifiers, onChange, variant, onFocusField }
 }
 
 const styles = StyleSheet.create({
-  // View mode — matches the Q&A card's white box.
+  // View mode — one bar of icon/value pairs, always a single line. Items share
+  // the card's width evenly rather than sizing to their contents, so the bar
+  // fills the card whatever is in it.
   viewCard: {
     backgroundColor: '#fff',
     borderRadius: 16,
-    paddingVertical: 18,
-    paddingHorizontal: 20,
+    paddingVertical: 14,
+    paddingHorizontal: 6,
     gap: 12,
   },
 
   viewRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 16,
   },
 
-  viewLabel: {
-    ...Type.label,
-    color: '#888',
+  viewItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 6,
+  },
+
+  // A third of the row for age and gender, two thirds for city and college.
+  viewItemNarrow: {
+    flex: 1,
+  },
+
+  viewItemWide: {
+    flex: 2,
+  },
+
+  // Full height of the row rather than a fixed length, so it stays tied to the
+  // items either side of it.
+  viewDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: '#e2e2e2',
+  },
+
+  // Stands in for the vertical rule's width on the divider row, so the two
+  // horizontal segments line up with the columns above and below them.
+  viewDividerGap: {
+    width: 1,
+  },
+
+  viewHLine: {
+    height: 1,
+    marginHorizontal: 6,
+    backgroundColor: '#e2e2e2',
   },
 
   viewValue: {
     ...Type.body,
     fontFamily: FontFamily.semiBold,
     color: '#000',
+    // Shrinks before the icon does, so a long value truncates rather than
+    // pushing its own icon out of the item.
     flexShrink: 1,
-    textAlign: 'right',
   },
 
   // Edit mode — sized to the reorder slot, so it never grows past its card.
@@ -198,6 +283,12 @@ const styles = StyleSheet.create({
 
   editField: {
     flex: 0,
+  },
+
+  // The open field is the only one left on the card, so it takes what the
+  // others were using — without this its picker has no height to scroll in.
+  editFieldOpen: {
+    flex: 1,
   },
 
   editRow: {
@@ -233,7 +324,7 @@ const styles = StyleSheet.create({
   // Chips rather than a list: age has thirteen options, and a wrapped grid
   // shows them all without a scroll most of the time.
   optionList: {
-    flexGrow: 0,
+    flex: 1,
   },
 
   optionWrap: {
@@ -270,7 +361,7 @@ const styles = StyleSheet.create({
   },
 
   suggestions: {
-    flexGrow: 0,
+    flex: 1,
   },
 
   suggestion: {

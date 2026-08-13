@@ -860,10 +860,11 @@ const styles = StyleSheet.create({
     color: '#aaa',
   },
 
-  // Identifiers — the white box is the component's own, so the card here only
-  // supplies the same horizontal inset and spacing the others sit on.
+  // Identifiers — an explicit width like every other card, since the post
+  // centres its content: a card sized by its own contents would shrink to the
+  // width of its padding.
   identifiersCard: {
-    marginHorizontal: 20,
+    width: CARD_WIDTH,
     marginTop: 20,
   },
 
