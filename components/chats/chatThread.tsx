@@ -51,9 +51,13 @@ interface Props {
   otherGroupId: string;
   otherGroupName: string;
   onClose: () => void;
+  // Tapping a photo message. Raised to the screen rather than handled here: the
+  // viewer pans a zoomed photo, and inside this thread's SlideOver that drag
+  // would race the panel's own swipe-to-dismiss.
+  onOpenImage: (url: string) => void;
 }
 
-export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, onClose }: Props) {
+export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, onClose, onOpenImage }: Props) {
 
   const { session } = useSession();
 
@@ -512,6 +516,11 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
                   <View style={[styles.bubbleColumn, isMine && styles.bubbleColumnMine]}>
                     <TouchableOpacity
                       activeOpacity={1}
+                      onPress={() => {
+                        // Only a photo opens; a deleted one is a tombstone with
+                        // nothing behind it.
+                        if (m.kind === 'image' && m.mediaUrl && !m.deletedAt) onOpenImage(m.mediaUrl);
+                      }}
                       onLongPress={() => openActions(m)}
                       ref={node => { bubbleRefs.current.set(m.id, node as unknown as View | null); }}
                       style={[
