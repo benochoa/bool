@@ -1,7 +1,7 @@
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import {
-  CITIES, COLLEGES, GENDER_OPTIONS, GROUP_AGE_OPTIONS, Identifiers,
-  PERSON_AGE_OPTIONS, suggest,
+  CITIES, COLLEGES, GROUP_AGE_OPTIONS, GROUP_GENDER_OPTIONS, Identifiers,
+  PERSON_AGE_OPTIONS, PERSON_GENDER_OPTIONS, suggest,
 } from '@/lib/identifiers';
 import { BirthdayCake } from '@/assets/symbols/BirthdayCake';
 import { GraduationCap } from '@/assets/symbols/GraduationCap';
@@ -15,7 +15,8 @@ import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 
 const ICON_SIZE = 27;
 const ICON_COLOR = '#555';
 
-// Four fields, same for a person and a group — only the age options differ.
+// Four fields, same for a person and a group — only the age and gender options
+// differ.
 const FIELDS = ['Age', 'Gender', 'City', 'College'] as const;
 type Field = typeof FIELDS[number];
 
@@ -106,6 +107,7 @@ export function IdentifiersEdit({ identifiers, onChange, variant, onFocusField }
   const [query, setQuery] = useState('');
 
   const ageOptions = variant === 'person' ? PERSON_AGE_OPTIONS : GROUP_AGE_OPTIONS;
+  const genderOptions = variant === 'person' ? PERSON_GENDER_OPTIONS : GROUP_GENDER_OPTIONS;
 
   function choose(field: Field, value: string) {
     const key = field.toLowerCase() as keyof Identifiers;
@@ -199,7 +201,7 @@ export function IdentifiersEdit({ identifiers, onChange, variant, onFocusField }
             </TouchableOpacity>
 
             {isOpen && field === 'Age' && renderOptions('Age', ageOptions)}
-            {isOpen && field === 'Gender' && renderOptions('Gender', GENDER_OPTIONS)}
+            {isOpen && field === 'Gender' && renderOptions('Gender', genderOptions)}
             {isOpen && field === 'City' && renderTypeAhead('City', CITIES)}
             {isOpen && field === 'College' && renderTypeAhead('College', COLLEGES)}
           </View>
