@@ -6,6 +6,7 @@ import SlideOver from '@/components/ui/slideOver';
 import { Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { PRIVACY_POLICY_HTML } from '@/legal/privacyPolicy';
+import { TERMS_AND_CONDITIONS_HTML } from '@/legal/termsAndConditions';
 import { supabase } from '@/supabaseClient';
 import LegalDocument from './legalDocument';
 
@@ -17,6 +18,7 @@ export default function Settings({ onClose }: Props) {
   const { session } = useSession();
   const [deleting, setDeleting] = useState(false);
   const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
 
   async function handleSignOut() {
     await supabase.auth.signOut();
@@ -64,10 +66,13 @@ export default function Settings({ onClose }: Props) {
           <Text style={[styles.sectionText, styles.legalText]}>Privacy Policy</Text>
           <ChevronRight />
         </TouchableOpacity>
-        <View style={[styles.legalRow, styles.legalRowLast]}>
+        <TouchableOpacity
+          style={[styles.legalRow, styles.legalRowLast]}
+          onPress={() => setTermsOpen(true)}
+        >
           <Text style={[styles.sectionText, styles.legalText]}>Terms of Service</Text>
           <ChevronRight />
-        </View>
+        </TouchableOpacity>
 
         <View style={styles.accountActions}>
           <TouchableOpacity onPress={handleSignOut}>
@@ -89,6 +94,14 @@ export default function Settings({ onClose }: Props) {
           title="Privacy Policy"
           html={PRIVACY_POLICY_HTML}
           onClose={() => setPrivacyOpen(false)}
+        />
+      </SlideOver>
+
+      <SlideOver visible={termsOpen} onRequestClose={() => setTermsOpen(false)}>
+        <LegalDocument
+          title="Terms of Service"
+          html={TERMS_AND_CONDITIONS_HTML}
+          onClose={() => setTermsOpen(false)}
         />
       </SlideOver>
     </View>
