@@ -21,6 +21,10 @@ import { fetchPerson, PersonData } from '@/lib/fetchPerson';
 import { useKeyboardAwareScroll } from '@/hooks/use-keyboard-aware-scroll';
 import ZoomableImage from './zoomableImage';
 import CardReorder, { EDIT_CARD_HEIGHT, EDIT_CARD_WIDTH } from './cardReorder';
+import { IdentifiersEdit, IdentifiersView } from './identifiersCard';
+import {
+  EMPTY_IDENTIFIERS, Identifiers, identifierColumns, missingIdentifiers,
+} from '@/lib/identifiers';
 import { snapToStandardAspect, DEFAULT_ASPECT } from '@/lib/aspectRatio';
 import {
   CardSlot, DEFAULT_PERSON_CARD_ORDER, photoSlotsFromUrls, reconcileCardOrder,
@@ -99,11 +103,13 @@ export default function IndividualPost({ personId, creating = false, editMode = 
   const [questions, setQuestions] = useState<string[]>(['', '']);
   const [answers, setAnswers] = useState<string[]>(['', '']);
   const [cardOrder, setCardOrder] = useState<CardSlot[]>(DEFAULT_PERSON_CARD_ORDER);
+  const [identifiers, setIdentifiers] = useState<Identifiers>(EMPTY_IDENTIFIERS);
   const [saving, setSaving] = useState(false);
 
   // Keeps the Q&A card you tapped fully above the keyboard.
   const { scrollRef, onScroll, reveal, spacerHeight } = useKeyboardAwareScroll();
   const qaCards = useRef<Record<number, View | null>>({});
+  const identifiersCardRef = useRef<View | null>(null);
 
   // Fetch person data, then pre-fill the form from it. `editMode` is
   // deliberately not a dependency: the pencil has to flip into edit mode
@@ -139,6 +145,7 @@ export default function IndividualPost({ personId, creating = false, editMode = 
     setProfilePic(d.profilePicUrl);
     setPhotos(photoSlotsFromUrls(d.imageUrls, PHOTO_SLOTS));
     setCardOrder(reconcileCardOrder(d.cardOrder, DEFAULT_PERSON_CARD_ORDER));
+    setIdentifiers(d.identifiers);
     if (d.qa.length > 0) {
       // Keep exactly two slots, so a legacy 3-Q&A profile trims cleanly.
       setQuestions([d.qa[0]?.question ?? '', d.qa[1]?.question ?? '']);
@@ -229,6 +236,12 @@ export default function IndividualPost({ personId, creating = false, editMode = 
       Alert.alert('Missing name', 'Please enter your name.');
       return false;
     }
+    // College is the one identifier that can be left blank.
+    const missing = missingIdentifiers(identifiers);
+    if (missing.length > 0) {
+      Alert.alert('Missing info', `Please fill in your ${missing.join(', ')}.`);
+      return false;
+    }
     setSaving(true);
 
     // Same rule as the card photos: an https URI is already uploaded and kept;
@@ -285,6 +298,7 @@ export default function IndividualPost({ personId, creating = false, editMode = 
       .update({
         name: name.trim(), qa, image_urls: imageUrls,
         profile_pic_url: profilePicUrl, card_order: toStoredCardOrder(cardOrder),
+        ...identifierColumns(identifiers),
       })
       .eq('id', personId);
     if (error) {
@@ -318,6 +332,15 @@ export default function IndividualPost({ personId, creating = false, editMode = 
             style={[styles.image, { aspectRatio: photoAspects[slot.index] ?? DEFAULT_ASPECT }]}
             onLoad={e => handlePhotoLoad(slot.index, e)}
           />
+        </View>
+      );
+    }
+    if (slot.type === 'identifiers') {
+      // Nothing to show on a profile saved before identifiers existed.
+      if (!data || !data.identifiers.age) return null;
+      return (
+        <View key={key} style={styles.identifiersCard}>
+          <IdentifiersView identifiers={data.identifiers} />
         </View>
       );
     }
@@ -357,6 +380,18 @@ export default function IndividualPost({ personId, creating = false, editMode = 
           onLoad={e => handlePhotoLoad(slot.index, e)}
           onPress={() => pickPhoto(slot.index)}
         />
+      );
+    }
+    if (slot.type === 'identifiers') {
+      return (
+        <View style={styles.editIdentifiersCard} ref={node => { identifiersCardRef.current = node; }}>
+          <IdentifiersEdit
+            identifiers={identifiers}
+            variant="person"
+            onChange={next => { setIdentifiers(next); onDirty?.(); }}
+            onFocusField={() => reveal(identifiersCardRef.current)}
+          />
+        </View>
       );
     }
     return (
@@ -501,6 +536,18 @@ const styles = StyleSheet.create({
   },
 
   // Q&A — a roomy white card with its text block vertically centered.
+  // Identifiers — the white box is the component's own, so the card here only
+  // supplies the same horizontal inset and spacing the others sit on.
+  identifiersCard: {
+    marginHorizontal: 20,
+    marginTop: 20,
+  },
+
+  editIdentifiersCard: {
+    width: EDIT_CARD_WIDTH,
+    height: EDIT_CARD_HEIGHT,
+  },
+
   qaCard: {
     width: CARD_WIDTH,
     backgroundColor: '#fff',

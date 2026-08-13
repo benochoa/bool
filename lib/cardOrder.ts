@@ -1,9 +1,10 @@
 // The vertical order of a post's photo and Q&A cards. The defaults below are
 // what every post used before the order became editable, and they double as the
 // canonical list of slots a stored order is validated against.
-export type CardSlot = { type: 'photo' | 'qa'; index: number };
+export type CardSlot = { type: 'photo' | 'qa' | 'identifiers'; index: number };
 
-// 3 photos, 3 Q&As.
+// 3 photos, 3 Q&As, then the identifiers card. There's only ever one of the
+// last, but it carries an index like the others so a slot is one shape.
 export const DEFAULT_GROUP_CARD_ORDER: CardSlot[] = [
   { type: 'photo', index: 0 },
   { type: 'qa', index: 0 },
@@ -11,14 +12,16 @@ export const DEFAULT_GROUP_CARD_ORDER: CardSlot[] = [
   { type: 'photo', index: 2 },
   { type: 'qa', index: 1 },
   { type: 'qa', index: 2 },
+  { type: 'identifiers', index: 0 },
 ];
 
-// 2 photos, 2 Q&As.
+// 2 photos, 2 Q&As, then the identifiers card.
 export const DEFAULT_PERSON_CARD_ORDER: CardSlot[] = [
   { type: 'photo', index: 0 },
   { type: 'qa', index: 0 },
   { type: 'photo', index: 1 },
   { type: 'qa', index: 1 },
+  { type: 'identifiers', index: 0 },
 ];
 
 // How a slot is stored (card_order is a text[]) and keyed in React.

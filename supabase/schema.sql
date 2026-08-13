@@ -341,3 +341,21 @@ create policy reports_select_own on reports
 -- falls back to a plain progress bar for it. Nullable for exactly that reason;
 -- there is nothing to backfill.
 alter table messages add column media_waveform jsonb;
+
+-- Migration (run separately): identifiers. The same four facts on a person and
+-- on a group, which is why both tables get the same columns. All text: an
+-- individual's age is a year ('21') and a group's is a band ('21-23'), and
+-- neither '30+' nor '18-20' is a number. City and college are free text with a
+-- bundled list only suggesting values, so nothing here constrains them.
+-- Nullable, because every existing row predates them: age, gender and city are
+-- required by the app at save time rather than by the schema, so no row already
+-- saved becomes unreadable.
+alter table profiles add column age text;
+alter table profiles add column gender text;
+alter table profiles add column city text;
+alter table profiles add column college text;
+
+alter table groups add column age text;
+alter table groups add column gender text;
+alter table groups add column city text;
+alter table groups add column college text;

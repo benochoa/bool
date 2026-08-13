@@ -21,6 +21,10 @@ import MembersCard from './membersCard';
 import MemberManagement, { MemberRect } from './memberManagement';
 import ZoomableImage from './zoomableImage';
 import CardReorder, { EDIT_CARD_HEIGHT, EDIT_CARD_WIDTH } from './cardReorder';
+import { IdentifiersEdit, IdentifiersView } from './identifiersCard';
+import {
+  EMPTY_IDENTIFIERS, Identifiers, identifierColumns, missingIdentifiers,
+} from '@/lib/identifiers';
 import { snapToStandardAspect, DEFAULT_ASPECT } from '@/lib/aspectRatio';
 import {
   CardSlot, DEFAULT_GROUP_CARD_ORDER, photoSlotsFromUrls, reconcileCardOrder,
@@ -143,11 +147,13 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
   const [questions, setQuestions] = useState<string[]>(['', '', '']);
   const [answers, setAnswers] = useState<string[]>(['', '', '']);
   const [cardOrder, setCardOrder] = useState<CardSlot[]>(DEFAULT_GROUP_CARD_ORDER);
+  const [identifiers, setIdentifiers] = useState<Identifiers>(EMPTY_IDENTIFIERS);
   const [saving, setSaving] = useState(false);
 
   // Keeps the Q&A card you tapped fully above the keyboard.
   const { scrollRef, onScroll, reveal, spacerHeight } = useKeyboardAwareScroll();
   const qaCards = useRef<Record<number, View | null>>({});
+  const identifiersCardRef = useRef<View | null>(null);
   const [saved, setSaved] = useState(false);
 
   // Creation is always editing; on a saved group, only the leader can turn edit
@@ -199,6 +205,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
     setCardOrder(reconcileCardOrder(d.cardOrder, DEFAULT_GROUP_CARD_ORDER));
     setQuestions(d.qa.map(item => item.question));
     setAnswers(d.qa.map(item => item.answer));
+    setIdentifiers(d.identifiers);
   }
 
   // Photo slots in the order their cards appear in the post.
@@ -265,6 +272,12 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
       Alert.alert('Missing name', 'Please enter a group name.');
       return false;
     }
+    // College is the one identifier a group can leave blank.
+    const missing = missingIdentifiers(identifiers);
+    if (missing.length > 0) {
+      Alert.alert('Missing info', `Please fill in the group's ${missing.join(', ')}.`);
+      return false;
+    }
     setSaving(true);
     const qa = questions.map((q, i) => ({ question: q, answer: answers[i] }));
 
@@ -303,6 +316,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
         .update({
           name: groupName.trim(), qa, image_urls: imageUrls,
           card_order: toStoredCardOrder(cardOrder),
+          ...identifierColumns(identifiers),
         })
         .eq('id', groupId);
       if (error) {
@@ -346,6 +360,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
       invite_code: await getUniqueInviteCode(),
       image_urls: imageUrls,
       card_order: toStoredCardOrder(cardOrder),
+      ...identifierColumns(identifiers),
       status: 'active',
     });
     if (error) {
@@ -493,6 +508,15 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
         </View>
       );
     }
+    if (slot.type === 'identifiers') {
+      // Nothing to show on a group saved before identifiers existed.
+      if (!data || !data.identifiers.age) return null;
+      return (
+        <View key={key} style={styles.identifiersCard}>
+          <IdentifiersView identifiers={data.identifiers} />
+        </View>
+      );
+    }
     const item = data?.qa[slot.index];
     if (!item) return null;
     return (
@@ -529,6 +553,18 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
           onLoad={e => handlePhotoLoad(slot.index, e)}
           onPress={() => pickPhoto(slot.index)}
         />
+      );
+    }
+    if (slot.type === 'identifiers') {
+      return (
+        <View style={styles.editIdentifiersCard} ref={node => { identifiersCardRef.current = node; }}>
+          <IdentifiersEdit
+            identifiers={identifiers}
+            variant="group"
+            onChange={next => { setIdentifiers(next); onDirty?.(); }}
+            onFocusField={() => reveal(identifiersCardRef.current)}
+          />
+        </View>
       );
     }
     return (
@@ -822,6 +858,18 @@ const styles = StyleSheet.create({
   photoPlaceholderText: {
     ...Type.body,
     color: '#aaa',
+  },
+
+  // Identifiers — the white box is the component's own, so the card here only
+  // supplies the same horizontal inset and spacing the others sit on.
+  identifiersCard: {
+    marginHorizontal: 20,
+    marginTop: 20,
+  },
+
+  editIdentifiersCard: {
+    width: EDIT_CARD_WIDTH,
+    height: EDIT_CARD_HEIGHT,
   },
 
   // Q&A — a roomy white card with its text block vertically centered.

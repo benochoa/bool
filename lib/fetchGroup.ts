@@ -1,3 +1,4 @@
+import { Identifiers } from '@/lib/identifiers';
 import { supabase } from '@/supabaseClient';
 
 export interface GroupMember {
@@ -16,6 +17,7 @@ export interface GroupData {
   imageAspectRatio: number | null;
   // Stored card order as slot keys; null on rows saved before it was editable.
   cardOrder: string[] | null;
+  identifiers: Identifiers;
 }
 
 export async function fetchGroup(groupId: string): Promise<GroupData | null> {
@@ -25,7 +27,7 @@ export async function fetchGroup(groupId: string): Promise<GroupData | null> {
   // needs to be asked what files exist.
   const { data, error } = await supabase
     .from('groups')
-    .select('name, qa, created_by, invite_code, image_urls, image_aspect_ratio, card_order, memberships(person_id, status, profiles(name, profile_pic_url))')
+    .select('name, qa, created_by, invite_code, image_urls, image_aspect_ratio, card_order, age, gender, city, college, memberships(person_id, status, profiles(name, profile_pic_url))')
     .eq('id', groupId)
     .single();
   if (error || !data) return null;
@@ -51,5 +53,11 @@ export async function fetchGroup(groupId: string): Promise<GroupData | null> {
     invite_code: data.invite_code,
     imageAspectRatio: data.image_aspect_ratio ?? null,
     cardOrder: data.card_order ?? null,
+    identifiers: {
+      age: data.age ?? null,
+      gender: data.gender ?? null,
+      city: data.city ?? null,
+      college: data.college ?? null,
+    },
   };
 }
