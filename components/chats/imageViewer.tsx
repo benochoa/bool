@@ -21,6 +21,16 @@ const DOUBLE_TAP_SCALE = 2.5;
 const EASE = Easing.out(Easing.ease);
 const OPEN = { duration: 260, easing: EASE };
 const CLOSE = { duration: 200, easing: EASE };
+const SNAP_BACK = { duration: 180, easing: EASE };
+
+// Dragging the photo this far, or throwing it this fast, closes the viewer.
+const DISMISS_DISTANCE = 120;
+const DISMISS_VELOCITY = 800;
+// How far it shrinks at the point of release, so the pull reads as taking the
+// photo away rather than sliding it around.
+const DISMISS_SHRINK = 0.25;
+// How much of the black is pulled away with it, letting the thread show through.
+const DISMISS_FADE = 0.7;
 
 // Where the photo sits in the thread, so the viewer can grow out of it rather
 // than appear over it.
@@ -59,6 +69,12 @@ export default function ImageViewer({ image, onClose }: Props) {
   const savedTranslateX = useSharedValue(0);
   const savedTranslateY = useSharedValue(0);
 
+  // Kept apart from the zoom pan above: that one moves the photo within the
+  // frame, this one carries the whole thing off screen. Sharing values would
+  // mean a half-finished dismiss leaving the zoom offset somewhere odd.
+  const dismissX = useSharedValue(0);
+  const dismissY = useSharedValue(0);
+
   useEffect(() => {
     if (image) {
       setShown(image);
@@ -70,19 +86,25 @@ export default function ImageViewer({ image, onClose }: Props) {
       translateY.value = 0;
       savedTranslateX.value = 0;
       savedTranslateY.value = 0;
+      dismissX.value = 0;
+      dismissY.value = 0;
       progress.value = 0;
       progress.value = withTiming(1, OPEN);
     } else {
       // Any zoom is undone on the way out, so it shrinks back to the shape of
-      // the bubble it came from rather than to a crop of it.
+      // the bubble it came from rather than to a crop of it. The dismiss drag
+      // unwinds too, so a photo flung halfway across the screen still lands
+      // back on its own thumbnail instead of shrinking where it was let go.
       scale.value = withTiming(1, CLOSE);
       translateX.value = withTiming(0, CLOSE);
       translateY.value = withTiming(0, CLOSE);
+      dismissX.value = withTiming(0, CLOSE);
+      dismissY.value = withTiming(0, CLOSE);
       progress.value = withTiming(0, CLOSE, done => {
         if (done) runOnJS(setShown)(null);
       });
     }
-  }, [image, progress, scale, savedScale, translateX, translateY, savedTranslateX, savedTranslateY]);
+  }, [image, progress, scale, savedScale, translateX, translateY, savedTranslateX, savedTranslateY, dismissX, dismissY]);
 
   async function handleSave() {
     if (!shown) return;
@@ -138,17 +160,37 @@ export default function ImageViewer({ image, onClose }: Props) {
       }
     });
 
-  // Only once zoomed in — at 1x there is nothing to pan to, and a drag that did
-  // nothing visible would still swallow the tap that closes the viewer.
+  // One drag, two meanings, decided by whether the photo is zoomed. Zoomed in
+  // it moves the photo inside the frame, because there is more of it than fits.
+  // At 1x the whole photo is already visible, so a drag can only mean taking it
+  // away — which is the Apple Photos gesture: pull it in any direction, the
+  // black fades with you, let go and it goes home.
   const pan = Gesture.Pan()
     .onUpdate(e => {
-      if (scale.value <= MIN_SCALE) return;
-      translateX.value = savedTranslateX.value + e.translationX;
-      translateY.value = savedTranslateY.value + e.translationY;
+      if (scale.value > MIN_SCALE) {
+        translateX.value = savedTranslateX.value + e.translationX;
+        translateY.value = savedTranslateY.value + e.translationY;
+        return;
+      }
+      dismissX.value = e.translationX;
+      dismissY.value = e.translationY;
     })
-    .onEnd(() => {
-      savedTranslateX.value = translateX.value;
-      savedTranslateY.value = translateY.value;
+    .onEnd(e => {
+      if (scale.value > MIN_SCALE) {
+        savedTranslateX.value = translateX.value;
+        savedTranslateY.value = translateY.value;
+        return;
+      }
+      const distance = Math.sqrt(dismissX.value ** 2 + dismissY.value ** 2);
+      const speed = Math.sqrt(e.velocityX ** 2 + e.velocityY ** 2);
+      if (distance > DISMISS_DISTANCE || speed > DISMISS_VELOCITY) {
+        // Handing it to the parent rather than closing here: clearing `image`
+        // is what runs the shrink-back-to-thumbnail animation above.
+        runOnJS(onClose)();
+        return;
+      }
+      dismissX.value = withTiming(0, SNAP_BACK);
+      dismissY.value = withTiming(0, SNAP_BACK);
     });
 
   const doubleTap = Gesture.Tap()
@@ -188,6 +230,11 @@ export default function ImageViewer({ image, onClose }: Props) {
   // at every frame instead of only at the two ends.
   const frameStyle = useAnimatedStyle(() => {
     const p = progress.value;
+    // How far through a dismissing drag we are, 0 to 1.
+    const drag = Math.min(
+      Math.sqrt(dismissX.value ** 2 + dismissY.value ** 2) / DISMISS_DISTANCE,
+      1
+    );
     return {
       left: from.x + (toX - from.x) * p,
       top: from.y + (toY - from.y) * p,
@@ -196,14 +243,22 @@ export default function ImageViewer({ image, onClose }: Props) {
       // Ends square, having started at the bubble's rounding.
       borderRadius: 12 * (1 - p),
       transform: [
-        { translateX: translateX.value },
-        { translateY: translateY.value },
-        { scale: scale.value },
+        { translateX: translateX.value + dismissX.value },
+        { translateY: translateY.value + dismissY.value },
+        { scale: scale.value * (1 - DISMISS_SHRINK * drag) },
       ],
     };
   });
 
-  const backdropStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
+  // Thins out as the photo is pulled away, so the thread underneath comes back
+  // into view and the drag shows what letting go would do.
+  const backdropStyle = useAnimatedStyle(() => {
+    const drag = Math.min(
+      Math.sqrt(dismissX.value ** 2 + dismissY.value ** 2) / DISMISS_DISTANCE,
+      1
+    );
+    return { opacity: progress.value * (1 - DISMISS_FADE * drag) };
+  });
 
   if (!shown) return null;
 
