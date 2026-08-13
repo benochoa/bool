@@ -8,6 +8,7 @@ import { useSession } from '@/hooks/use-session';
 import { PRIVACY_POLICY_HTML } from '@/legal/privacyPolicy';
 import { TERMS_AND_CONDITIONS_HTML } from '@/legal/termsAndConditions';
 import { supabase } from '@/supabaseClient';
+import BlockedPeople from './blockedPeople';
 import LegalDocument from './legalDocument';
 
 interface Props {
@@ -19,6 +20,7 @@ export default function Settings({ onClose }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [privacyOpen, setPrivacyOpen] = useState(false);
   const [termsOpen, setTermsOpen] = useState(false);
+  const [blockedOpen, setBlockedOpen] = useState(false);
 
   async function handleSignOut() {
     await supabase.auth.signOut();
@@ -61,6 +63,15 @@ export default function Settings({ onClose }: Props) {
         <Text style={styles.sectionHeader}>Phone</Text>
         <Text style={styles.sectionText}>{session?.user.phone}</Text>
 
+        <Text style={[styles.sectionHeader, styles.legalHeader]}>Safety</Text>
+        <TouchableOpacity
+          style={[styles.legalRow, styles.legalRowLast]}
+          onPress={() => setBlockedOpen(true)}
+        >
+          <Text style={[styles.sectionText, styles.legalText]}>Blocked</Text>
+          <ChevronRight />
+        </TouchableOpacity>
+
         <Text style={[styles.sectionHeader, styles.legalHeader]}>Legal</Text>
         <TouchableOpacity style={styles.legalRow} onPress={() => setPrivacyOpen(true)}>
           <Text style={[styles.sectionText, styles.legalText]}>Privacy Policy</Text>
@@ -88,6 +99,10 @@ export default function Settings({ onClose }: Props) {
         </View>
 
       </ScrollView>
+
+      <SlideOver visible={blockedOpen} onRequestClose={() => setBlockedOpen(false)}>
+        <BlockedPeople onClose={() => setBlockedOpen(false)} />
+      </SlideOver>
 
       <SlideOver visible={privacyOpen} onRequestClose={() => setPrivacyOpen(false)}>
         <LegalDocument

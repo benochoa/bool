@@ -8,6 +8,7 @@ import { HapticTab } from '@/components/haptic-tab';
 import IndividualPost from '@/components/posts/individualPost';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Palette, Type } from '@/constants/theme';
+import { BlockedPeopleProvider } from '@/hooks/use-blocked-people';
 import { CurrentGroupProvider } from '@/hooks/use-current-group';
 import { HideTabBarProvider, useTabBarHidden } from '@/hooks/use-hide-tab-bar';
 import { useSession } from '@/hooks/use-session';
@@ -78,11 +79,13 @@ export default function TabLayout() {
 
   return (
     <CurrentGroupProvider>
-      <TabBadgeProvider>
-        <HideTabBarProvider>
-          <AppTabs />
-        </HideTabBarProvider>
-      </TabBadgeProvider>
+      <BlockedPeopleProvider>
+        <TabBadgeProvider>
+          <HideTabBarProvider>
+            <AppTabs />
+          </HideTabBarProvider>
+        </TabBadgeProvider>
+      </BlockedPeopleProvider>
     </CurrentGroupProvider>
   );
 }

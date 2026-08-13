@@ -25,6 +25,7 @@ interface Props {
   onReply: () => void;
   onCopy: () => void;
   onDelete: () => void;
+  onReport: () => void;
   onClose: () => void;
   // The same bubble the list drew, handed in so the copy can't drift from the
   // original.
@@ -48,12 +49,14 @@ const TOP_INSET = 80;
 const BOTTOM_INSET = 40;
 
 export default function MessageActions({
-  rect, mine, canCopy, myReaction, onReact, onReply, onCopy, onDelete, onClose, children,
+  rect, mine, canCopy, myReaction, onReact, onReply, onCopy, onDelete, onReport, onClose, children,
 }: Props) {
   const actions = [
     { label: 'Reply', onPress: onReply, destructive: false },
     canCopy ? { label: 'Copy', onPress: onCopy, destructive: false } : null,
     mine ? { label: 'Delete', onPress: onDelete, destructive: true } : null,
+    // Only somebody else's: reporting your own message reports you.
+    mine ? null : { label: 'Report', onPress: onReport, destructive: true },
   ].filter(a => a !== null);
 
   // The bubble is lifted at the position it already occupies, unless the bar

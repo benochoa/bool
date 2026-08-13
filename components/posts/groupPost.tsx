@@ -116,10 +116,14 @@ interface Props {
   // whatever floating chrome the screen puts over the post — a back chevron,
   // the groups switcher. Left off, member rows are inert.
   onSelectMember?: (personId: string) => void;
+  // Renders the Report group row when set. Raised to the screen for the same
+  // reason onSelectMember is: the sheet it opens is a panel, and a panel nested
+  // inside this post would draw under the screen's own floating chrome.
+  onReportGroup?: (groupId: string) => void;
   ref?: Ref<GroupPostHandle>;
 }
 
-export default function GroupPost({ groupId, creating = false, editMode = false, onClose, onCreated, isMember = false, onLeft, onDissolved, onDirty, onToggleEdit, onLoaded, initialData, topInset, onSelectMember, ref }: Props) {
+export default function GroupPost({ groupId, creating = false, editMode = false, onClose, onCreated, isMember = false, onLeft, onDissolved, onDirty, onToggleEdit, onLoaded, initialData, topInset, onSelectMember, onReportGroup, ref }: Props) {
 
   const { session } = useSession();
 
@@ -651,6 +655,13 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
         </TouchableOpacity>
       )}
 
+      {/* Report group — only on somebody else's, and never while editing. */}
+      {onReportGroup && groupId && !isMember && !isEditMode && (
+        <TouchableOpacity style={styles.leaveButton} onPress={() => onReportGroup(groupId)}>
+          <Text style={styles.reportText}>Report group</Text>
+        </TouchableOpacity>
+      )}
+
       {/* Save button — only for creation, which has no pencil to save from.
           When editing an existing group the pencil's menu owns Save/Discard. */}
       {creating && !saved && (
@@ -884,6 +895,13 @@ const styles = StyleSheet.create({
   leaveText: {
     ...Type.bodyBold,
     color: '#e53935',
+  },
+
+  // Quieter than Leave/Dissolve beside it: reporting is a thing you do about
+  // someone else, not a destructive change to your own standing.
+  reportText: {
+    ...Type.bodyBold,
+    color: Palette.muted,
   },
 
   // Back (creation flow)

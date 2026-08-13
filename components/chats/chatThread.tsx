@@ -13,6 +13,7 @@ import MessageActions, { BubbleRect } from '@/components/chats/messageActions';
 import ReactionRow from '@/components/chats/reactionRow';
 import VoiceMessage from '@/components/chats/voiceMessage';
 import PersonPanel from '@/components/posts/personPanel';
+import ReportSheet from '@/components/ui/reportSheet';
 import SlideOver from '@/components/ui/slideOver';
 import ChatDetails from './chatDetails';
 import * as Clipboard from 'expo-clipboard';
@@ -24,6 +25,7 @@ import { fetchMessages, Message } from '@/lib/fetchMessages';
 import { fetchPerson } from '@/lib/fetchPerson';
 import { setMessageReaction } from '@/lib/setMessageReaction';
 import { sendMessage } from '@/lib/sendMessage';
+import { ReportTarget } from '@/lib/submitReport';
 import { uploadChatAudio } from '@/lib/uploadChatAudio';
 import { uploadChatPhoto } from '@/lib/uploadChatPhoto';
 import {
@@ -68,6 +70,7 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   const [sendingVoice, setSendingVoice] = useState(false);
   // The message whose actions are open, with where its bubble sat when pressed.
   const [actionTarget, setActionTarget] = useState<{ message: Message; rect: BubbleRect } | null>(null);
+  const [reporting, setReporting] = useState<ReportTarget | null>(null);
   // One entry per drawn bubble, so a long-press can measure the right one.
   const bubbleRefs = useRef(new Map<number, View | null>());
   const [reactions, setReactions] = useState<MessageReaction[]>([]);
@@ -345,8 +348,10 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
     return (
       <>
         {/* The message being answered, above the answer itself. Tapping it goes
-            back to the original. */}
-        {quoted && (
+            back to the original. A thread loads whole and a hard delete nulls
+            reply_to_id, so a quote that can't be resolved is one the block
+            filter withheld — said plainly, and with nothing to scroll to. */}
+        {m.replyToId != null && (quoted ? (
           <TouchableOpacity
             style={[styles.quote, isMine ? styles.quoteMine : styles.quoteTheirs]}
             onPress={() => scrollToMessage(quoted.id)}
@@ -359,7 +364,13 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
               {messageSnippet(quoted)}
             </Text>
           </TouchableOpacity>
-        )}
+        ) : (
+          <View style={[styles.quote, isMine ? styles.quoteMine : styles.quoteTheirs]}>
+            <Text style={[styles.quoteBody, isMine && styles.quoteTextMine]} numberOfLines={1}>
+              Message unavailable
+            </Text>
+          </View>
+        ))}
         {!isMine && <Text style={styles.senderName}>{m.senderName}</Text>}
         {m.kind === 'image' && m.mediaUrl ? (
           <Image
@@ -630,6 +641,17 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
           }}
           onCopy={handleCopy}
           onDelete={handleDelete}
+          onReport={() => {
+            // The body is captured now rather than looked up on submit: the
+            // sender can delete it while the sheet is open, and the report
+            // would then carry nothing.
+            setReporting({
+              type: 'message',
+              messageId: actionTarget.message.id,
+              body: actionTarget.message.body,
+            });
+            setActionTarget(null);
+          }}
           onClose={() => setActionTarget(null)}
         >
           <View style={[
@@ -679,6 +701,9 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
 
       {/* Sender's profile, opened from their picture beside a message. */}
       <PersonPanel personId={openPersonId} onClose={() => setOpenPersonId(null)} />
+
+      {/* Reporting a message, from its long-press menu. */}
+      <ReportSheet target={reporting} onClose={() => setReporting(null)} />
 
     </KeyboardAvoidingView>
   );

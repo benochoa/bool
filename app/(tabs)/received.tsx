@@ -4,12 +4,14 @@ import { XMark } from '@/assets/symbols/XMark';
 import GroupPost from '@/components/posts/groupPost';
 import GroupPostPreview from '@/components/posts/groupPostPreview';
 import PersonPanel from '@/components/posts/personPanel';
+import ReportSheet from '@/components/ui/reportSheet';
 import SlideOver from '@/components/ui/slideOver';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useSession } from '@/hooks/use-session';
 import { fetchGroup } from '@/lib/fetchGroup';
 import { fetchReceivedGroups, ReceivedGroup } from '@/lib/fetchReceivedGroups';
+import { ReportTarget } from '@/lib/submitReport';
 import { supabase } from '@/supabaseClient';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useState } from 'react';
@@ -25,6 +27,7 @@ export default function ReceivedScreen() {
   // A member's profile, opened from the post's members card. It belongs to the
   // screen so it covers the detail panel's own back chevron.
   const [openPersonId, setOpenPersonId] = useState<string | null>(null);
+  const [reporting, setReporting] = useState<ReportTarget | null>(null);
   const [isLeader, setIsLeader] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -131,7 +134,7 @@ export default function ReceivedScreen() {
           <TouchableOpacity style={styles.detailBack} onPress={() => setDetail(null)}>
             <ChevronLeft size={28} color="#000" />
           </TouchableOpacity>
-          {detail && <GroupPost groupId={detail.suggestingGroupId} onSelectMember={setOpenPersonId} />}
+          {detail && <GroupPost groupId={detail.suggestingGroupId} onSelectMember={setOpenPersonId} onReportGroup={id => setReporting({ type: 'group', groupId: id })} />}
           {detail && isLeader && (
             <View style={styles.modalLeaderRow}>
               <TouchableOpacity style={styles.xButton} onPress={() => { handleReject(detail.suggestingGroupId); setDetail(null); }}>
@@ -147,6 +150,8 @@ export default function ReceivedScreen() {
 
       {/* Last, so a member's profile covers the post that opened it. */}
       <PersonPanel personId={openPersonId} onClose={() => setOpenPersonId(null)} />
+
+      <ReportSheet target={reporting} onClose={() => setReporting(null)} />
     </View>
   );
 }

@@ -4,7 +4,8 @@ import React, { useRef } from 'react';
 import {
   Dimensions, Share, StyleProp, StyleSheet, Text, TouchableOpacity, View, ViewStyle,
 } from 'react-native';
-import { FontFamily, Type } from '@/constants/theme';
+import { FontFamily, Palette, Type } from '@/constants/theme';
+import { useBlockedPeople } from '@/hooks/use-blocked-people';
 import { GroupMember } from '@/lib/fetchGroup';
 import { MemberRect } from './memberManagement';
 
@@ -39,6 +40,20 @@ function MemberRow({ name, profilePicUrl, isGroupLeader, onPress, onLongPress }:
   );
 }
 
+// A blocked person's row: no name, no photo, and nothing to press — their post
+// is exactly what a block is meant to put out of reach. Deliberately still a
+// row rather than an omission, so the group's size stays honest. The crown is
+// dropped with everything else: a name is recoverable from "the blocked one
+// leads this group" if their group is one you already know.
+function BlockedRow() {
+  return (
+    <View style={styles.memberRow}>
+      <View style={styles.memberCircle} />
+      <Text style={styles.blockedName}>Blocked user</Text>
+    </View>
+  );
+}
+
 interface Props {
   members: GroupMember[];
   // Whoever wears the crown — groups.created_by.
@@ -55,17 +70,22 @@ interface Props {
 // The group's roster, as it appears at the bottom of a group post. Shared so
 // the chat details modal shows exactly the same card.
 export default function MembersCard({ members, leaderId, onSelectMember, onManageMember, inviteCode, style }: Props) {
+  const { blockedIds } = useBlockedPeople();
   return (
     <View style={[styles.card, style]}>
       {members.map(m => (
-        <MemberRow
-          key={m.id}
-          name={m.name}
-          profilePicUrl={m.profilePicUrl}
-          isGroupLeader={m.id === leaderId}
-          onPress={() => onSelectMember(m.id)}
-          onLongPress={onManageMember ? (rect) => onManageMember(m, rect) : undefined}
-        />
+        blockedIds.has(m.id) ? (
+          <BlockedRow key={m.id} />
+        ) : (
+          <MemberRow
+            key={m.id}
+            name={m.name}
+            profilePicUrl={m.profilePicUrl}
+            isGroupLeader={m.id === leaderId}
+            onPress={() => onSelectMember(m.id)}
+            onLongPress={onManageMember ? (rect) => onManageMember(m, rect) : undefined}
+          />
+        )
       ))}
       {inviteCode && (
         <View style={styles.inviteRow}>
@@ -119,6 +139,14 @@ const styles = StyleSheet.create({
   memberName: {
     ...Type.body,
     color: '#000',
+  },
+
+  // Grey and italic so the row reads as a placeholder rather than as somebody
+  // who named themselves "Blocked user".
+  blockedName: {
+    ...Type.body,
+    color: Palette.muted,
+    fontStyle: 'italic',
   },
 
   inviteRow: {
