@@ -10,7 +10,9 @@ import { PaperPlane } from '@/assets/symbols/PaperPlane';
 import { PictureFrame } from '@/assets/symbols/PictureFrame';
 import { XMark } from '@/assets/symbols/XMark';
 import MessageActions, { BubbleRect } from '@/components/chats/messageActions';
+import { ViewerImage } from '@/components/chats/imageViewer';
 import ReactionRow from '@/components/chats/reactionRow';
+import SwipeToReply from '@/components/chats/swipeToReply';
 import VoiceMessage from '@/components/chats/voiceMessage';
 import PersonPanel from '@/components/posts/personPanel';
 import ReportSheet from '@/components/ui/reportSheet';
@@ -54,7 +56,7 @@ interface Props {
   // Tapping a photo message. Raised to the screen rather than handled here: the
   // viewer pans a zoomed photo, and inside this thread's SlideOver that drag
   // would race the panel's own swipe-to-dismiss.
-  onOpenImage: (url: string) => void;
+  onOpenImage: (image: ViewerImage) => void;
 }
 
 export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, onClose, onOpenImage }: Props) {
@@ -393,6 +395,23 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
 
   // Long-press opens the actions over the bubble, which means knowing where on
   // screen that bubble is — hence the measure before anything is shown.
+  // The photo grows out of where it sits in the thread, so opening it starts
+  // with measuring that. The bubble is the photo for an image message, which is
+  // why this can reuse the same refs the long-press menu measures.
+  function openImage(message: Message) {
+    if (!message.mediaUrl) return;
+    const node = bubbleRefs.current.get(message.id);
+    if (!node) return;
+    const url = message.mediaUrl;
+    node.measureInWindow((x, y, width, height) => {
+      onOpenImage({
+        url,
+        rect: { x, y, width, height },
+        aspectRatio: message.mediaAspectRatio,
+      });
+    });
+  }
+
   function openActions(message: Message) {
     if (message.deletedAt) return;
     const node = bubbleRefs.current.get(message.id);
@@ -512,34 +531,38 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
                     </TouchableOpacity>
                   )}
                   {/* Bubble and its tapbacks share a column, so the pills sit
-                      under the message on the same side as it. */}
-                  <View style={[styles.bubbleColumn, isMine && styles.bubbleColumnMine]}>
-                    <TouchableOpacity
-                      activeOpacity={1}
-                      onPress={() => {
-                        // Only a photo opens; a deleted one is a tombstone with
-                        // nothing behind it.
-                        if (m.kind === 'image' && m.mediaUrl && !m.deletedAt) onOpenImage(m.mediaUrl);
-                      }}
-                      onLongPress={() => openActions(m)}
-                      ref={node => { bubbleRefs.current.set(m.id, node as unknown as View | null); }}
-                      style={[
-                        styles.bubble,
-                        isMine ? styles.bubbleMine : styles.bubbleTheirs,
-                        m.kind === 'image' && !m.deletedAt && styles.bubblePhoto,
-                      ]}
-                    >
-                      {messageBubbleContent(m, isMine)}
-                    </TouchableOpacity>
+                      under the message on the same side as it. The column is
+                      what slides for a reply swipe, leaving the sender's
+                      picture anchored where it is. */}
+                  <SwipeToReply style={styles.swipeWrap} onReply={() => setReplyTo(m)}>
+                    <View style={[styles.bubbleColumn, isMine && styles.bubbleColumnMine]}>
+                      <TouchableOpacity
+                        activeOpacity={1}
+                        onPress={() => {
+                          // Only a photo opens; a deleted one is a tombstone
+                          // with nothing behind it.
+                          if (m.kind === 'image' && m.mediaUrl && !m.deletedAt) openImage(m);
+                        }}
+                        onLongPress={() => openActions(m)}
+                        ref={node => { bubbleRefs.current.set(m.id, node as unknown as View | null); }}
+                        style={[
+                          styles.bubble,
+                          isMine ? styles.bubbleMine : styles.bubbleTheirs,
+                          m.kind === 'image' && !m.deletedAt && styles.bubblePhoto,
+                        ]}
+                      >
+                        {messageBubbleContent(m, isMine)}
+                      </TouchableOpacity>
 
-                    {(reactionsByMessage.get(m.id)?.length ?? 0) > 0 && (
-                      <ReactionRow
-                        reactions={reactionsByMessage.get(m.id) ?? []}
-                        myUserId={session?.user.id}
-                        onToggle={emoji => toggleReaction(m.id, emoji)}
-                      />
-                    )}
-                  </View>
+                      {(reactionsByMessage.get(m.id)?.length ?? 0) > 0 && (
+                        <ReactionRow
+                          reactions={reactionsByMessage.get(m.id) ?? []}
+                          myUserId={session?.user.id}
+                          onToggle={emoji => toggleReaction(m.id, emoji)}
+                        />
+                      )}
+                    </View>
+                  </SwipeToReply>
                 </View>
               );
             })
@@ -796,9 +819,15 @@ const styles = StyleSheet.create({
 
   // Holds the bubble and anything hanging off it. The 75% cap moves here from
   // the bubble so a long message and its tapbacks stay within the same width.
+  // The 75% cap lives on the swipe wrapper above this now: it's the flex child
+  // of the row, so a percentage here would measure against it rather than
+  // against the row and compound to roughly half the screen.
+  swipeWrap: {
+    maxWidth: '75%',
+  },
+
   bubbleColumn: {
     alignItems: 'flex-start',
-    maxWidth: '75%',
   },
 
   bubbleColumnMine: {

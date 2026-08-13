@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '@/supabaseClient';
 import ChatThread from '@/components/chats/chatThread';
-import ImageViewer from '@/components/chats/imageViewer';
+import ImageViewer, { ViewerImage } from '@/components/chats/imageViewer';
 import SlideOver from '@/components/ui/slideOver';
 import { FontFamily, Type } from '@/constants/theme';
 import { fetchChatPreviews, ChatPreview } from '@/lib/fetchChatPreviews';
@@ -27,7 +27,7 @@ export default function ChatsScreen() {
   const [reads, setReads] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<ChatPreview | null>(null);
-  const [viewerUrl, setViewerUrl] = useState<string | null>(null);
+  const [viewerImage, setViewerImage] = useState<ViewerImage | null>(null);
 
   const userId = session?.user.id;
 
@@ -179,14 +179,14 @@ export default function ChatsScreen() {
             otherGroupId={selected.otherGroupId}
             otherGroupName={selected.otherGroupName}
             onClose={handleCloseThread}
-            onOpenImage={setViewerUrl}
+            onOpenImage={setViewerImage}
           />
         )}
       </SlideOver>
 
       {/* Outside the SlideOver, so it covers the thread rather than living
           inside the panel whose swipe its pan would fight. */}
-      <ImageViewer url={viewerUrl} onClose={() => setViewerUrl(null)} />
+      <ImageViewer image={viewerImage} onClose={() => setViewerImage(null)} />
     </View>
   );
 }
