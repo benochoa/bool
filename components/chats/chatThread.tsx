@@ -11,6 +11,7 @@ import { PictureFrame } from '@/assets/symbols/PictureFrame';
 import { XMark } from '@/assets/symbols/XMark';
 import MessageActions, { BubbleRect } from '@/components/chats/messageActions';
 import { ViewerImage } from '@/components/chats/imageViewer';
+import LiveWaveform from '@/components/chats/liveWaveform';
 import ReactionRow from '@/components/chats/reactionRow';
 import SwipeToReply from '@/components/chats/swipeToReply';
 import VoiceMessage from '@/components/chats/voiceMessage';
@@ -28,6 +29,7 @@ import { fetchPerson } from '@/lib/fetchPerson';
 import { setMessageReaction } from '@/lib/setMessageReaction';
 import { sendMessage } from '@/lib/sendMessage';
 import { ReportTarget } from '@/lib/submitReport';
+import { buildWaveform } from '@/lib/waveform';
 import { uploadChatAudio } from '@/lib/uploadChatAudio';
 import { uploadChatPhoto } from '@/lib/uploadChatPhoto';
 import {
@@ -41,6 +43,9 @@ const MEDIA_ICON_SIZE = 26;
 const MEDIA_ICON_COLOR = '#555';
 // The mic and the pulse beside the timer, while a recording is running.
 const RECORDING_COLOR = '#FF3B30';
+// How often the loudness is read while recording. Fast enough that a one-second
+// message still has ten bars' worth of shape to draw from.
+const METER_INTERVAL_MS = 100;
 
 // m:ss from the recorder's milliseconds.
 function formatRecordingTime(ms: number): string {
@@ -87,11 +92,29 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   // quote can jump back to the original.
   const messageOffsets = useRef(new Map<number, number>());
 
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  // Metering is off in the preset and has to be asked for: it's what the
+  // waveform under a sent voice note is built from, and it can only be
+  // collected while recording — the finished .m4a can't be read back for it.
+  const recorder = useAudioRecorder({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true });
   const recorderState = useAudioRecorderState(recorder);
   // Whether the mic is still held down. A ref, not state: the async start path
   // reads it after awaiting, and a re-render is not what it's waiting for.
   const holding = useRef(false);
+  // Loudness readings taken while the mic is held, and the timer taking them.
+  // Both refs: this samples five times faster than recorderState polls, and
+  // putting it in state would re-render the whole thread — every message in it
+  // — ten times a second for the length of the recording.
+  const meterSamples = useRef<number[]>([]);
+  const meterTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function stopMetering() {
+    if (meterTimer.current === null) return;
+    clearInterval(meterTimer.current);
+    meterTimer.current = null;
+  }
+
+  // Nothing else clears the timer if the thread closes mid-recording.
+  useEffect(() => stopMetering, []);
 
   const scrollViewRef = useRef<ScrollView>(null);
   // Sender details already seen, so a live message doesn't refetch the person
@@ -151,6 +174,7 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
             kind: row.kind,
             mediaUrl: row.media_url,
             mediaAspectRatio: row.media_aspect_ratio,
+            waveform: row.media_waveform,
             deletedAt: row.deleted_at,
             replyToId: row.reply_to_id,
             createdAt: row.created_at,
@@ -283,17 +307,48 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
       return;
     }
 
-    await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true });
-    await recorder.prepareToRecordAsync();
+    // iOS can refuse the audio session outright — something else holding the
+    // mic (a call, a screen recording), or playback still running. Unguarded
+    // that surfaces as an unhandled rejection and the mic just does nothing,
+    // which reads as the button being broken.
+    try {
+      await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true });
+      await recorder.prepareToRecordAsync();
+    } catch {
+      holding.current = false;
+      stopMetering();
+      // Put the session back, or playback stays routed to the earpiece.
+      await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false }).catch(() => {});
+      Alert.alert(
+        'Can’t record',
+        'The microphone is unavailable right now. Close anything else using it — a call or a screen recording — and try again.'
+      );
+      return;
+    }
 
     // Let go while that was running — start nothing.
     if (!holding.current) return;
     recorder.record();
+
+    // getStatus() is synchronous, so this reads the live level without going
+    // through the hook that would re-render on every reading.
+    meterSamples.current = [];
+    stopMetering();
+    meterTimer.current = setInterval(() => {
+      const status = recorder.getStatus();
+      if (!status.isRecording) return;
+      // Optional in RecorderState, and absent on the first tick or two while
+      // the mic spins up.
+      if (typeof status.metering === 'number') meterSamples.current.push(status.metering);
+    }, METER_INTERVAL_MS);
   }
 
   async function handleRecordEnd() {
     const wasHolding = holding.current;
     holding.current = false;
+    // Before the early return: a start that never became a recording still left
+    // a timer running.
+    stopMetering();
     if (!wasHolding || !recorder.isRecording) return;
 
     const heldFor = recorderState.durationMillis;
@@ -306,12 +361,19 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
     // Anything this short was a tap on the mic, not a message.
     if (!uri || heldFor < 1000 || !session?.user) return;
 
+    const waveform = buildWaveform(meterSamples.current);
+
     setSendingVoice(true);
     const url = await uploadChatAudio(myGroupId, otherGroupId, uri);
     const ok = url && await sendMessage(
       myGroupId, otherGroupId, myGroupId, session.user.id,
       'Voice message',
-      { media: { kind: 'audio', url, aspectRatio: null }, replyToId: replyTo?.id ?? null }
+      {
+        // Empty when metering gave nothing back, which the player reads the
+        // same as an old recording: a plain bar rather than an empty row.
+        media: { kind: 'audio', url, aspectRatio: null, waveform: waveform.length ? waveform : null },
+        replyToId: replyTo?.id ?? null,
+      }
     );
     setSendingVoice(false);
 
@@ -385,7 +447,7 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
             contentFit="cover"
           />
         ) : m.kind === 'audio' && m.mediaUrl ? (
-          <VoiceMessage url={m.mediaUrl} mine={isMine} />
+          <VoiceMessage url={m.mediaUrl} mine={isMine} waveform={m.waveform} />
         ) : (
           <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine]}>{m.body}</Text>
         )}
@@ -605,7 +667,10 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
             <Text style={styles.recordingTime}>
               {formatRecordingTime(recorderState.durationMillis)}
             </Text>
-            <Text style={styles.recordingHint}>Release to send</Text>
+            {/* Takes the width the "Release to send" hint used to have. It
+                redraws ten times a second and owns that ticking itself, so the
+                thread behind it re-renders no more than it did before. */}
+            <LiveWaveform samples={meterSamples} color={RECORDING_COLOR} />
           </View>
         ) : (
           <TextInput
@@ -1009,12 +1074,6 @@ const styles = StyleSheet.create({
   recordingTime: {
     ...Type.body,
     color: '#000',
-  },
-
-  recordingHint: {
-    ...Type.label,
-    fontFamily: FontFamily.regular,
-    color: '#888',
   },
 
   // Bare icon, no chrome — the send button is the only filled control in the

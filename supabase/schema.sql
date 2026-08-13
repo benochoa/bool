@@ -333,3 +333,11 @@ create policy reports_insert_own on reports
   for insert with check (auth.uid() = reporter_id);
 create policy reports_select_own on reports
   for select using (auth.uid() = reporter_id);
+
+-- Migration (run separately): waveforms on voice messages. An array of levels
+-- between 0 and 1, one per bar, captured from the recorder's metering while the
+-- message was being held — nothing can recover it from the .m4a afterwards, so
+-- a recording made before this column existed simply has none, and the player
+-- falls back to a plain progress bar for it. Nullable for exactly that reason;
+-- there is nothing to backfill.
+alter table messages add column media_waveform jsonb;

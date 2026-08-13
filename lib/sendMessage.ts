@@ -8,6 +8,10 @@ export interface MessageMedia {
   kind: 'image' | 'audio';
   url: string;
   aspectRatio: number | null;
+  // Bar levels for a voice note, the audio counterpart to aspectRatio: both are
+  // things about the media that the row carries so the player doesn't have to
+  // fetch the file to find them out.
+  waveform?: number[] | null;
 }
 
 interface SendOptions {
@@ -35,6 +39,7 @@ export async function sendMessage(
     kind: options.media?.kind ?? 'text',
     media_url: options.media?.url ?? null,
     media_aspect_ratio: options.media?.aspectRatio ?? null,
+    media_waveform: options.media?.waveform ?? null,
     reply_to_id: options.replyToId ?? null,
   });
   return !error;

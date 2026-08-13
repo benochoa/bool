@@ -13,6 +13,9 @@ export interface Message {
   kind: 'text' | 'image' | 'audio';
   mediaUrl: string | null;
   mediaAspectRatio: number | null;
+  // Bar levels for a voice note. Null on recordings made before the column
+  // existed — the player draws a plain progress bar for those.
+  waveform: number[] | null;
   // Set once the sender deletes it. The row stays — ordering, and anything
   // pointing at it, outlive the content — and the bubble becomes a tombstone.
   deletedAt: string | null;
@@ -32,7 +35,7 @@ export async function fetchMessages(groupIdA: string, groupIdB: string): Promise
     // points at both messages and profiles, which PostgREST reads as a junction
     // table — so without the hint there are two possible paths here and the
     // embed is rejected as ambiguous.
-    .select('id, sender_group_id, sender_id, body, kind, media_url, media_aspect_ratio, deleted_at, reply_to_id, created_at, profiles!sender_id(name, profile_pic_url)')
+    .select('id, sender_group_id, sender_id, body, kind, media_url, media_aspect_ratio, media_waveform, deleted_at, reply_to_id, created_at, profiles!sender_id(name, profile_pic_url)')
     .eq('group_1_id', g1)
     .eq('group_2_id', g2)
     .order('created_at', { ascending: true });
@@ -56,6 +59,7 @@ export async function fetchMessages(groupIdA: string, groupIdB: string): Promise
       kind: row.kind,
       mediaUrl: row.media_url,
       mediaAspectRatio: row.media_aspect_ratio,
+      waveform: row.media_waveform,
       deletedAt: row.deleted_at,
       replyToId: row.reply_to_id,
       createdAt: row.created_at,
