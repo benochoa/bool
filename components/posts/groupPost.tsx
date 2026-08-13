@@ -14,6 +14,7 @@ import { useSession } from '@/hooks/use-session';
 import { useKeyboardAwareScroll } from '@/hooks/use-keyboard-aware-scroll';
 import { fetchGroup, GroupData } from '@/lib/fetchGroup';
 import { leaveGroup } from '@/lib/leaveGroup';
+import { Ellipsis } from '@/assets/symbols/Ellipsis';
 import { dissolveGroup } from '@/lib/dissolveGroup';
 import { removeMember } from '@/lib/removeMember';
 import { makeGroupLeader } from '@/lib/makeGroupLeader';
@@ -123,11 +124,15 @@ interface Props {
   // Renders the Report group row when set. Raised to the screen for the same
   // reason onSelectMember is: the sheet it opens is a panel, and a panel nested
   // inside this post would draw under the screen's own floating chrome.
-  onReportGroup?: (groupId: string) => void;
+  // Opens the screen's action sheet for this group. Passed only where the
+  // viewer is an outsider, which is what puts the dots beside the name — the
+  // sheet itself belongs to the screen, so its tint covers that screen's
+  // floating chevron instead of being trapped under it.
+  onOpenActions?: (groupId: string) => void;
   ref?: Ref<GroupPostHandle>;
 }
 
-export default function GroupPost({ groupId, creating = false, editMode = false, onClose, onCreated, isMember = false, onLeft, onDissolved, onDirty, onToggleEdit, onLoaded, initialData, topInset, onSelectMember, onReportGroup, ref }: Props) {
+export default function GroupPost({ groupId, creating = false, editMode = false, onClose, onCreated, isMember = false, onLeft, onDissolved, onDirty, onToggleEdit, onLoaded, initialData, topInset, onSelectMember, onOpenActions, ref }: Props) {
 
   const { session } = useSession();
 
@@ -639,6 +644,14 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
             <Pencil size={27.6} color="#000" />
           </TouchableOpacity>
         )}
+        {/* Pushed hard right by the name's flex: 1. Never shares the row with
+            the pencil — that needs isLeader, this needs the opposite of
+            membership. */}
+        {onOpenActions && groupId && !isMember && !isEditMode && (
+          <TouchableOpacity style={styles.editButton} onPress={() => onOpenActions(groupId)} hitSlop={8}>
+            <Ellipsis size={24} color="#000" />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Photos & Q&A — a vertical stack in the group's saved card order. Each
@@ -691,12 +704,6 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
         </TouchableOpacity>
       )}
 
-      {/* Report group — only on somebody else's, and never while editing. */}
-      {onReportGroup && groupId && !isMember && !isEditMode && (
-        <TouchableOpacity style={styles.leaveButton} onPress={() => onReportGroup(groupId)}>
-          <Text style={styles.reportText}>Report group</Text>
-        </TouchableOpacity>
-      )}
 
       {/* Save button — only for creation, which has no pencil to save from.
           When editing an existing group the pencil's menu owns Save/Discard. */}
@@ -944,13 +951,6 @@ const styles = StyleSheet.create({
   leaveText: {
     ...Type.bodyBold,
     color: '#e53935',
-  },
-
-  // Quieter than Leave/Dissolve beside it: reporting is a thing you do about
-  // someone else, not a destructive change to your own standing.
-  reportText: {
-    ...Type.bodyBold,
-    color: Palette.muted,
   },
 
   // Back (creation flow)

@@ -5,6 +5,7 @@ import { XMark } from '@/assets/symbols/XMark';
 import GroupPost from '@/components/posts/groupPost';
 import GroupPostPreview from '@/components/posts/groupPostPreview';
 import PersonPanel from '@/components/posts/personPanel';
+import ActionSheet from '@/components/ui/actionSheet';
 import ReportSheet from '@/components/ui/reportSheet';
 import SlideOver from '@/components/ui/slideOver';
 import { useCurrentGroup } from '@/hooks/use-current-group';
@@ -42,6 +43,9 @@ export default function ExploreScreen() {
   // the screen so it covers the detail panel's own back chevron.
   const [openPersonId, setOpenPersonId] = useState<string | null>(null);
   const [reporting, setReporting] = useState<ReportTarget | null>(null);
+  // The group whose dots were tapped — null when the sheet is closed. Shared by
+  // both feeds, since only one post is ever on screen.
+  const [actionsFor, setActionsFor] = useState<string | null>(null);
   const [receivedGroupIds, setReceivedGroupIds] = useState<string[]>([]);
   const [matchedGroupIds, setMatchedGroupIds] = useState<string[]>([]);
   const [isLeader, setIsLeader] = useState(false);
@@ -304,7 +308,7 @@ export default function ExploreScreen() {
             </View>
           ) : (
             <>
-              <GroupPost groupId={currentCardGroupId} onSelectMember={setOpenPersonId} onReportGroup={id => setReporting({ type: 'group', groupId: id })} />
+              <GroupPost groupId={currentCardGroupId} onSelectMember={setOpenPersonId} onOpenActions={setActionsFor} />
 
               {/* Check / X buttons */}
               <View style={styles.buttonRow}>
@@ -355,7 +359,7 @@ export default function ExploreScreen() {
           <TouchableOpacity style={styles.detailBack} onPress={() => setDetail(null)}>
             <ChevronLeft size={28} color="#000" />
           </TouchableOpacity>
-          {detail && <GroupPost groupId={detail.targetGroupId} onSelectMember={setOpenPersonId} onReportGroup={id => setReporting({ type: 'group', groupId: id })} />}
+          {detail && <GroupPost groupId={detail.targetGroupId} onSelectMember={setOpenPersonId} onOpenActions={setActionsFor} />}
           {detail?.status === 'pending' && isLeader && (
             <View style={styles.modalLeaderRow}>
               <TouchableOpacity style={styles.xButton} onPress={() => { handleLeaderRemove(detail.targetGroupId); setDetail(null); }}>
@@ -371,6 +375,20 @@ export default function ExploreScreen() {
 
       {/* Last, so a member's profile covers the post that opened it. */}
       <PersonPanel personId={openPersonId} onClose={() => setOpenPersonId(null)} />
+
+      {/* Screen level, so its tint covers the detail panel's own back chevron. */}
+      <ActionSheet
+        visible={actionsFor !== null}
+        actions={[{
+          label: 'Report group',
+          onPress: () => {
+            const groupId = actionsFor;
+            setActionsFor(null);
+            if (groupId) setReporting({ type: 'group', groupId });
+          },
+        }]}
+        onClose={() => setActionsFor(null)}
+      />
 
       <ReportSheet target={reporting} onClose={() => setReporting(null)} />
 

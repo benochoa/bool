@@ -84,7 +84,8 @@ interface Props {
   initialData?: PersonData | null;
   // Controls belonging to the screen that are meant to scroll away with the
   // post rather than sit pinned above it — the profile tab's history and
-  // settings icons. Drawn at the top right, where a fixed header would put them.
+  // settings icons, the member panel's dots. Drawn at the top right, where a
+  // fixed header would put them.
   headerRight?: ReactNode;
   ref?: Ref<IndividualPostHandle>;
 }
@@ -442,7 +443,11 @@ export default function IndividualPost({ personId, creating = false, editMode = 
       {/* Inside the scroll on purpose: these leave with the content instead of
           holding the top of the screen. Sized like the fixed header that used
           to carry them, so nothing moves at rest. */}
-      {headerRight && <View style={styles.headerRight}>{headerRight}</View>}
+      {headerRight && (
+        <View style={[styles.headerRight, !standalone && styles.headerRightInset]}>
+          {headerRight}
+        </View>
+      )}
 
       {/* Header — circular profile picture stacked above the name, centered */}
       <View style={styles.headerRow}>
@@ -533,18 +538,23 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
 
-  // The row the profile tab's icons ride in. `content` centres its children,
-  // so this claims the full width to push them back to the right edge, and it
-  // carries the status-bar clearance the fixed header used to provide — which
-  // is what keeps everything below it exactly where it was.
+  // The row the top-right controls ride in. `content` centres its children, so
+  // this claims the full width to push them back to the right edge.
   headerRight: {
     alignSelf: 'stretch',
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
     gap: 16,
-    paddingTop: 60,
     paddingRight: 20,
+  },
+
+  // Standalone already pays for the status bar in `contentStandalone`. Anywhere
+  // else this row is the top of the screen and owes that clearance itself —
+  // which is what keeps the profile tab's layout where it was when its fixed
+  // header carried the icons.
+  headerRightInset: {
+    paddingTop: 60,
   },
 
   // Only the standalone member-profile modal needs this — nothing else on

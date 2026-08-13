@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
+import { Ellipsis } from '@/assets/symbols/Ellipsis';
 import IndividualPost from '@/components/posts/individualPost';
+import ActionSheet from '@/components/ui/actionSheet';
 import ReportSheet from '@/components/ui/reportSheet';
 import SlideOver from '@/components/ui/slideOver';
-import { Palette, Type } from '@/constants/theme';
+import { Palette } from '@/constants/theme';
 import { useBlockedPeople } from '@/hooks/use-blocked-people';
 import { useSession } from '@/hooks/use-session';
 import { setPersonBlock } from '@/lib/setPersonBlock';
@@ -24,6 +26,7 @@ export default function PersonPanel({ personId, onClose }: Props) {
   const { session } = useSession();
   const { blockedIds, refreshBlocked } = useBlockedPeople();
   const [reporting, setReporting] = useState<ReportTarget | null>(null);
+  const [actionsOpen, setActionsOpen] = useState(false);
 
   // Your own profile can be reached through a members card, and blocking
   // yourself is neither meaningful nor allowed (the table rejects it).
@@ -62,19 +65,40 @@ export default function PersonPanel({ personId, onClose }: Props) {
         <TouchableOpacity style={styles.backButton} onPress={onClose}>
           <ChevronLeft size={28} color="#000" />
         </TouchableOpacity>
-        {!isSelf && personId && (
-          <View style={styles.actions}>
-            <TouchableOpacity onPress={() => setReporting({ type: 'person', personId })}>
-              <Text style={styles.reportText}>Report</Text>
-            </TouchableOpacity>
-            {canBlock && (
-              <TouchableOpacity onPress={handleBlock}>
-                <Text style={styles.blockText}>Block</Text>
+        {personId && (
+          <IndividualPost
+            personId={personId}
+            standalone
+            // Your own profile has nothing to report or block, so it gets no
+            // dots — and with none, no empty row either.
+            headerRight={!isSelf ? (
+              <TouchableOpacity onPress={() => setActionsOpen(true)} hitSlop={8}>
+                <Ellipsis size={24} color="#000" />
               </TouchableOpacity>
-            )}
-          </View>
+            ) : undefined}
+          />
         )}
-        {personId && <IndividualPost personId={personId} standalone />}
+
+        {/* Over the post and its chevron, which is why it's a sibling here
+            rather than something the post draws for itself. */}
+        <ActionSheet
+          visible={actionsOpen}
+          actions={[
+            {
+              label: 'Report',
+              onPress: () => {
+                setActionsOpen(false);
+                if (personId) setReporting({ type: 'person', personId });
+              },
+            },
+            ...(canBlock ? [{
+              label: 'Block',
+              destructive: true,
+              onPress: () => { setActionsOpen(false); handleBlock(); },
+            }] : []),
+          ]}
+          onClose={() => setActionsOpen(false)}
+        />
 
         <ReportSheet target={reporting} onClose={() => setReporting(null)} />
       </View>
@@ -97,29 +121,5 @@ const styles = StyleSheet.create({
     height: 44,
     justifyContent: 'center',
     zIndex: 2,
-  },
-
-  // Mirrors the back chevron on the other edge, at the same height.
-  actions: {
-    position: 'absolute',
-    top: 60,
-    right: 20,
-    height: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-    zIndex: 2,
-  },
-
-  // Reporting is the milder of the two, so it doesn't take the alarm colour —
-  // only blocking, which changes what you can see from here on, is red.
-  reportText: {
-    ...Type.bodyBold,
-    color: '#000',
-  },
-
-  blockText: {
-    ...Type.bodyBold,
-    color: '#FF3B30',
   },
 });
