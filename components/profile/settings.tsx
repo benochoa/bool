@@ -1,9 +1,13 @@
 import { useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
+import { ChevronRight } from '@/assets/symbols/ChevronRight';
+import SlideOver from '@/components/ui/slideOver';
 import { Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
+import { PRIVACY_POLICY_HTML } from '@/legal/privacyPolicy';
 import { supabase } from '@/supabaseClient';
+import LegalDocument from './legalDocument';
 
 interface Props {
   onClose: () => void;
@@ -12,6 +16,7 @@ interface Props {
 export default function Settings({ onClose }: Props) {
   const { session } = useSession();
   const [deleting, setDeleting] = useState(false);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
 
   async function handleSignOut() {
     await supabase.auth.signOut();
@@ -54,9 +59,15 @@ export default function Settings({ onClose }: Props) {
         <Text style={styles.sectionHeader}>Phone</Text>
         <Text style={styles.sectionText}>{session?.user.phone}</Text>
 
-        <Text style={styles.sectionHeader}>Legal</Text>
-        <Text style={styles.sectionText}>Privacy Policy</Text>
-        <Text style={styles.sectionText}>Terms of Service</Text>
+        <Text style={[styles.sectionHeader, styles.legalHeader]}>Legal</Text>
+        <TouchableOpacity style={styles.legalRow} onPress={() => setPrivacyOpen(true)}>
+          <Text style={[styles.sectionText, styles.legalText]}>Privacy Policy</Text>
+          <ChevronRight />
+        </TouchableOpacity>
+        <View style={[styles.legalRow, styles.legalRowLast]}>
+          <Text style={[styles.sectionText, styles.legalText]}>Terms of Service</Text>
+          <ChevronRight />
+        </View>
 
         <View style={styles.accountActions}>
           <TouchableOpacity onPress={handleSignOut}>
@@ -72,6 +83,14 @@ export default function Settings({ onClose }: Props) {
         </View>
 
       </ScrollView>
+
+      <SlideOver visible={privacyOpen} onRequestClose={() => setPrivacyOpen(false)}>
+        <LegalDocument
+          title="Privacy Policy"
+          html={PRIVACY_POLICY_HTML}
+          onClose={() => setPrivacyOpen(false)}
+        />
+      </SlideOver>
     </View>
   );
 }
@@ -105,16 +124,44 @@ const styles = StyleSheet.create({
   },
 
   sectionHeader: {
-    ...Type.label,
+    ...Type.header,
     color: '#555',
     marginTop: 24,
     marginBottom: 8,
+  },
+
+  // The one gap between the two sections, wider than the gap inside either.
+  legalHeader: {
+    marginTop: 48,
   },
 
   sectionText: {
     ...Type.body,
     color: '#000',
     marginBottom: 8,
+  },
+
+  // Label left, chevron pinned to the right edge of the content — the row is
+  // the tap target once the PDFs are wired up. Each row rules off at the top;
+  // the last one closes the list at the bottom.
+  legalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+
+  legalRowLast: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+
+  // The row's padding owns the spacing now, so drop sectionText's bottom margin
+  // — it would push the label off-center between the rules.
+  legalText: {
+    marginBottom: 0,
   },
 
   accountActions: {
