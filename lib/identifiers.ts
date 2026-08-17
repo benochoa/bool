@@ -25,7 +25,7 @@ export const GROUP_AGE_OPTIONS = ['18-20', '21-23', '24-26', '27-29', '30+'];
 // same list reads plural there.
 export const PERSON_GENDER_OPTIONS = ['Man', 'Woman', 'Other'];
 
-export const GROUP_GENDER_OPTIONS = ['Men', 'Women', 'Other'];
+export const GROUP_GENDER_OPTIONS = ['Men', 'Women', 'Mixed', 'Other'];
 
 export const CITIES: string[] = citiesData;
 export const COLLEGES: string[] = collegesData;
