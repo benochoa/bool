@@ -6,7 +6,7 @@ import GroupPostPreview from '@/components/posts/groupPostPreview';
 import PersonPanel from '@/components/posts/personPanel';
 import SlideOver from '@/components/ui/slideOver';
 import { Palette, Type } from '@/constants/theme';
-import { fetchGroupNames, GroupName } from '@/lib/fetchGroupNames';
+import { fetchGroupSummaries, GroupSummary } from '@/lib/fetchGroupSummaries';
 import { fetchMatchedGroupIds } from '@/lib/fetchMatchedGroupIds';
 
 interface Props {
@@ -26,7 +26,7 @@ interface Props {
 // with no isMember there is no Leave or Dissolve, and no onToggleEdit means no
 // pencil even on a group you founded.
 export default function PastGroup({ groupId, groupName, firstImageUrl, statusAt, onClose }: Props) {
-  const [matched, setMatched] = useState<GroupName[]>([]);
+  const [matched, setMatched] = useState<GroupSummary[]>([]);
   const [loading, setLoading] = useState(true);
   // The expanded post, and a member's profile opened from its card. Both belong
   // to this panel rather than to the post, so each covers the chevron below it.
@@ -35,7 +35,7 @@ export default function PastGroup({ groupId, groupName, firstImageUrl, statusAt,
 
   useEffect(() => {
     fetchMatchedGroupIds(groupId, statusAt).then(async ids => {
-      setMatched(await fetchGroupNames(ids));
+      setMatched(await fetchGroupSummaries(ids));
       setLoading(false);
     });
   }, [groupId, statusAt]);
@@ -47,36 +47,42 @@ export default function PastGroup({ groupId, groupName, firstImageUrl, statusAt,
         <ChevronLeft size={28} color="#000" />
       </TouchableOpacity>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      {/* The whole body waits, not just the matches. This group's tile needs no
+          fetch, but letting it land first assembles the panel in two steps —
+          and only on a slow connection, since a fast one beats the slide-in.
+          One spinner, then the finished panel, every time. */}
+      {loading ? (
+        <ActivityIndicator style={styles.loader} />
+      ) : (
+        <ScrollView contentContainerStyle={styles.content}>
 
-        <Text style={styles.sectionHeader}>This group…</Text>
-        <GroupPostPreview
-          groupName={groupName}
-          firstImageUrl={firstImageUrl}
-          suggesterPicUrl={null}
-          hideSuggesterPic
-          onPress={() => setOpenGroupId(groupId)}
-        />
+          <Text style={styles.sectionHeader}>This group…</Text>
+          <GroupPostPreview
+            groupName={groupName}
+            firstImageUrl={firstImageUrl}
+            suggesterPicUrl={null}
+            hideSuggesterPic
+            onPress={() => setOpenGroupId(groupId)}
+          />
 
-        {loading ? (
-          <ActivityIndicator style={styles.loader} />
-        ) : matched.length > 0 && (
-          <>
-            <Text style={styles.sectionHeader}>Groups you matched with…</Text>
-            {matched.map(g => (
-              <GroupPostPreview
-                key={g.id}
-                groupName={g.name}
-                firstImageUrl={g.image_urls?.[0] ?? null}
-                suggesterPicUrl={null}
-                hideSuggesterPic
-                onPress={() => setOpenGroupId(g.id)}
-              />
-            ))}
-          </>
-        )}
+          {matched.length > 0 && (
+            <>
+              <Text style={styles.sectionHeader}>Groups you matched with…</Text>
+              {matched.map(g => (
+                <GroupPostPreview
+                  key={g.id}
+                  groupName={g.name}
+                  firstImageUrl={g.image_urls?.[0] ?? null}
+                  suggesterPicUrl={null}
+                  hideSuggesterPic
+                  onPress={() => setOpenGroupId(g.id)}
+                />
+              ))}
+            </>
+          )}
 
-      </ScrollView>
+        </ScrollView>
+      )}
 
       {/* The full post, over the tile that opened it. */}
       <SlideOver visible={openGroupId !== null} onRequestClose={() => setOpenGroupId(null)}>
@@ -127,8 +133,8 @@ const styles = StyleSheet.create({
   },
 
   loader: {
+    flex: 1,
     alignSelf: 'center',
-    marginTop: 8,
   },
 
   // Opaque and drawn from the top, like every other post panel — the chevron

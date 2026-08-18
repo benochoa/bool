@@ -6,7 +6,7 @@ import PastGroup from '@/components/profile/pastGroup';
 import SlideOver from '@/components/ui/slideOver';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
-import { fetchGroupNames, GroupName } from '@/lib/fetchGroupNames';
+import { fetchGroupSummaries, GroupSummary } from '@/lib/fetchGroupSummaries';
 import { fetchMyPastGroups, PastMembershipStatus } from '@/lib/fetchMyPastGroups';
 
 interface Props {
@@ -16,7 +16,7 @@ interface Props {
 // A past group: the group itself, plus your membership's record of how and when
 // it ended — which is both the section it belongs in and the cutoff its detail
 // panel uses.
-interface Row extends GroupName {
+interface Row extends GroupSummary {
   status: PastMembershipStatus;
   statusAt: string;
 }
@@ -38,10 +38,10 @@ export default function History({ onClose }: Props) {
   useEffect(() => {
     if (!session?.user) return;
     fetchMyPastGroups(session.user.id).then(async past => {
-      const names = await fetchGroupNames(past.map(p => p.groupId));
-      // Built from `past` rather than from `names`: the membership rows carry
-      // the newest-exit-first order, and the id lookup doesn't preserve it.
-      const byId = new Map(names.map(n => [n.id, n]));
+      const summaries = await fetchGroupSummaries(past.map(p => p.groupId));
+      // Built from `past` rather than from `summaries`: the membership rows
+      // carry the newest-exit-first order, and the id lookup doesn't preserve it.
+      const byId = new Map(summaries.map(s => [s.id, s]));
       setRows(past.flatMap(p => {
         const group = byId.get(p.groupId);
         return group ? [{ ...group, status: p.status, statusAt: p.statusAt }] : [];

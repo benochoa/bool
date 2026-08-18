@@ -1,6 +1,6 @@
 import { supabase } from '@/supabaseClient';
 
-export interface GroupName {
+export interface GroupSummary {
   id: string;
   name: string;
   image_urls: string[] | null;
@@ -9,8 +9,8 @@ export interface GroupName {
   created_by: string | null;
 }
 
-// Names for any number of groups in a single query.
-export async function fetchGroupNames(groupIds: string[]): Promise<GroupName[]> {
+// Enough of any number of groups to list them, in a single query.
+export async function fetchGroupSummaries(groupIds: string[]): Promise<GroupSummary[]> {
   if (groupIds.length === 0) return [];
   const { data, error } = await supabase
     .from('groups')

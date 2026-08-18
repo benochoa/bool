@@ -16,7 +16,7 @@ import { Palette, Type } from '@/constants/theme';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useHideTabBar } from '@/hooks/use-hide-tab-bar';
 import { useSession } from '@/hooks/use-session';
-import { fetchGroupNames, GroupName } from '@/lib/fetchGroupNames';
+import { fetchGroupSummaries, GroupSummary } from '@/lib/fetchGroupSummaries';
 
 // How far offscreen the editor rests — a full screen width to the right.
 const WIDTH = Dimensions.get('window').width;
@@ -29,7 +29,7 @@ export default function GroupsScreen() {
   // State
   const [creating, setCreating] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
-  const [groupNames, setGroupNames] = useState<GroupName[]>([]);
+  const [groups, setGroups] = useState<GroupSummary[]>([]);
   const [joining, setJoining] = useState(false);
   // A member's profile, opened from the post's members card. It lives here
   // rather than in the post so it can cover the switcher band.
@@ -70,10 +70,10 @@ export default function GroupsScreen() {
   // One query resolves every switcher name — the menu rows and the active
   // label both read from it.
   useEffect(() => {
-    fetchGroupNames(myGroupIds).then(setGroupNames);
+    fetchGroupSummaries(myGroupIds).then(setGroups);
   }, [myGroupIds]);
 
-  const currentGroup = groupNames.find(g => g.id === currentGroupId);
+  const currentGroup = groups.find(g => g.id === currentGroupId);
   const currentGroupName = currentGroup?.name ?? '';
   // Only the leader can edit, so only the leader gets a pencil. Reading it off
   // the switcher's data means no extra query and no wait on GroupPost's fetch.
@@ -158,7 +158,7 @@ export default function GroupsScreen() {
 
       <GroupSwitcher
         visible={switcherOpen}
-        groups={groupNames}
+        groups={groups}
         // Edit mode belongs to the group you were editing, so switching leaves it.
         onSelect={(id) => { setCurrentGroupId(id); setSwitcherOpen(false); setEditMode(false); setDirty(false); }}
         // Create and Join open modals of their own, which iOS refuses to

@@ -5,7 +5,7 @@ import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-g
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { runOnJS } from 'react-native-worklets';
 import { Type } from '@/constants/theme';
-import { GroupName } from '@/lib/fetchGroupNames';
+import { GroupSummary } from '@/lib/fetchGroupSummaries';
 import { Key } from '@/assets/symbols/Key';
 import { Plus } from '@/assets/symbols/Plus';
 
@@ -67,7 +67,7 @@ function Tile({ label, height, imageUrl, onPress, children }: {
 
 interface Props {
   visible: boolean;
-  groups: GroupName[];
+  groups: GroupSummary[];
   onSelect: (id: string) => void;
   onCreate: () => void;
   onJoin: () => void;
