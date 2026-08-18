@@ -1,5 +1,18 @@
 import { Pencil } from '@/assets/symbols/Pencil';
 import { FontFamily, Palette, Type } from '@/constants/theme';
+import { useKeyboardAwareScroll } from '@/hooks/use-keyboard-aware-scroll';
+import { DEFAULT_ASPECT, snapToStandardAspect } from '@/lib/aspectRatio';
+import {
+  CardSlot, DEFAULT_PERSON_CARD_ORDER, photoSlotsFromUrls, reconcileCardOrder,
+  slotKey, toStoredCardOrder,
+} from '@/lib/cardOrder';
+import { fetchPerson, PersonData } from '@/lib/fetchPerson';
+import {
+  EMPTY_IDENTIFIERS,
+  identifierColumns,
+  Identifiers,
+  missingIdentifiers,
+} from '@/lib/identifiers';
 import { supabase } from '@/supabaseClient';
 import { Image } from 'expo-image';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
@@ -17,29 +30,14 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { fetchPerson, PersonData } from '@/lib/fetchPerson';
-import { useKeyboardAwareScroll } from '@/hooks/use-keyboard-aware-scroll';
-import ZoomableImage from './zoomableImage';
 import CardReorder, { EDIT_CARD_HEIGHT, EDIT_CARD_WIDTH } from './cardReorder';
 import { IdentifiersEdit, IdentifiersView } from './identifiersCard';
-import {
-  EMPTY_IDENTIFIERS, Identifiers, identifierColumns, missingIdentifiers,
-} from '@/lib/identifiers';
-import { snapToStandardAspect, DEFAULT_ASPECT } from '@/lib/aspectRatio';
-import {
-  CardSlot, DEFAULT_PERSON_CARD_ORDER, photoSlotsFromUrls, reconcileCardOrder,
-  slotKey, toStoredCardOrder,
-} from '@/lib/cardOrder';
+import ZoomableImage from './zoomableImage';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
 const PHOTO_SLOTS = 2;
 
-// Helpers (editable mode only)
-const DEFAULT_QUESTIONS = [
-  "What's your favorite way to spend a weekend?",
-  "What's something you could talk about for hours?",
-];
 
 async function fetchRandomPersonQuestions(): Promise<string[]> {
   const { data } = await supabase
@@ -48,7 +46,7 @@ async function fetchRandomPersonQuestions(): Promise<string[]> {
     .eq('category', 'individual')
     .single();
   const all: string[] = data?.questions ?? [];
-  if (all.length < 2) return DEFAULT_QUESTIONS;
+  
   return [...all].sort(() => Math.random() - 0.5).slice(0, 2);
 }
 
