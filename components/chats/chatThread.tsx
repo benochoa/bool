@@ -1,4 +1,4 @@
-import { StyleSheet, View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, Keyboard, LayoutAnimation, Dimensions, Platform, Alert } from 'react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image } from 'expo-image';
 import { supabase } from '@/supabaseClient';
@@ -44,6 +44,11 @@ const MEDIA_ICON_SIZE = 26;
 const MEDIA_ICON_COLOR = '#555';
 // The mic and the pulse beside the timer, while a recording is running.
 const RECORDING_COLOR = '#FF3B30';
+
+// How long the composer takes to follow the keyboard, for the events that don't
+// carry a duration of their own. Raise it for a slower settle — past the
+// keyboard's own ~250ms the bar starts trailing it rather than moving with it.
+const KEYBOARD_SETTLE_MS = 250;
 // How often the loudness is read while recording. Fast enough that a one-second
 // message still has ten bars' worth of shape to draw from.
 const METER_INTERVAL_MS = 100;
@@ -134,6 +139,47 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   useEffect(() => {
     loadThread();
   }, [loadThread]);
+
+  // How far the keyboard covers the screen, which is what lifts the composer.
+  // KeyboardAvoidingView used to do this, but it never let go after a drag
+  // dismissal — the gesture doesn't end in the frame event it waits for, so the
+  // keyboard left and the composer stayed up at its height. Reading the frame
+  // directly follows the drag instead, and keyboardDidHide is the backstop for
+  // whatever the frame events did on the way out.
+  const [keyboardInset, setKeyboardInset] = useState(0);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+
+    // Every path animates, on the keyboard's own curve and its own duration
+    // where it reports one. Missing this on any of them is what made the drop
+    // read as a flash: one handler moved the bar over 250ms, another teleported
+    // it the rest of the way.
+    const settle = (duration?: number) => {
+      LayoutAnimation.configureNext({
+        duration: duration || KEYBOARD_SETTLE_MS,
+        update: { type: LayoutAnimation.Types.keyboard },
+      });
+    };
+
+    const onFrame = Keyboard.addListener('keyboardWillChangeFrame', e => {
+      settle(e.duration);
+      setKeyboardInset(Math.max(Dimensions.get('window').height - e.endCoordinates.screenY, 0));
+    });
+    // Fires before the drop rather than after it, so the bar leaves with the
+    // keyboard instead of catching up once it's gone.
+    const onWillHide = Keyboard.addListener('keyboardWillHide', e => {
+      settle(e.duration);
+      setKeyboardInset(0);
+    });
+    // Backstop only — by now the two above have normally settled it already.
+    const onHide = Keyboard.addListener('keyboardDidHide', () => {
+      settle();
+      setKeyboardInset(0);
+    });
+
+    return () => { onFrame.remove(); onWillHide.remove(); onHide.remove(); };
+  }, []);
 
   // The thread is the one screen with no focus refetch to fall back on — it
   // isn't a tab, and it stays mounted while the phone is locked. So messages
@@ -558,7 +604,7 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   }
 
   return (
-    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <View style={[styles.container, { paddingBottom: keyboardInset }]}>
 
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={onClose}>
@@ -579,6 +625,12 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
           style={styles.messageList}
           contentContainerStyle={styles.messageListContent}
           keyboardShouldPersistTaps="handled"
+          // Scrolling back through history dismisses the keyboard, rather than
+          // costing a separate tap to get it out of the way. Not 'interactive':
+          // iOS moves the keyboard with the thumb there but sends no frame
+          // events until the gesture ends, so the composer couldn't follow and
+          // the two came apart mid-drag. Going at once keeps them together.
+          keyboardDismissMode="on-drag"
         >
           {messages.length === 0 ? (
             <Text style={styles.emptyText}>No messages yet — say hi!</Text>
@@ -821,7 +873,7 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
       {/* Reporting a message, from its long-press menu. */}
       <ReportSheet target={reporting} onClose={() => setReporting(null)} />
 
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
