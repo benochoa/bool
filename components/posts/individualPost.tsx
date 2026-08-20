@@ -13,6 +13,7 @@ import {
   Identifiers,
   missingIdentifiers,
 } from '@/lib/identifiers';
+import { PostSkeleton } from '@/components/ui/skeleton';
 import { supabase } from '@/supabaseClient';
 import { Image } from 'expo-image';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
@@ -437,7 +438,7 @@ export default function IndividualPost({ personId, creating = false, editMode = 
   }
 
   if (loading) {
-    return <ActivityIndicator style={styles.loader} />;
+    return <PostSkeleton />;
   }
 
   const viewPhotos = photoSlotsFromUrls(data?.imageUrls ?? [], PHOTO_SLOTS);
@@ -537,12 +538,6 @@ export default function IndividualPost({ personId, creating = false, editMode = 
 }
 
 const styles = StyleSheet.create({
-
-  loader: {
-    flex: 1,
-    alignSelf: 'center',
-    marginTop: 100,
-  },
 
   container: {
     flex: 1,

@@ -7,6 +7,7 @@ import GroupPostPreview from '@/components/posts/groupPostPreview';
 import PersonPanel from '@/components/posts/personPanel';
 import ActionSheet from '@/components/ui/actionSheet';
 import ReportSheet from '@/components/ui/reportSheet';
+import { PostSkeleton, SkeletonList, TileSkeleton } from '@/components/ui/skeleton';
 import SlideOver from '@/components/ui/slideOver';
 import { useAppResume } from '@/hooks/use-app-resume';
 import { useCurrentGroup } from '@/hooks/use-current-group';
@@ -22,7 +23,7 @@ import { supabase } from '@/supabaseClient';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useFocusEffect } from '@react-navigation/native';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 // Leads the For You deck when it qualifies, ahead of the id ordering the
 // feed otherwise follows.
@@ -321,7 +322,20 @@ export default function ExploreScreen() {
   // loadingGroups too: until the acting-as group is known, the feed would be
   // filtered against nobody's membership and could even offer your own group.
   if (loading || loadingGroups) {
-    return <ActivityIndicator style={styles.loader} />;
+    return (
+      <View style={styles.container}>
+        <View style={styles.feedContainer}>
+          {tabRow}
+          {activeTab === 'ForYou' ? (
+            <PostSkeleton topInset={10} />
+          ) : (
+            <View style={styles.previewList}>
+              <SkeletonList count={3}>{i => <TileSkeleton key={i} />}</SkeletonList>
+            </View>
+          )}
+        </View>
+      </View>
+    );
   }
 
   return (
@@ -434,12 +448,6 @@ export default function ExploreScreen() {
 }
 
 const styles = StyleSheet.create({
-
-  loader: {
-    flex: 1,
-    alignSelf: 'center',
-    marginTop: 100,
-  },
 
   // Page layout
   container: {

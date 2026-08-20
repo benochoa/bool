@@ -1,10 +1,11 @@
-import { StyleSheet, View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, ScrollView } from 'react-native';
 import { Image } from 'expo-image';
 import { useState, useCallback, useEffect } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '@/supabaseClient';
 import ChatThread from '@/components/chats/chatThread';
 import ImageViewer, { ViewerImage } from '@/components/chats/imageViewer';
+import { ChatRowSkeleton, SkeletonList } from '@/components/ui/skeleton';
 import SlideOver from '@/components/ui/slideOver';
 import { FontFamily, Type } from '@/constants/theme';
 import { fetchChatPreviews, ChatPreview } from '@/lib/fetchChatPreviews';
@@ -132,7 +133,9 @@ export default function ChatsScreen() {
       </View>
 
       {loading ? (
-        <ActivityIndicator style={styles.loader} />
+        <View style={styles.content}>
+          <SkeletonList count={4}>{i => <ChatRowSkeleton key={i} />}</SkeletonList>
+        </View>
       ) : previews.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyText}>No matches yet.</Text>
@@ -198,10 +201,6 @@ export default function ChatsScreen() {
 }
 
 const styles = StyleSheet.create({
-  loader: {
-    flex: 1,
-    alignSelf: 'center',
-  },
   container: {
     flex: 1,
     backgroundColor: '#fff',

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text,
+  Dimensions, ScrollView, StyleSheet, Text,
   TouchableOpacity, View,
 } from 'react-native';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { ChevronRight } from '@/assets/symbols/ChevronRight';
 import GroupPost from '@/components/posts/groupPost';
+import { NameRowSkeleton, Skeleton } from '@/components/ui/skeleton';
 import MembersCard from '@/components/posts/membersCard';
 import PersonPanel from '@/components/posts/personPanel';
 import SlideOver from '@/components/ui/slideOver';
@@ -68,7 +69,19 @@ export default function ChatDetails({ myGroupId, otherGroupId, onClose }: Props)
       </View>
 
       {loading ? (
-        <ActivityIndicator style={styles.loader} />
+        <View style={styles.content}>
+          <View style={styles.titleBlock}>
+            <Skeleton width={160} height={26} />
+            <Skeleton width={20} height={26} style={styles.skeletonPlus} />
+            <Skeleton width={140} height={26} />
+          </View>
+          <View style={styles.skeletonSections}>
+            <NameRowSkeleton />
+            <Skeleton height={110} radius={8} style={styles.skeletonMembers} />
+            <NameRowSkeleton width="45%" />
+            <Skeleton height={110} radius={8} style={styles.skeletonMembers} />
+          </View>
+        </View>
       ) : (
         <ScrollView contentContainerStyle={styles.content}>
           {/* Three lines rather than one: a long pair of names used to wrap
@@ -133,11 +146,6 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
 
-  loader: {
-    flex: 1,
-    alignSelf: 'center',
-  },
-
   content: {
     alignItems: 'center',
     paddingBottom: 40,
@@ -145,6 +153,21 @@ const styles = StyleSheet.create({
 
   // The margins live on the block so the three lines stack tight against each
   // other and only the pair as a whole is spaced off its surroundings.
+  // Placeholder spacing only — the real lines carry their own line height.
+  skeletonPlus: {
+    marginVertical: 6,
+  },
+
+  skeletonSections: {
+    alignSelf: 'stretch',
+    paddingHorizontal: 20,
+  },
+
+  skeletonMembers: {
+    marginTop: 12,
+    marginBottom: 24,
+  },
+
   titleBlock: {
     alignItems: 'center',
     marginTop: 8,

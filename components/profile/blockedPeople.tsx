@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Image } from 'expo-image';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
+import { PersonRowSkeleton, SkeletonList } from '@/components/ui/skeleton';
 import { Palette, Type } from '@/constants/theme';
 import { useBlockedPeople } from '@/hooks/use-blocked-people';
 import { useSession } from '@/hooks/use-session';
@@ -54,7 +55,9 @@ export default function BlockedPeople({ onClose }: Props) {
       </View>
 
       {loading ? (
-        <ActivityIndicator style={styles.loading} color={Palette.muted} />
+        <View style={styles.content}>
+          <SkeletonList count={5}>{i => <PersonRowSkeleton key={i} />}</SkeletonList>
+        </View>
       ) : people.length === 0 ? (
         <Text style={styles.empty}>You haven&apos;t blocked anyone.</Text>
       ) : (
@@ -105,10 +108,6 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 20,
     paddingBottom: 40,
-  },
-
-  loading: {
-    marginTop: 40,
   },
 
   empty: {

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import PastGroup from '@/components/profile/pastGroup';
+import { HeadingSkeleton, NameRowSkeleton, SkeletonList } from '@/components/ui/skeleton';
 import SlideOver from '@/components/ui/slideOver';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
@@ -61,7 +62,10 @@ export default function History({ onClose }: Props) {
       </View>
 
       {loading ? (
-        <ActivityIndicator style={styles.loader} />
+        <View style={styles.content}>
+          <HeadingSkeleton />
+          <SkeletonList count={4}>{i => <NameRowSkeleton key={i} />}</SkeletonList>
+        </View>
       ) : rows.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyText}>Nothing here yet.</Text>
@@ -124,11 +128,6 @@ const styles = StyleSheet.create({
   title: {
     ...Type.header,
     color: '#000',
-  },
-
-  loader: {
-    flex: 1,
-    alignSelf: 'center',
   },
 
   emptyContainer: {

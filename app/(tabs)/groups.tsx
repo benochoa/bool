@@ -9,6 +9,7 @@ import { GroupData } from '@/lib/fetchGroup';
 import PersonPanel from '@/components/posts/personPanel';
 import GroupSwitcher from '@/components/groups/groupSwitcher';
 import JoinGroup from '@/components/groups/joinGroup';
+import { PostSkeleton } from '@/components/ui/skeleton';
 import SlideOver from '@/components/ui/slideOver';
 import { ChevronDown } from '@/assets/symbols/ChevronDown';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
@@ -182,7 +183,7 @@ export default function GroupsScreen() {
 
       {/* My groups */}
       {loadingGroups ? (
-        <ActivityIndicator style={styles.loader} />
+        <PostSkeleton topInset={114} />
       ) : myGroupIds.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyText}>You are not in any groups yet. Create one or join your friends!</Text>
@@ -259,11 +260,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Palette.background,
-  },
-
-  loader: {
-    flex: 1,
-    alignSelf: 'center',
   },
 
   // Edit controls — the same 44pt band the switcher occupies, so nothing below

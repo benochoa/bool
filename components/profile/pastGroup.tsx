@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import GroupPost from '@/components/posts/groupPost';
 import GroupPostPreview from '@/components/posts/groupPostPreview';
 import PersonPanel from '@/components/posts/personPanel';
+import { SkeletonList, TileSkeleton } from '@/components/ui/skeleton';
 import SlideOver from '@/components/ui/slideOver';
 import { Palette, Type } from '@/constants/theme';
 import { fetchGroupSummaries, GroupSummary } from '@/lib/fetchGroupSummaries';
@@ -52,7 +53,9 @@ export default function PastGroup({ groupId, groupName, firstImageUrl, statusAt,
           and only on a slow connection, since a fast one beats the slide-in.
           One spinner, then the finished panel, every time. */}
       {loading ? (
-        <ActivityIndicator style={styles.loader} />
+        <View style={styles.content}>
+          <SkeletonList count={2}>{i => <TileSkeleton key={i} />}</SkeletonList>
+        </View>
       ) : (
         <ScrollView contentContainerStyle={styles.content}>
 
@@ -130,11 +133,6 @@ const styles = StyleSheet.create({
     ...Type.header,
     color: '#555',
     marginBottom: 10,
-  },
-
-  loader: {
-    flex: 1,
-    alignSelf: 'center',
   },
 
   // Opaque and drawn from the top, like every other post panel — the chevron

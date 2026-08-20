@@ -17,6 +17,7 @@ import SwipeToReply from '@/components/chats/swipeToReply';
 import VoiceMessage from '@/components/chats/voiceMessage';
 import PersonPanel from '@/components/posts/personPanel';
 import ReportSheet from '@/components/ui/reportSheet';
+import { MessageSkeleton } from '@/components/ui/skeleton';
 import SlideOver from '@/components/ui/slideOver';
 import ChatDetails from './chatDetails';
 import * as Clipboard from 'expo-clipboard';
@@ -618,7 +619,9 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
       </View>
 
       {loading ? (
-        <ActivityIndicator style={styles.loader} />
+        <View style={styles.messageListContent}>
+          <MessageSkeleton />
+        </View>
       ) : (
         <ScrollView
           ref={scrollViewRef}
@@ -908,12 +911,6 @@ const styles = StyleSheet.create({
     ...Type.header,
     color: '#000',
     flexShrink: 1,
-  },
-
-  loader: {
-    flex: 1,
-    alignSelf: 'center',
-    marginTop: 100,
   },
 
   messageList: {

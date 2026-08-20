@@ -6,6 +6,7 @@ import GroupPostPreview from '@/components/posts/groupPostPreview';
 import PersonPanel from '@/components/posts/personPanel';
 import ActionSheet from '@/components/ui/actionSheet';
 import ReportSheet from '@/components/ui/reportSheet';
+import { SkeletonList, TileSkeleton } from '@/components/ui/skeleton';
 import SlideOver from '@/components/ui/slideOver';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useAppResume } from '@/hooks/use-app-resume';
@@ -17,7 +18,7 @@ import { ReportTarget } from '@/lib/submitReport';
 import { supabase } from '@/supabaseClient';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function ReceivedScreen() {
 
@@ -118,7 +119,9 @@ export default function ReceivedScreen() {
       </View>
 
       {loading ? (
-        <ActivityIndicator style={styles.loader} />
+        <View style={styles.previewList}>
+          <SkeletonList count={3}>{i => <TileSkeleton key={i} />}</SkeletonList>
+        </View>
       ) : received.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyText}>Nothing here yet.</Text>
@@ -183,11 +186,6 @@ export default function ReceivedScreen() {
 }
 
 const styles = StyleSheet.create({
-  loader: {
-    flex: 1,
-    alignSelf: 'center',
-  },
-
   container: {
     flex: 1,
     backgroundColor: Palette.background,

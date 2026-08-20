@@ -18,6 +18,7 @@ import { Ellipsis } from '@/assets/symbols/Ellipsis';
 import { dissolveGroup } from '@/lib/dissolveGroup';
 import { removeMember } from '@/lib/removeMember';
 import { makeGroupLeader } from '@/lib/makeGroupLeader';
+import { PostSkeleton } from '@/components/ui/skeleton';
 import MembersCard from './membersCard';
 import MemberManagement, { MemberRect } from './memberManagement';
 import ZoomableImage from './zoomableImage';
@@ -605,7 +606,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
   }
 
   if (loading) {
-    return <ActivityIndicator style={styles.loader} />;
+    return <PostSkeleton topInset={topInset} />;
   }
 
   const viewPhotos = photoSlotsFromUrls(data?.imageUrls ?? [], PHOTO_SLOTS);
@@ -747,12 +748,6 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
 }
 
 const styles = StyleSheet.create({
-
-  loader: {
-    flex: 1,
-    alignSelf: 'center',
-    marginTop: 100,
-  },
 
   container: {
     flex: 1,
