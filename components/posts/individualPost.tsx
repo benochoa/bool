@@ -245,6 +245,24 @@ export default function IndividualPost({ personId, creating = false, editMode = 
       Alert.alert('Missing info', `Please fill in your ${missing.join(', ')}.`);
       return false;
     }
+    // The avatar is separate from the card photos and more widely seen — member
+    // rows and the suggester's ring on a Pending tile both read it — so it's
+    // required in its own right rather than covered by the check below.
+    if (!profilePic) {
+      Alert.alert('Missing profile picture', 'Please add a profile picture.');
+      return false;
+    }
+    // A profile with no photo is a blank card to whoever opens it, and one with
+    // no answers has nothing to read — so neither saves, on the way in or on
+    // the way back through an edit that emptied them.
+    if (!photos.some(uri => uri)) {
+      Alert.alert('Missing photo', 'Please add at least one photo.');
+      return false;
+    }
+    if (!questions.some((q, i) => q.trim() && answers[i]?.trim())) {
+      Alert.alert('Missing answer', 'Please answer at least one question.');
+      return false;
+    }
     setSaving(true);
 
     // Same rule as the card photos: an https URI is already uploaded and kept;

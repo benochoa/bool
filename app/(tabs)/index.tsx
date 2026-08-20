@@ -11,9 +11,9 @@ import SlideOver from '@/components/ui/slideOver';
 import { useAppResume } from '@/hooks/use-app-resume';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useSession } from '@/hooks/use-session';
-import { fetchActiveGroupIds } from '@/lib/fetchActiveGroupIds';
+import { ActiveGroup, fetchActiveGroups } from '@/lib/fetchActiveGroups';
 import { fetchAllGroupMembers, GroupMemberRow } from '@/lib/fetchAllGroupMembers';
-import { fetchGroup } from '@/lib/fetchGroup';
+import { fetchGroup, GroupData } from '@/lib/fetchGroup';
 import { fetchGroupSuggestions, GroupSuggestion } from '@/lib/fetchGroupSuggestions';
 import { fetchMatchedGroupIds } from '@/lib/fetchMatchedGroupIds';
 import { fetchReceivedGroupIds } from '@/lib/fetchReceivedGroupIds';
@@ -35,7 +35,9 @@ export default function ExploreScreen() {
 
   // State
   const [activeTab, setActiveTab] = useState<'ForYou' | 'Pending'>('ForYou');
-  const [groupIds, setGroupIds] = useState<string[]>([]);
+  const [activeGroups, setActiveGroups] = useState<ActiveGroup[]>([]);
+  // The city of the group we're acting as — the deck only offers its own city.
+  const [myCity, setMyCity] = useState<string | null>(null);
   const [allMembers, setAllMembers] = useState<GroupMemberRow[]>([]);
   const [seenGroupIds, setSeenGroupIds] = useState<Set<string>>(new Set());
   const [suggestions, setSuggestions] = useState<GroupSuggestion[]>([]);
@@ -76,32 +78,32 @@ export default function ExploreScreen() {
     // as soon as the candidate list arrives paints a card that the exclusions
     // still in flight would have removed — which is why a different group used
     // to flash before the real one settled.
-    const scoped: Promise<[GroupSuggestion[], string[], string[]]> = currentGroupId
+    // My own group is fetched here rather than on its own now that the deck
+    // filters on its city: settling separately would clear `loading` with no
+    // city yet and paint a card from another town before the filter arrived.
+    // The leader flag comes off the same row, so it costs no extra request.
+    const scoped: Promise<[GroupSuggestion[], string[], string[], GroupData | null]> = currentGroupId
       ? Promise.all([
           fetchGroupSuggestions(currentGroupId),
           fetchReceivedGroupIds(currentGroupId),
           fetchMatchedGroupIds(currentGroupId),
+          fetchGroup(currentGroupId),
         ])
-      : Promise.resolve([[], [], []]);
+      : Promise.resolve([[], [], [], null]);
 
-    Promise.all([fetchActiveGroupIds(), fetchAllGroupMembers(), scoped]).then(
-      ([ids, members, [nextSuggestions, nextReceived, nextMatched]]) => {
+    Promise.all([fetchActiveGroups(), fetchAllGroupMembers(), scoped]).then(
+      ([groups, members, [nextSuggestions, nextReceived, nextMatched, myGroup]]) => {
         if (run !== refreshRun.current) return;
-        setGroupIds(ids);
+        setActiveGroups(groups);
         setAllMembers(members);
         setSuggestions(nextSuggestions);
         setReceivedGroupIds(nextReceived);
         setMatchedGroupIds(nextMatched);
+        setMyCity(myGroup?.identifiers.city ?? null);
+        setIsLeader(!!(session?.user && myGroup?.created_by === session.user.id));
         setLoading(false);
       }
     );
-
-    // Only gates the leader-only buttons, so it can settle on its own.
-    if (currentGroupId && session?.user) {
-      fetchGroup(currentGroupId).then(g => setIsLeader(g?.created_by === session.user.id));
-    } else {
-      setIsLeader(false);
-    }
   }, [currentGroupId, session, loadingGroups]);
 
   // Refetch on focus (switching to Explore from another tab)...
@@ -175,11 +177,20 @@ export default function ExploreScreen() {
       ...matchedGroupIds,
     ]);
 
-    const eligible = groupIds.filter(id => {
-      if (alreadyRelated.has(id)) return false;
-      const candidateMemberIds = allMembers.filter(m => m.groupId === id).map(m => m.personId);
-      return !candidateMemberIds.some(personId => myMemberIds.has(personId));
-    });
+    // Compared loosely, since rows saved before the city list was fixed can
+    // still differ in case. A candidate with no city is out — it isn't known
+    // to be here. My own group having none drops the filter entirely, though:
+    // an older group shouldn't face an empty deck with nothing explaining it.
+    const myCityKey = myCity?.trim().toLowerCase() ?? null;
+
+    const eligible = activeGroups
+      .filter(g => !myCityKey || g.city?.trim().toLowerCase() === myCityKey)
+      .map(g => g.id)
+      .filter(id => {
+        if (alreadyRelated.has(id)) return false;
+        const candidateMemberIds = allMembers.filter(m => m.groupId === id).map(m => m.personId);
+        return !candidateMemberIds.some(personId => myMemberIds.has(personId));
+      });
 
     // Pinned to the front, but only if it got through the filters above — it is
     // dealt like any other card otherwise. Everything else keeps the id order
@@ -188,7 +199,7 @@ export default function ExploreScreen() {
       ...eligible.filter(id => id === PINNED_GROUP_ID),
       ...eligible.filter(id => id !== PINNED_GROUP_ID),
     ];
-  }, [groupIds, allMembers, suggestions, receivedGroupIds, matchedGroupIds, currentGroupId]);
+  }, [activeGroups, myCity, allMembers, suggestions, receivedGroupIds, matchedGroupIds, currentGroupId]);
 
   // Cards already acted on this session (checked or X'd) but not yet reflected
   // in feedGroupIds (a background refetch is what actually removes a checked

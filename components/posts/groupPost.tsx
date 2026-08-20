@@ -283,6 +283,17 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
       Alert.alert('Missing info', `Please fill in the group's ${missing.join(', ')}.`);
       return false;
     }
+    // A group with no photo is a blank tile in someone's deck, and one with no
+    // answers is a card with nothing to read — so neither saves, on the way in
+    // or on the way back through an edit that emptied them.
+    if (!photos.some(uri => uri)) {
+      Alert.alert('Missing photo', 'Please add at least one photo.');
+      return false;
+    }
+    if (!questions.some((q, i) => q.trim() && answers[i]?.trim())) {
+      Alert.alert('Missing answer', 'Please answer at least one question.');
+      return false;
+    }
     setSaving(true);
     const qa = questions.map((q, i) => ({ question: q, answer: answers[i] }));
 

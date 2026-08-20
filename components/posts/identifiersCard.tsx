@@ -143,23 +143,38 @@ export function IdentifiersEdit({ identifiers, onChange, variant, onFocusField }
     );
   }
 
-  // Type-ahead — city and college. Whatever is typed is a valid answer, so the
-  // suggestions are a shortcut rather than the set of allowed values.
-  function renderTypeAhead(field: Field, list: string[]) {
+  // Type-ahead — city and college. College takes whatever is typed, since no
+  // list of them is ever complete. City is `strict`: only a listed entry
+  // counts, so two groups in the same place hold the same string and the feed
+  // can compare them directly instead of guessing whether "Boston" and
+  // "boston, ma" are one city or two.
+  function renderTypeAhead(field: Field, list: string[], strict = false) {
     const matches = suggest(list, query);
+    const typed = query.trim();
+    // Matched loosely but stored as the list spells it, so what lands on the
+    // row is canonical however it was typed.
+    const exact = list.find(entry => entry.toLowerCase() === typed.toLowerCase()) ?? null;
+
+    function commit() {
+      if (exact) { choose(field, exact); return; }
+      if (!strict && typed) choose(field, typed);
+      // Strict with nothing matched: deliberately does nothing, leaving the
+      // picker up. Closing here would swallow the tap on the suggestion that
+      // caused the blur in the first place.
+    }
+
     return (
       <View style={styles.typeAhead}>
         <TextInput
           style={styles.input}
           value={query}
           onChangeText={setQuery}
-          placeholder={`Type a ${field.toLowerCase()}...`}
+          placeholder={strict ? `Search ${field.toLowerCase()}...` : `Type a ${field.toLowerCase()}...`}
           placeholderTextColor="#aaa"
           autoFocus
           returnKeyType="done"
-          // Committing what was typed, matched or not.
-          onSubmitEditing={() => choose(field, query.trim())}
-          onBlur={() => { if (query.trim()) choose(field, query.trim()); }}
+          onSubmitEditing={commit}
+          onBlur={commit}
         />
         <ScrollView style={styles.suggestions} keyboardShouldPersistTaps="handled">
           {matches.map(match => (
@@ -167,6 +182,11 @@ export function IdentifiersEdit({ identifiers, onChange, variant, onFocusField }
               <Text style={styles.suggestionText} numberOfLines={1}>{match}</Text>
             </TouchableOpacity>
           ))}
+          {/* Says why nothing happened, rather than leaving a typed-out name
+              sitting there looking accepted. */}
+          {strict && typed.length > 0 && matches.length === 0 && (
+            <Text style={styles.noMatch}>No {field.toLowerCase()} by that name — pick one from the list.</Text>
+          )}
         </ScrollView>
       </View>
     );
@@ -202,7 +222,7 @@ export function IdentifiersEdit({ identifiers, onChange, variant, onFocusField }
 
             {isOpen && field === 'Age' && renderOptions('Age', ageOptions)}
             {isOpen && field === 'Gender' && renderOptions('Gender', genderOptions)}
-            {isOpen && field === 'City' && renderTypeAhead('City', CITIES)}
+            {isOpen && field === 'City' && renderTypeAhead('City', CITIES, true)}
             {isOpen && field === 'College' && renderTypeAhead('College', COLLEGES)}
           </View>
         );
@@ -375,5 +395,11 @@ const styles = StyleSheet.create({
   suggestionText: {
     ...Type.body,
     color: '#333',
+  },
+
+  noMatch: {
+    ...Type.caption,
+    color: Palette.muted,
+    paddingVertical: 8,
   },
 });
