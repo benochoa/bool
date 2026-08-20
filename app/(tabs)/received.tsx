@@ -208,7 +208,7 @@ const styles = StyleSheet.create({
 
   previewList: {
     alignItems: 'center',
-    paddingTop: 16,
+    paddingTop: 26,
     paddingBottom: 40,
   },
 

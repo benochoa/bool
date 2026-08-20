@@ -329,7 +329,9 @@ export default function ExploreScreen() {
             </View>
           ) : (
             <>
-              <GroupPost groupId={currentCardGroupId} onSelectMember={setOpenPersonId} onOpenActions={setActionsFor} />
+              {/* 10 + the card's own 16 is the same 26 every tab leaves under
+                  its header. */}
+              <GroupPost groupId={currentCardGroupId} topInset={10} onSelectMember={setOpenPersonId} onOpenActions={setActionsFor} />
 
               {/* Check / X buttons */}
               <View style={styles.buttonRow}>
@@ -435,13 +437,16 @@ const styles = StyleSheet.create({
   },
 
   // Discover / Pending toggle
+  // Occupies the same 60 + 44 band the other tabs give their titles, so the
+  // toggle sits at their height and the content under all four starts level.
   tabRow: {
     width: '100%',
     flexDirection: 'row',
     justifyContent: 'center',
+    alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 60,
-    paddingBottom: 8,
+    height: 104,
   },
 
   previewList: {
@@ -457,10 +462,11 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     paddingHorizontal: 20,
     color: '#000',
-    // The gap between sections is this plus the tile's own 16 below it, so 32
-    // here doubles the 24 that separated them. The 8 underneath stays put —
-    // widening it too would float the heading off its own cards.
-    marginTop: 32,
+    // Only the first heading uses this — the stacked one below overrides it —
+    // so it's the tab's header gap, the same 26 the other three now leave. The
+    // 8 underneath stays put: widening it would float the heading off its own
+    // cards.
+    marginTop: 26,
     marginBottom: 8,
   },
 
@@ -481,7 +487,13 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     textAlign: 'center',
     color: '#777',
-    paddingVertical: 20,
+    // Split rather than shared: with the heading's own 8 above it, 44 here puts
+    // 52 between the two — near double the 28 they sat at — so an empty stage
+    // reads as a gap where tiles would be rather than as a subtitle. Below it
+    // stays at the 20 it was, since the wide margin under that already spaces
+    // the next heading.
+    paddingTop: 44,
+    paddingBottom: 20,
     marginBottom: 64,
   },
 

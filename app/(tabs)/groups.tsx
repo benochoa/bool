@@ -199,7 +199,7 @@ export default function GroupsScreen() {
               key={`${currentGroupId}-${readKey}`}
               groupId={currentGroupId}
               isMember
-              topInset={100}
+              topInset={114}
               onSelectMember={setOpenPersonId}
               onLoaded={setSnapshot}
               // Only the leader gets a pencil, so only the leader gets the toggle.
@@ -217,7 +217,7 @@ export default function GroupsScreen() {
                 ref={postRef}
                 groupId={currentGroupId}
                 isMember
-                topInset={100}
+                topInset={114}
                 editMode
                 onSelectMember={setOpenPersonId}
                 initialData={snapshot}
