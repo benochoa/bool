@@ -359,12 +359,15 @@ export default function ExploreScreen() {
                 {section.items.length === 0 ? (
                   <Text style={styles.sectionEmpty}>{section.empty}</Text>
                 ) : section.items.map(s => (
+                  // The ring only reddens on the pile waiting on your leader —
+                  // a sent one is off your hands, which the greying says too.
                   <GroupPostPreview
                     key={s.targetGroupId}
                     groupName={s.groupName}
                     firstImageUrl={s.firstImageUrl}
                     suggesterPicUrl={s.suggestedByPicUrl}
                     tint={s.status === 'sent' ? 'bw' : undefined}
+                    alertRing={s.status === 'pending'}
                     onPress={() => setDetail(s)}
                   />
                 ))}

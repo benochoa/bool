@@ -7,6 +7,10 @@ const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
 const CARD_HEIGHT = 200;
 
+// The same red as the tab badges, so the ring reads as the same "waiting on
+// you" mark they do rather than as its own signal.
+const RING_ALERT = '#FF3B30';
+
 interface Props {
   groupName: string;
   firstImageUrl: string | null;
@@ -14,9 +18,12 @@ interface Props {
   tint?: 'bw';
   onPress: () => void;
   hideSuggesterPic?: boolean;
+  // Rings the suggester in the notification red rather than white — Pending
+  // only, where the tile is something still waiting on someone.
+  alertRing?: boolean;
 }
 
-export default function GroupPostPreview({ groupName, firstImageUrl, suggesterPicUrl, tint, onPress, hideSuggesterPic }: Props) {
+export default function GroupPostPreview({ groupName, firstImageUrl, suggesterPicUrl, tint, onPress, hideSuggesterPic, alertRing }: Props) {
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.9}>
 
@@ -47,9 +54,13 @@ export default function GroupPostPreview({ groupName, firstImageUrl, suggesterPi
       {/* Suggester profile pic — top-right, stays in color even on greyed-out tiles.
           Suppressed entirely on screens with no suggester to attribute (Received). */}
       {hideSuggesterPic ? null : suggesterPicUrl ? (
-        <Image source={{ uri: suggesterPicUrl }} style={styles.suggesterPic} contentFit="cover" />
+        <Image
+          source={{ uri: suggesterPicUrl }}
+          style={[styles.suggesterPic, alertRing && styles.suggesterRingAlert]}
+          contentFit="cover"
+        />
       ) : (
-        <View style={styles.suggesterPicPlaceholder} />
+        <View style={[styles.suggesterPicPlaceholder, alertRing && styles.suggesterRingAlert]} />
       )}
 
       {/* Group name — bottom-left, over the photo */}
@@ -87,7 +98,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: '#fff',
   },
 
@@ -98,9 +109,13 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: '#fff',
     backgroundColor: '#bbb',
+  },
+
+  suggesterRingAlert: {
+    borderColor: RING_ALERT,
   },
 
   name: {
