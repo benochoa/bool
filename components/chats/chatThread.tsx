@@ -77,7 +77,7 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   const [openPersonId, setOpenPersonId] = useState<string | null>(null);
   // A photo taken or picked but not sent yet — its presence is what puts the
   // confirm screen up.
-  const [pending, setPending] = useState<{ uri: string; width: number; aspectRatio: number | null } | null>(null);
+  const [pending, setPending] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [sendingPhoto, setSendingPhoto] = useState(false);
   const [sendingVoice, setSendingVoice] = useState(false);
   // The message whose actions are open, with where its bubble sat when pressed.
@@ -254,45 +254,43 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   // Which half of the composer is showing.
   const typing = body.length > 0;
 
-  // Both routes to a photo end in the same confirm screen, so they only differ
-  // in which picker they open.
+  // The camera sends straight away — iOS already ends the capture with Retake
+  // or Use Photo, so a confirm screen after it asked the same question twice.
+  // The library returns the moment a thumbnail is tapped, with nothing to back
+  // out of, so it keeps the confirm screen as its only chance to change tack.
   async function handleTakePhoto() {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
       Alert.alert('Camera access needed', 'Allow camera access to take a photo.');
       return;
     }
-    stagePhoto(await ImagePicker.launchCameraAsync({ quality: 1 }));
+    const result = await ImagePicker.launchCameraAsync({ quality: 1 });
+    if (!result.canceled) sendPhoto(result.assets[0]);
   }
 
   async function handlePickPhoto() {
-    stagePhoto(await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 }));
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
+    if (!result.canceled) setPending(result.assets[0]);
   }
 
-  function stagePhoto(result: ImagePicker.ImagePickerResult) {
-    if (result.canceled) return;
-    const asset = result.assets[0];
-    setPending({
-      uri: asset.uri,
-      width: asset.width,
-      // Kept as the photo's real shape rather than snapped like the post cards:
-      // a message isn't sharing a carousel with anything, so nothing needs it
-      // to agree with a neighbour.
-      aspectRatio: asset.width && asset.height ? asset.width / asset.height : null,
-    });
-  }
-
-  async function handleSendPhoto() {
-    if (!pending || !session?.user) return;
+  async function sendPhoto(asset: ImagePicker.ImagePickerAsset) {
+    if (!session?.user) return;
     setSendingPhoto(true);
 
-    const url = await uploadChatPhoto(myGroupId, otherGroupId, pending.uri, pending.width);
+    const url = await uploadChatPhoto(myGroupId, otherGroupId, asset.uri, asset.width);
     const ok = url && await sendMessage(
       myGroupId, otherGroupId, myGroupId, session.user.id,
       // The body every count and preview reads, since neither can show a photo.
       'Photo',
       {
-        media: { kind: 'image', url, aspectRatio: pending.aspectRatio },
+        media: {
+          kind: 'image',
+          url,
+          // Kept as the photo's real shape rather than snapped like the post
+          // cards: a message isn't sharing a carousel with anything, so nothing
+          // needs it to agree with a neighbour.
+          aspectRatio: asset.width && asset.height ? asset.width / asset.height : null,
+        },
         replyToId: replyTo?.id ?? null,
       }
     );
@@ -666,8 +664,17 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
 
       <View style={styles.inputRow}>
         {!typing && !recorderState.isRecording && (
-          <TouchableOpacity style={styles.mediaButton} onPress={handleTakePhoto}>
-            <Camera size={MEDIA_ICON_SIZE} color={MEDIA_ICON_COLOR} />
+          // No confirm screen to spin on any more, so the button carries it.
+          <TouchableOpacity
+            style={styles.mediaButton}
+            onPress={handleTakePhoto}
+            disabled={sendingPhoto}
+          >
+            {sendingPhoto ? (
+              <ActivityIndicator color={MEDIA_ICON_COLOR} />
+            ) : (
+              <Camera size={MEDIA_ICON_SIZE} color={MEDIA_ICON_COLOR} />
+            )}
           </TouchableOpacity>
         )}
 
@@ -787,7 +794,7 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
             <TouchableOpacity onPress={() => setPending(null)} disabled={sendingPhoto}>
               <Text style={styles.confirmCancel}>Cancel</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={handleSendPhoto} disabled={sendingPhoto}>
+            <TouchableOpacity onPress={() => sendPhoto(pending)} disabled={sendingPhoto}>
               {sendingPhoto ? (
                 <ActivityIndicator color="#fff" />
               ) : (

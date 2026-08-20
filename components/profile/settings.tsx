@@ -9,6 +9,7 @@ import { PRIVACY_POLICY_HTML } from '@/legal/privacyPolicy';
 import { TERMS_AND_CONDITIONS_HTML } from '@/legal/termsAndConditions';
 import { supabase } from '@/supabaseClient';
 import BlockedPeople from './blockedPeople';
+import BugReport from './bugReport';
 import LegalDocument from './legalDocument';
 
 interface Props {
@@ -21,6 +22,7 @@ export default function Settings({ onClose }: Props) {
   const [privacyOpen, setPrivacyOpen] = useState(false);
   const [termsOpen, setTermsOpen] = useState(false);
   const [blockedOpen, setBlockedOpen] = useState(false);
+  const [bugOpen, setBugOpen] = useState(false);
 
   async function handleSignOut() {
     await supabase.auth.signOut();
@@ -85,6 +87,15 @@ export default function Settings({ onClose }: Props) {
           <ChevronRight />
         </TouchableOpacity>
 
+        <Text style={[styles.sectionHeader, styles.legalHeader]}>Other</Text>
+        <TouchableOpacity
+          style={[styles.legalRow, styles.legalRowLast]}
+          onPress={() => setBugOpen(true)}
+        >
+          <Text style={[styles.sectionText, styles.legalText]}>Report a Bug</Text>
+          <ChevronRight />
+        </TouchableOpacity>
+
         <View style={styles.accountActions}>
           <TouchableOpacity onPress={handleSignOut}>
             <Text style={styles.signOutText}>Sign Out</Text>
@@ -102,6 +113,10 @@ export default function Settings({ onClose }: Props) {
 
       <SlideOver visible={blockedOpen} onRequestClose={() => setBlockedOpen(false)}>
         <BlockedPeople onClose={() => setBlockedOpen(false)} />
+      </SlideOver>
+
+      <SlideOver visible={bugOpen} onRequestClose={() => setBugOpen(false)}>
+        <BugReport onClose={() => setBugOpen(false)} />
       </SlideOver>
 
       <SlideOver visible={privacyOpen} onRequestClose={() => setPrivacyOpen(false)}>
