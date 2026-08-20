@@ -19,7 +19,7 @@ export interface InAppNotification {
 }
 
 // How long a banner stays before leaving on its own.
-const SHOW_MS = 4000;
+const SHOW_MS = 6000;
 const ENTER = { duration: 260, easing: Easing.out(Easing.ease) };
 const EXIT = { duration: 200, easing: Easing.in(Easing.ease) };
 // Flicked up this fast, or dragged past half the box, the swipe is a dismissal.
