@@ -5,6 +5,7 @@ import { ChevronRight } from '@/assets/symbols/ChevronRight';
 import SlideOver from '@/components/ui/slideOver';
 import { Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
+import { unregisterPushToken } from '@/lib/registerPushToken';
 import { PRIVACY_POLICY_HTML } from '@/legal/privacyPolicy';
 import { TERMS_AND_CONDITIONS_HTML } from '@/legal/termsAndConditions';
 import { supabase } from '@/supabaseClient';
@@ -25,6 +26,9 @@ export default function Settings({ onClose }: Props) {
   const [bugOpen, setBugOpen] = useState(false);
 
   async function handleSignOut() {
+    // Before signOut — deleting the row needs the session. Without it this
+    // device would keep getting the account's pushes after logging out.
+    await unregisterPushToken();
     await supabase.auth.signOut();
   }
 
@@ -47,6 +51,7 @@ export default function Settings({ onClose }: Props) {
       Alert.alert('Delete failed', error.message);
       return;
     }
+    await unregisterPushToken();
     await supabase.auth.signOut();
   }
 

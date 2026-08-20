@@ -11,6 +11,8 @@ import { Palette, Type } from '@/constants/theme';
 import { BlockedPeopleProvider } from '@/hooks/use-blocked-people';
 import { CurrentGroupProvider } from '@/hooks/use-current-group';
 import { HideTabBarProvider, useTabBarHidden } from '@/hooks/use-hide-tab-bar';
+import { InAppNotificationProvider } from '@/hooks/use-in-app-notifications';
+import { PushNotificationManager } from '@/hooks/use-push-notifications';
 import { useSession } from '@/hooks/use-session';
 import { TabBadgeProvider, useTabBadges } from '@/hooks/use-tab-badges';
 import { supabase } from '@/supabaseClient';
@@ -82,7 +84,15 @@ export default function TabLayout() {
       <BlockedPeopleProvider>
         <TabBadgeProvider>
           <HideTabBarProvider>
-            <AppTabs />
+            {/* Banners render inside the provider, after the tabs, so they
+                paint over every screen and panel. The push manager sits under
+                CurrentGroupProvider because a tap can switch the acting-as
+                group; both wait for the profile gate above, so the permission
+                prompt never fires on a half-made account. */}
+            <InAppNotificationProvider>
+              <PushNotificationManager />
+              <AppTabs />
+            </InAppNotificationProvider>
           </HideTabBarProvider>
         </TabBadgeProvider>
       </BlockedPeopleProvider>

@@ -359,3 +359,80 @@ alter table groups add column age text;
 alter table groups add column gender text;
 alter table groups add column city text;
 alter table groups add column college text;
+
+-- Migration (run separately): push notification tokens. One row per device —
+-- the token is the key, and a device that changes accounts re-points its row
+-- at the new user (the app's upsert conflicts on token), so a phone never
+-- keeps notifying its previous owner. Delivery happens in the notify edge
+-- function, which reads this table with the service role.
+create table push_tokens (
+  token      text primary key,
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  updated_at timestamptz not null default now()
+);
+
+-- The edge function's lookup is by recipient, not by token.
+create index push_tokens_user_idx on push_tokens (user_id);
+
+alter table push_tokens enable row level security;
+
+-- A token is a capability: anyone holding the string can push to that device
+-- through Expo's API. So unlike most tables here, reads are own-rows-only.
+-- Update's bare `using` is the account-switch path — claiming a row requires
+-- already holding the token string, which only that device's app does.
+create policy push_tokens_select_own on push_tokens
+  for select using (auth.uid() = user_id);
+create policy push_tokens_insert_own on push_tokens
+  for insert with check (auth.uid() = user_id);
+create policy push_tokens_update_claim on push_tokens
+  for update using (true) with check (auth.uid() = user_id);
+create policy push_tokens_delete_own on push_tokens
+  for delete using (auth.uid() = user_id);
+
+-- Migration (run separately, AFTER the notify edge function is deployed):
+-- push webhooks. Two triggers POST row changes to the notify function
+-- (supabase/functions/notify), which works out recipients and calls Expo's
+-- push API. Built directly on pg_net rather than the dashboard's Database
+-- Webhooks feature — same mechanism, no UI dependency. The payload shape
+-- (type/table/schema/record/old_record) is the same one that feature sends,
+-- which is what the edge function parses. <WEBHOOK_SECRET> is a placeholder —
+-- the real value matches the WEBHOOK_SECRET function secret (`supabase
+-- secrets set`) and is not recorded here. security definer because the
+-- writer is an ordinary authenticated role with no rights on the net schema.
+create extension if not exists pg_net;
+
+create or replace function public.notify_webhook()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform net.http_post(
+    url := 'https://vsgdhfwhpiucplkraizw.supabase.co/functions/v1/notify',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'x-webhook-secret', '<WEBHOOK_SECRET>'
+    ),
+    body := jsonb_build_object(
+      'type', TG_OP,
+      'table', TG_TABLE_NAME,
+      'schema', TG_TABLE_SCHEMA,
+      'record', case when TG_OP = 'DELETE' then null else to_jsonb(NEW) end,
+      'old_record', case when TG_OP = 'INSERT' then null else to_jsonb(OLD) end
+    ),
+    timeout_milliseconds := 5000
+  );
+  return coalesce(NEW, OLD);
+end;
+$$;
+
+drop trigger if exists notify_suggestions_webhook on public.group_suggestions;
+create trigger notify_suggestions_webhook
+  after insert or update on public.group_suggestions
+  for each row execute function public.notify_webhook();
+
+drop trigger if exists notify_messages_webhook on public.messages;
+create trigger notify_messages_webhook
+  after insert on public.messages
+  for each row execute function public.notify_webhook();

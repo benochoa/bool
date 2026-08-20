@@ -31,10 +31,9 @@ export function TabBadgeProvider({ children }: { children: ReactNode }) {
     refreshBadges();
   }, [refreshBadges]);
 
-  // The counts are the only signal this app gives that anything happened —
-  // there are no push notifications — so a resume that left them short would
-  // read as "nobody messaged you". Recounted rather than caught up, since the
-  // events missed while backgrounded are gone.
+  // A resume that left the counts short would read as "nobody messaged you".
+  // Recounted rather than caught up, since the events missed while
+  // backgrounded are gone.
   useAppResume(refreshBadges);
 
   // Anything that moves a number: a member's swipe or a leader's send (my

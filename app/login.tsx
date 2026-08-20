@@ -87,7 +87,6 @@ export default function LoginScreen() {
               value={phone}
               onChangeText={setPhone}
               keyboardType="phone-pad"
-              autoFocus
             />
           </View>
           <TouchableOpacity style={styles.button} onPress={handleSendCode} disabled={loading}>
@@ -104,7 +103,6 @@ export default function LoginScreen() {
             value={code}
             onChangeText={setCode}
             keyboardType="number-pad"
-            autoFocus
           />
           <TouchableOpacity style={styles.button} onPress={handleVerifyCode} disabled={loading}>
             {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.buttonText}>Verify</Text>}
@@ -152,13 +150,17 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
+    // Anchored to the top rather than centred. Centring is measured against
+    // whatever height is left, so the keyboard opening shrank the box and
+    // recentred everything in it — which is what made the logo and the field
+    // jump. From a fixed offset they stay where they are.
+    paddingTop: 180,
     paddingHorizontal: 32,
     backgroundColor: '#fff',
   },
   logo: {
     // The file's own ratio (863x461), so it is never squashed.
-    width: 240,
+    width: 300,
     aspectRatio: 863 / 461,
     maxWidth: '100%',
     alignSelf: 'center',

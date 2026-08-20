@@ -22,6 +22,7 @@ import { ReportTarget } from '@/lib/submitReport';
 import { supabase } from '@/supabaseClient';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useFocusEffect } from '@react-navigation/native';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
@@ -123,6 +124,16 @@ export default function ExploreScreen() {
   useEffect(() => {
     refreshAll();
   }, [activeTab, refreshAll]);
+
+  // A notification tap lands here asking for the Pending sub-tab; the param is
+  // consumed so ordinary visits keep starting wherever they were.
+  const { view } = useLocalSearchParams<{ view?: string }>();
+  useEffect(() => {
+    if (view === 'pending') {
+      setActiveTab('Pending');
+      router.setParams({ view: undefined });
+    }
+  }, [view]);
 
   // Live updates for the Pending feed, so a member's swipe, a leader's send,
   // or the other group's approval shows up without leaving the tab. Both

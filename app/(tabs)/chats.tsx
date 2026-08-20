@@ -2,6 +2,7 @@ import { StyleSheet, View, Text, TouchableOpacity, ScrollView } from 'react-nati
 import { Image } from 'expo-image';
 import { useState, useCallback, useEffect } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
+import { router, useLocalSearchParams } from 'expo-router';
 import { supabase } from '@/supabaseClient';
 import ChatThread from '@/components/chats/chatThread';
 import ImageViewer, { ViewerImage } from '@/components/chats/imageViewer';
@@ -14,6 +15,7 @@ import { formatRelativeTime } from '@/lib/formatRelativeTime';
 import { markChatRead } from '@/lib/markChatRead';
 import { useAppResume } from '@/hooks/use-app-resume';
 import { useCurrentGroup } from '@/hooks/use-current-group';
+import { useInAppNotifications } from '@/hooks/use-in-app-notifications';
 import { useSession } from '@/hooks/use-session';
 import { useTabBadges } from '@/hooks/use-tab-badges';
 
@@ -23,6 +25,10 @@ export default function ChatsScreen() {
   const { session } = useSession();
   const { refreshBadges } = useTabBadges();
   const [previews, setPreviews] = useState<ChatPreview[]>([]);
+  // Which group the previews were fetched for — a notification tap can switch
+  // the acting-as group on its way here, and the pair it wants to open won't
+  // be in the previous group's list.
+  const [previewsFor, setPreviewsFor] = useState<string | null>(null);
   // When this user last closed each chat, keyed by chatReadKey. A row whose
   // newest message is younger than its entry here — or that has no entry at
   // all — hasn't been seen yet.
@@ -36,6 +42,7 @@ export default function ChatsScreen() {
   const refresh = useCallback(() => {
     if (!currentGroupId || !userId) {
       setPreviews([]);
+      setPreviewsFor(null);
       setLoading(false);
       return;
     }
@@ -44,6 +51,7 @@ export default function ChatsScreen() {
     Promise.all([fetchChatPreviews(currentGroupId), fetchChatReads(userId)]).then(
       ([rows, nextReads]) => {
         setPreviews(rows);
+        setPreviewsFor(currentGroupId);
         setReads(nextReads);
         setLoading(false);
       }
@@ -97,6 +105,25 @@ export default function ChatsScreen() {
 
     return () => { supabase.removeChannel(channel); };
   }, [currentGroupId]);
+
+  // A notification tap: the chat to open rides in as a param, consumed only
+  // once the list belongs to the acting-as group. If the pair isn't there
+  // (stale tap), the param is still cleared and the list is where you land.
+  const { openChat } = useLocalSearchParams<{ openChat?: string }>();
+  useEffect(() => {
+    if (!openChat || previewsFor !== currentGroupId) return;
+    const preview = previews.find(p => p.otherGroupId === openChat);
+    if (preview) setSelected(preview);
+    router.setParams({ openChat: undefined });
+  }, [openChat, previews, previewsFor, currentGroupId]);
+
+  // While a thread is open its own messages shouldn't banner over it —
+  // they're already on screen.
+  const { setOpenChat } = useInAppNotifications();
+  useEffect(() => {
+    setOpenChat(selected?.otherGroupId ?? null);
+    return () => setOpenChat(null);
+  }, [selected, setOpenChat]);
 
   // Closing the thread is what marks it seen — every way out of it (chevron,
   // Android back, swipe) comes through here, and messages that arrived while
