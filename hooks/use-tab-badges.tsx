@@ -1,3 +1,4 @@
+import { useAppResume } from '@/hooks/use-app-resume';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { BadgeCounts, EMPTY_BADGE_COUNTS, fetchBadgeCounts } from '@/lib/fetchBadgeCounts';
 import { supabase } from '@/supabaseClient';
@@ -29,6 +30,12 @@ export function TabBadgeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refreshBadges();
   }, [refreshBadges]);
+
+  // The counts are the only signal this app gives that anything happened —
+  // there are no push notifications — so a resume that left them short would
+  // read as "nobody messaged you". Recounted rather than caught up, since the
+  // events missed while backgrounded are gone.
+  useAppResume(refreshBadges);
 
   // Anything that moves a number: a member's swipe or a leader's send (my
   // group suggesting), a suggestion arriving or being answered (aimed at my

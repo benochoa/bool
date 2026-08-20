@@ -8,6 +8,7 @@ import ActionSheet from '@/components/ui/actionSheet';
 import ReportSheet from '@/components/ui/reportSheet';
 import SlideOver from '@/components/ui/slideOver';
 import { FontFamily, Palette, Type } from '@/constants/theme';
+import { useAppResume } from '@/hooks/use-app-resume';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useSession } from '@/hooks/use-session';
 import { fetchGroup } from '@/lib/fetchGroup';
@@ -34,23 +35,28 @@ export default function ReceivedScreen() {
   const [isLeader, setIsLeader] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  useFocusEffect(
-    useCallback(() => {
-      if (!currentGroupId) {
-        setReceived([]);
-        setIsLeader(false);
-        setLoading(false);
-        return;
-      }
-      fetchReceivedGroups(currentGroupId).then(items => {
-        setReceived(items);
-        setLoading(false);
-      });
-      if (session?.user) {
-        fetchGroup(currentGroupId).then(g => setIsLeader(g?.created_by === session.user.id));
-      }
-    }, [currentGroupId, session])
-  );
+  const refresh = useCallback(() => {
+    if (!currentGroupId) {
+      setReceived([]);
+      setIsLeader(false);
+      setLoading(false);
+      return;
+    }
+    fetchReceivedGroups(currentGroupId).then(items => {
+      setReceived(items);
+      setLoading(false);
+    });
+    if (session?.user) {
+      fetchGroup(currentGroupId).then(g => setIsLeader(g?.created_by === session.user.id));
+    }
+  }, [currentGroupId, session]);
+
+  useFocusEffect(refresh);
+
+  // A suggestion that arrived while the socket was down is one nothing will
+  // announce — no channel event left to deliver, and no notification to fall
+  // back on.
+  useAppResume(refresh);
 
   // Live updates, so sitting on this tab is enough to see a suggestion arrive
   // or leave once it's answered — same channel/subscribe shape the chat thread uses.

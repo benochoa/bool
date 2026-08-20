@@ -11,6 +11,7 @@ import { fetchChatPreviews, ChatPreview } from '@/lib/fetchChatPreviews';
 import { fetchChatReads, chatReadKey } from '@/lib/fetchChatReads';
 import { formatRelativeTime } from '@/lib/formatRelativeTime';
 import { markChatRead } from '@/lib/markChatRead';
+import { useAppResume } from '@/hooks/use-app-resume';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useSession } from '@/hooks/use-session';
 import { useTabBadges } from '@/hooks/use-tab-badges';
@@ -31,24 +32,29 @@ export default function ChatsScreen() {
 
   const userId = session?.user.id;
 
-  useFocusEffect(
-    useCallback(() => {
-      if (!currentGroupId || !userId) {
-        setPreviews([]);
+  const refresh = useCallback(() => {
+    if (!currentGroupId || !userId) {
+      setPreviews([]);
+      setLoading(false);
+      return;
+    }
+    // Both together: a preview painted before its read timestamp lands would
+    // show every chat bold for a frame.
+    Promise.all([fetchChatPreviews(currentGroupId), fetchChatReads(userId)]).then(
+      ([rows, nextReads]) => {
+        setPreviews(rows);
+        setReads(nextReads);
         setLoading(false);
-        return;
       }
-      // Both together: a preview painted before its read timestamp lands would
-      // show every chat bold for a frame.
-      Promise.all([fetchChatPreviews(currentGroupId), fetchChatReads(userId)]).then(
-        ([rows, nextReads]) => {
-          setPreviews(rows);
-          setReads(nextReads);
-          setLoading(false);
-        }
-      );
-    }, [currentGroupId, userId])
-  );
+    );
+  }, [currentGroupId, userId]);
+
+  useFocusEffect(refresh);
+
+  // Resume runs the same fetch: a message that landed while the socket was down
+  // is one the channel will never deliver, so without this the row stays
+  // un-bold and out of order — the app quietly claiming nothing happened.
+  useAppResume(refresh);
 
   // Live updates, so a preview's last message changes under you and a brand
   // new chat appears without leaving the tab. Two things move this list: a

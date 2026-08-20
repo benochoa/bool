@@ -1,3 +1,4 @@
+import { useAppResume } from '@/hooks/use-app-resume';
 import { useSession } from '@/hooks/use-session';
 import { fetchBlockedPersonIds } from '@/lib/fetchBlockedPersonIds';
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
@@ -31,6 +32,11 @@ export function BlockedPeopleProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refreshBlocked();
   }, [refreshBlocked]);
+
+  // Otherwise this is fetched once and never again — no channel, and no screen
+  // it hangs off to refetch on focus — so a block made anywhere else stayed
+  // invisible until the app was restarted.
+  useAppResume(refreshBlocked);
 
   return (
     <BlockedPeopleContext.Provider value={{ blockedIds, refreshBlocked }}>

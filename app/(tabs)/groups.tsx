@@ -13,6 +13,7 @@ import SlideOver from '@/components/ui/slideOver';
 import { ChevronDown } from '@/assets/symbols/ChevronDown';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { Palette, Type } from '@/constants/theme';
+import { useAppResume } from '@/hooks/use-app-resume';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useHideTabBar } from '@/hooks/use-hide-tab-bar';
 import { useSession } from '@/hooks/use-session';
@@ -125,6 +126,10 @@ export default function GroupsScreen() {
       refreshGroups();
     }, [refreshGroups])
   );
+
+  // Same reason, for the resume that focus can't see — a group you were kicked
+  // from while backgrounded would otherwise stay in the switcher.
+  useAppResume(refreshGroups);
 
   return (
     <View style={styles.container}>

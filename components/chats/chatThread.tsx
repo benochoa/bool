@@ -1,5 +1,5 @@
 import { StyleSheet, View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, Alert } from 'react-native';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image } from 'expo-image';
 import { supabase } from '@/supabaseClient';
 import { Camera } from '@/assets/symbols/Camera';
@@ -21,6 +21,7 @@ import SlideOver from '@/components/ui/slideOver';
 import ChatDetails from './chatDetails';
 import * as Clipboard from 'expo-clipboard';
 import { FontFamily, Palette, Type } from '@/constants/theme';
+import { useAppResume } from '@/hooks/use-app-resume';
 import { useSession } from '@/hooks/use-session';
 import { canonicalPair } from '@/lib/canonicalPair';
 import { fetchMessageReactions, MessageReaction } from '@/lib/fetchMessageReactions';
@@ -121,7 +122,7 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   // just to label and picture it.
   const senders = useRef(new Map<string, { name: string; profilePicUrl: string | null }>());
 
-  useEffect(() => {
+  const loadThread = useCallback(() => {
     fetchMessages(myGroupId, otherGroupId).then(msgs => {
       msgs.forEach(m => senders.current.set(m.senderId, { name: m.senderName, profilePicUrl: m.senderProfilePicUrl }));
       setMessages(msgs);
@@ -129,6 +130,17 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
     });
     fetchMessageReactions(myGroupId, otherGroupId).then(setReactions);
   }, [myGroupId, otherGroupId]);
+
+  useEffect(() => {
+    loadThread();
+  }, [loadThread]);
+
+  // The thread is the one screen with no focus refetch to fall back on — it
+  // isn't a tab, and it stays mounted while the phone is locked. So messages
+  // sent during a background arrive nowhere: the channel can't replay them and
+  // nothing else refetches, leaving a hole mid-conversation that only closing
+  // and reopening the thread would fill. Reloading on resume closes it.
+  useAppResume(loadThread);
 
   // Reactions, keyed by the message they're on — the map is rebuilt rather than
   // mutated so a reaction landing re-renders the message it belongs to.

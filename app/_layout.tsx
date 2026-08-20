@@ -4,13 +4,14 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { AppState, StyleSheet, View } from 'react-native';
 import 'react-native-reanimated';
 
 import LoadingScreen from '@/components/ui/loadingScreen';
 import { ZoomRoot } from '@/components/posts/zoomOverlay';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useSession } from '@/hooks/use-session';
+import { supabase } from '@/supabaseClient';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -41,6 +42,25 @@ export default function RootLayout() {
   useEffect(() => {
     const timer = setTimeout(() => setMinElapsed(true), MIN_LOADING_MS);
     return () => clearTimeout(timer);
+  }, []);
+
+  // The token refresh timer can't be trusted to run while the JS thread is
+  // suspended, so it's gated on the foreground instead. Without this a long
+  // background can resume on an expired token, which fails the first queries
+  // and can stop the realtime channels re-authorizing when they rejoin —
+  // turning a temporary gap into one that lasts until the app is restarted.
+  useEffect(() => {
+    supabase.auth.startAutoRefresh();
+
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') supabase.auth.startAutoRefresh();
+      else supabase.auth.stopAutoRefresh();
+    });
+
+    return () => {
+      subscription.remove();
+      supabase.auth.stopAutoRefresh();
+    };
   }, []);
 
   // Drawn over the app rather than in place of it, so the tree below mounts

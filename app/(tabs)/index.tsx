@@ -8,6 +8,7 @@ import PersonPanel from '@/components/posts/personPanel';
 import ActionSheet from '@/components/ui/actionSheet';
 import ReportSheet from '@/components/ui/reportSheet';
 import SlideOver from '@/components/ui/slideOver';
+import { useAppResume } from '@/hooks/use-app-resume';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useSession } from '@/hooks/use-session';
 import { fetchActiveGroupIds } from '@/lib/fetchActiveGroupIds';
@@ -110,16 +111,22 @@ export default function ExploreScreen() {
     }, [refreshAll])
   );
 
+  // ...and on resume, which focus never sees: the deck's exclusions come from
+  // the channel, and anything it missed while backgrounded would leave a group
+  // swipeable that a member has already acted on.
+  useAppResume(refreshAll);
+
   // ...and again whenever the sub-tab changes, since that never triggers focus.
   useEffect(() => {
     refreshAll();
   }, [activeTab, refreshAll]);
 
   // Live updates for the Pending feed, so a member's swipe, a leader's send,
-  // or the other group's approval shows up without leaving the tab. Only the
-  // suggestions are refetched: the Pending sections and the Discover feed's
-  // "already related" exclusions both read from them, and nothing else on this
-  // screen changes in response to your own group's outgoing suggestions.
+  // or the other group's approval shows up without leaving the tab. Both
+  // directions are listened for, and a filter takes one condition, so each
+  // needs its own listener — the outgoing rows drive Pending and the deck's
+  // "already suggested" exclusion, the incoming ones drive its "already
+  // reached me" exclusion.
   useEffect(() => {
     if (!currentGroupId) return;
 
@@ -134,6 +141,20 @@ export default function ExploreScreen() {
           filter: `suggesting_group_id=eq.${currentGroupId}`,
         },
         () => { fetchGroupSuggestions(currentGroupId).then(setSuggestions); }
+      )
+      // Without this the deck kept offering a group that had just suggested to
+      // us: Received and the tab badge both light up for the row, but the feed
+      // only learned of it on the next focus — a wide enough window to swipe
+      // back and create the reciprocal suggestion the exclusion exists to stop.
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'group_suggestions',
+          filter: `target_group_id=eq.${currentGroupId}`,
+        },
+        () => { fetchReceivedGroupIds(currentGroupId).then(setReceivedGroupIds); }
       )
       .subscribe(status => console.log('[realtime] pending channel:', status));
 
