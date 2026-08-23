@@ -30,7 +30,7 @@ async function deviceToken(): Promise<string | null> {
 // Idempotent; runs whenever a signed-in session lands. The token is the row's
 // key, so a device that switches accounts re-points its row at the new user
 // rather than leaving the old one subscribed.
-export async function registerPushToken(userId: string): Promise<void> {
+export async function registerPushToken(): Promise<void> {
   if (Platform.OS === 'android') {
     // Android shows nothing without a channel; 'default' is the channelId the
     // notify edge function names on every send.
@@ -49,10 +49,12 @@ export async function registerPushToken(userId: string): Promise<void> {
 
   const token = await deviceToken();
   if (!token) return;
-  await supabase.from('push_tokens').upsert(
-    { token, user_id: userId, updated_at: new Date().toISOString() },
-    { onConflict: 'token' }
-  );
+  // Through an RPC rather than a table write: the row's owner comes from
+  // auth.uid() inside the function, so the client never names a user at all.
+  // The table itself is select-and-delete-only for clients — an update policy
+  // wide enough to let a device change hands is also wide enough to let one
+  // request re-point every token in the table at whoever sent it.
+  await supabase.rpc('register_push_token', { p_token: token });
 }
 
 // Called just before signing out — deleting the row needs the session — so a

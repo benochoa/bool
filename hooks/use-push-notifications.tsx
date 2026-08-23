@@ -31,7 +31,7 @@ export function PushNotificationManager() {
 
   const userId = session?.user.id;
   useEffect(() => {
-    if (userId) registerPushToken(userId);
+    if (userId) registerPushToken();
   }, [userId]);
 
   useEffect(() => {

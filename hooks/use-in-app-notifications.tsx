@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import NotificationBanner, { InAppNotification } from '@/components/notificationBanner';
+import { useBlockedPeople } from '@/hooks/use-blocked-people';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useSession } from '@/hooks/use-session';
 import { fetchGroup, GroupData } from '@/lib/fetchGroup';
@@ -45,6 +46,11 @@ export function InAppNotificationProvider({ children }: { children: ReactNode })
   const [queue, setQueue] = useState<InAppNotification[]>([]);
   const idRef = useRef(0);
   const openChatRef = useRef<string | null>(null);
+  // Read through a ref because the realtime handlers below close over it and
+  // the channel outlives a block being made.
+  const { blockedIds } = useBlockedPeople();
+  const blockedRef = useRef(blockedIds);
+  blockedRef.current = blockedIds;
   // My group's row backs every banner (its name leads the text; created_by is
   // the leader check). Kept as a promise so an event landing before the fetch
   // resolves still notifies instead of racing it.
@@ -138,10 +144,12 @@ export function InAppNotificationProvider({ children }: { children: ReactNode })
       }
     }
 
-    // 5) a message in one of this group's chats. Blocked senders never reach
-    // here — the messages select policy filters the realtime stream too.
+    // 5) a message in one of this group's chats. Someone I blocked still
+    // reaches here — the select policy only withholds messages from people who
+    // blocked *me*, so that their thread shows a tombstone rather than a gap.
+    // A banner would undo that by putting the content on screen anyway.
     async function onMessage(row: MessageRow) {
-      if (row.sender_id === userId) return;
+      if (row.sender_id === userId || blockedRef.current.has(row.sender_id)) return;
       const otherGroupId = row.group_1_id === currentGroupId ? row.group_2_id : row.group_1_id;
       if (openChatRef.current === otherGroupId) return;
       const [me, sender] = await Promise.all([myGroupRef.current, fetchPerson(row.sender_id)]);

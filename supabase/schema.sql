@@ -378,16 +378,33 @@ alter table push_tokens enable row level security;
 
 -- A token is a capability: anyone holding the string can push to that device
 -- through Expo's API. So unlike most tables here, reads are own-rows-only.
--- Update's bare `using` is the account-switch path — claiming a row requires
--- already holding the token string, which only that device's app does.
 create policy push_tokens_select_own on push_tokens
   for select using (auth.uid() = user_id);
-create policy push_tokens_insert_own on push_tokens
-  for insert with check (auth.uid() = user_id);
-create policy push_tokens_update_claim on push_tokens
-  for update using (true) with check (auth.uid() = user_id);
 create policy push_tokens_delete_own on push_tokens
   for delete using (auth.uid() = user_id);
+
+-- Migration (run separately): registration moves off the table and into a
+-- function. The policies this replaces included
+--   for update using (true) with check (auth.uid() = user_id)
+-- as the account-switch path, and that was a hole: `using (true)` makes every
+-- row eligible, and PostgREST will run an update with no filter — so a single
+-- unfiltered PATCH re-pointed every token in the table at its sender, handing
+-- them the whole app's notifications. There is no insert or update policy now;
+-- the client's only write path is this function, which names the owner itself.
+create or replace function register_push_token(p_token text)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  insert into push_tokens (token, user_id, updated_at)
+  values (p_token, auth.uid(), now())
+  on conflict (token) do update
+    set user_id = auth.uid(), updated_at = now();
+$$;
+
+revoke all on function register_push_token(text) from public;
+grant execute on function register_push_token(text) to authenticated;
 
 -- Migration (run separately, AFTER the notify edge function is deployed):
 -- push webhooks. Two triggers POST row changes to the notify function

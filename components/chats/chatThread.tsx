@@ -23,6 +23,7 @@ import ChatDetails from './chatDetails';
 import * as Clipboard from 'expo-clipboard';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useAppResume } from '@/hooks/use-app-resume';
+import { useBlockedPeople } from '@/hooks/use-blocked-people';
 import { useSession } from '@/hooks/use-session';
 import { canonicalPair } from '@/lib/canonicalPair';
 import { fetchMessageReactions, MessageReaction } from '@/lib/fetchMessageReactions';
@@ -92,6 +93,12 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   // One entry per drawn bubble, so a long-press can measure the right one.
   const bubbleRefs = useRef(new Map<number, View | null>());
   const [reactions, setReactions] = useState<MessageReaction[]>([]);
+  // Anyone whose messages should read as a tombstone rather than as content.
+  // The set covers both directions, but only one of them can reach here: the
+  // select policy withholds messages from people who blocked *me*, so a sender
+  // in this set is always someone I blocked — which is the case that gets a
+  // placeholder. Theirs stay invisible to them, so nothing tells them why.
+  const { blockedIds } = useBlockedPeople();
   const messageIds = useRef(new Set<number>());
   // The message being answered, once Reply is picked and until it's sent.
   const [replyTo, setReplyTo] = useState<Message | null>(null);
@@ -441,6 +448,7 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   // One line standing in for a message wherever it's being referred to rather
   // than shown: in the quote inside a reply, and in the composer's reply bar.
   function messageSnippet(m: Message): string {
+    if (blockedIds.has(m.senderId)) return 'Message from blocked user';
     if (m.deletedAt) return 'Deleted message';
     if (m.kind === 'image') return 'Photo';
     if (m.kind === 'audio') return 'Voice message';
@@ -459,6 +467,11 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   // the pressed message again on top of the blur — the copy has to be the same
   // bubble, not an approximation of it.
   function messageBubbleContent(m: Message, isMine: boolean) {
+    // Before every other case, including deletion: the bubble marks that they
+    // said something without saying what, and without their name or photo.
+    if (blockedIds.has(m.senderId)) {
+      return <Text style={styles.deletedText}>Message from blocked user</Text>;
+    }
     if (m.deletedAt) {
       return (
         <Text style={[styles.deletedText, isMine && styles.deletedTextMine]}>
@@ -640,6 +653,9 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
           ) : (
             messages.map(m => {
               const isMine = m.senderId === session?.user.id;
+              // Nothing of theirs is drawn: not the photo beside the bubble,
+              // not the image inside it, not the tap that would open it.
+              const isBlocked = blockedIds.has(m.senderId);
               return (
                 <View
                   key={m.id}
@@ -649,13 +665,17 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
                   {/* Theirs is labelled by picture and name; yours needs
                       neither — being on the right says who sent it. */}
                   {!isMine && (
-                    <TouchableOpacity activeOpacity={0.7} onPress={() => setOpenPersonId(m.senderId)}>
-                      {m.senderProfilePicUrl ? (
-                        <Image source={{ uri: m.senderProfilePicUrl }} style={styles.senderPic} contentFit="cover" />
-                      ) : (
-                        <View style={styles.senderPic} />
-                      )}
-                    </TouchableOpacity>
+                    isBlocked ? (
+                      <View style={styles.senderPic} />
+                    ) : (
+                      <TouchableOpacity activeOpacity={0.7} onPress={() => setOpenPersonId(m.senderId)}>
+                        {m.senderProfilePicUrl ? (
+                          <Image source={{ uri: m.senderProfilePicUrl }} style={styles.senderPic} contentFit="cover" />
+                        ) : (
+                          <View style={styles.senderPic} />
+                        )}
+                      </TouchableOpacity>
+                    )
                   )}
                   {/* Bubble and its tapbacks share a column, so the pills sit
                       under the message on the same side as it. The column is
@@ -666,16 +686,17 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
                       <TouchableOpacity
                         activeOpacity={1}
                         onPress={() => {
-                          // Only a photo opens; a deleted one is a tombstone
-                          // with nothing behind it.
-                          if (m.kind === 'image' && m.mediaUrl && !m.deletedAt) openImage(m);
+                          // Only a photo opens; a deleted one, or one from
+                          // someone blocked, is a tombstone with nothing
+                          // behind it.
+                          if (m.kind === 'image' && m.mediaUrl && !m.deletedAt && !isBlocked) openImage(m);
                         }}
                         onLongPress={() => openActions(m)}
                         ref={node => { bubbleRefs.current.set(m.id, node as unknown as View | null); }}
                         style={[
                           styles.bubble,
                           isMine ? styles.bubbleMine : styles.bubbleTheirs,
-                          m.kind === 'image' && !m.deletedAt && styles.bubblePhoto,
+                          m.kind === 'image' && !m.deletedAt && !isBlocked && styles.bubblePhoto,
                         ]}
                       >
                         {messageBubbleContent(m, isMine)}

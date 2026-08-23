@@ -1,10 +1,11 @@
 import { Image } from 'expo-image';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   ActivityIndicator, KeyboardAvoidingView, Modal, Platform, ScrollView,
   StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
 import { ChevronDown } from '@/assets/symbols/ChevronDown';
+import Turnstile, { TurnstileHandle } from '@/components/turnstile';
 import { COUNTRIES, DEFAULT_DIAL } from '@/constants/countryCodes';
 import { FontFamily, Type } from '@/constants/theme';
 import { supabase } from '@/supabaseClient';
@@ -19,6 +20,7 @@ export default function LoginScreen() {
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const turnstile = useRef<TurnstileHandle>(null);
 
   // Spaces, dashes and brackets are how people write their own number down;
   // E.164 has no room for any of it.
@@ -32,7 +34,22 @@ export default function LoginScreen() {
       return;
     }
     setLoading(true);
-    const { error } = await supabase.auth.signInWithOtp({ phone: fullNumber });
+
+    // Supabase refuses to send an SMS without a CAPTCHA token, which is what
+    // stops a script from making us pay for thousands of them. Minted per
+    // send: tokens are single-use and expire in minutes, so one fetched when
+    // the screen opened would be stale by the time anyone typed a number.
+    const captchaToken = await turnstile.current?.getToken();
+    if (!captchaToken) {
+      setLoading(false);
+      setError("Couldn't verify your device. Check your connection and try again.");
+      return;
+    }
+
+    const { error } = await supabase.auth.signInWithOtp({
+      phone: fullNumber,
+      options: { captchaToken },
+    });
     setLoading(false);
     if (error) {
       setError(error.message);
@@ -114,6 +131,11 @@ export default function LoginScreen() {
       )}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
+
+      {/* Draws nothing — it exists to mint the CAPTCHA token that sending a
+          code requires. Mounted for the whole screen so the widget has loaded
+          by the time anyone taps Send. */}
+      <Turnstile ref={turnstile} />
 
       {/* Country picker */}
       <Modal

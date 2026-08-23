@@ -21,8 +21,8 @@ import { useTabBadges } from '@/hooks/use-tab-badges';
 
 export default function ChatsScreen() {
 
-  const { currentGroupId } = useCurrentGroup();
-  const { session } = useSession();
+  const { currentGroupId, loadingGroups } = useCurrentGroup();
+  const { session, loading: sessionLoading } = useSession();
   const { refreshBadges } = useTabBadges();
   const [previews, setPreviews] = useState<ChatPreview[]>([]);
   // Which group the previews were fetched for — a notification tap can switch
@@ -40,6 +40,12 @@ export default function ChatsScreen() {
   const userId = session?.user.id;
 
   const refresh = useCallback(() => {
+    // Nothing is knowable until the session and the group list have landed —
+    // and this runs on mount, before either has. Clearing `loading` here is
+    // what put "No matches yet" on screen for the moment before the fetch
+    // could even start; staying loading holds the skeleton instead.
+    if (sessionLoading || loadingGroups) return;
+    // Past that, no group really does mean no chats.
     if (!currentGroupId || !userId) {
       setPreviews([]);
       setPreviewsFor(null);
@@ -56,7 +62,7 @@ export default function ChatsScreen() {
         setLoading(false);
       }
     );
-  }, [currentGroupId, userId]);
+  }, [currentGroupId, userId, sessionLoading, loadingGroups]);
 
   useFocusEffect(refresh);
 
