@@ -29,6 +29,12 @@ type MessageRow = {
   body: string;
 };
 
+type MembershipRow = {
+  group_id: string;
+  person_id: string;
+  status: string;
+};
+
 interface InAppNotificationContextValue {
   // The chat being looked at right now (the other group's id), so its own
   // messages don't banner over the open thread. Null when none is.
@@ -62,7 +68,10 @@ export function InAppNotificationProvider({ children }: { children: ReactNode })
     myGroupRef.current = currentGroupId ? fetchGroup(currentGroupId) : Promise.resolve(null);
     // Banners are framed by the acting-as group; switching it drops any that
     // haven't shown yet rather than presenting them under the wrong name.
-    setQueue([]);
+    // Being removed is the exception, and has to be: losing that group is what
+    // moved you off it, so clearing the queue here would delete the one banner
+    // explaining why the app just switched under you.
+    setQueue(q => q.filter(n => n.data.type === 'removed'));
   }, [currentGroupId]);
 
   const setOpenChat = useCallback((otherGroupId: string | null) => {
@@ -162,6 +171,50 @@ export function InAppNotificationProvider({ children }: { children: ReactNode })
       });
     }
 
+    // 6) / 7) / 8) the roster changed. Joining is an insert, or an update back
+    // to active for someone rejoining a group they'd left — the invite code
+    // path upserts, so a rejoin never inserts. A dissolution
+    // ('group_dissolved') stays silent: it would announce every member at once
+    // to a group that no longer exists.
+    async function onMembership(row: MembershipRow, old: MembershipRow | null) {
+      const joined = row.status === 'active' && old?.status !== 'active';
+      const left = row.status === 'left' && old?.status === 'active';
+      const removed = row.status === 'kicked' && old?.status === 'active';
+      if (!joined && !left && !removed) return;
+
+      // Being removed is the one case the subject hears about, in the second
+      // person. The group is still readable to them — the membership row stays
+      // behind as 'kicked' — so its name and photo are still in reach.
+      if (row.person_id === userId) {
+        if (!removed) return;
+        const myGroup = await myGroupRef.current;
+        if (!myGroup) return;
+        show({
+          pfpUrl: myGroup.imageUrls[0] ?? null,
+          line1: `[${myGroup.name}] you were removed from the group!`,
+          line2: null,
+          data: { type: 'removed', groupId: row.group_id },
+        });
+        return;
+      }
+
+      const me = await myGroupRef.current;
+      if (!me) return;
+      // A kick is the leader's doing, so the leader is the one who hears
+      // nothing; a join or a leave belongs to the person themselves.
+      const actorId = removed ? me.created_by : row.person_id;
+      if (actorId === userId) return;
+
+      const person = await fetchPerson(row.person_id);
+      const what = joined ? 'joined the group!' : removed ? 'was removed from the group!' : 'left the group!';
+      show({
+        pfpUrl: person?.profilePicUrl ?? null,
+        line1: `[${me.name}] ${person?.name || 'Someone'} ${what}`,
+        line2: null,
+        data: { type: joined ? 'joined' : removed ? 'removed' : 'left', groupId: row.group_id },
+      });
+    }
+
     const channel = supabase
       .channel(`notifications-${currentGroupId}`)
       .on(
@@ -190,6 +243,18 @@ export function InAppNotificationProvider({ children }: { children: ReactNode })
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `group_2_id=eq.${currentGroupId}` },
         payload => { onMessage(payload.new as MessageRow); }
+      )
+      // A fresh join inserts; a rejoin updates a row that was 'left' back to
+      // 'active', so both events matter.
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'memberships', filter: `group_id=eq.${currentGroupId}` },
+        payload => { onMembership(payload.new as MembershipRow, null); }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'memberships', filter: `group_id=eq.${currentGroupId}` },
+        payload => { onMembership(payload.new as MembershipRow, payload.old as MembershipRow); }
       )
       .subscribe(status => console.log('[realtime] notifications channel:', status));
 

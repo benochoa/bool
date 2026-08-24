@@ -4,7 +4,7 @@ import type { Router } from 'expo-router';
 // every push, and the in-app banner builds the same shape, so one router
 // serves a tap on either.
 export interface NotificationData {
-  type: 'suggestion' | 'sent' | 'received' | 'match' | 'message';
+  type: 'suggestion' | 'sent' | 'received' | 'match' | 'message' | 'joined' | 'left' | 'removed';
   // The group of yours the notification is about — a push tap makes it the
   // acting-as group before navigating.
   groupId: string;
@@ -20,6 +20,9 @@ export function parseNotificationData(raw: unknown): NotificationData | null {
     case 'suggestion':
     case 'sent':
     case 'received':
+    case 'joined':
+    case 'left':
+    case 'removed':
       return { type: d.type, groupId: d.groupId };
     case 'match':
     case 'message':
@@ -42,6 +45,12 @@ export function routeToNotification(router: Router, data: NotificationData) {
       break;
     case 'received':
       router.navigate('/received');
+      break;
+    // The roster is what changed, and that's on the group's own page.
+    case 'joined':
+    case 'left':
+    case 'removed':
+      router.navigate('/groups');
       break;
     case 'match':
     case 'message':

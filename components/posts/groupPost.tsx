@@ -168,8 +168,14 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
   const isEditMode = creating || (isLeader && editMode);
   // A member who didn't create the group can leave it; the leader dissolves it
   // instead. Exactly one of these shows, since a viewer is leader XOR not.
+  //
+  // Dissolving is edit-mode only. It destroys the group for everyone, and a
+  // button that severe shouldn't sit on the page the leader reads casually —
+  // reaching it should take the same deliberate step as changing anything else.
+  // Leaving stays in view mode, because a non-leader has no edit mode to find
+  // it in.
   const canLeave = isMember && !isLeader && !!data;
-  const canDissolve = isMember && isLeader && !!data;
+  const canDissolve = isMember && isLeader && !!data && isEditMode;
 
   // Fetch data (existing group) or questions (creation). `editMode` is
   // deliberately not a dependency: toggling it must not refetch, which would
@@ -740,7 +746,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
         </TouchableOpacity>
       )}
 
-      {/* Dissolve group (leader only) */}
+      {/* Dissolve group (leader, in edit mode only) */}
       {canDissolve && (
         <TouchableOpacity style={styles.leaveButton} onPress={handleDissolve}>
           <Text style={styles.leaveText}>Dissolve group</Text>

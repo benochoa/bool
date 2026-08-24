@@ -38,6 +38,12 @@ type MessageRow = {
   body: string;
 };
 
+type MembershipRow = {
+  group_id: string;
+  person_id: string;
+  status: string;
+};
+
 // One push to one person; fan-out to their devices happens at send time. data
 // is what a tap routes on (lib/notificationRouting.ts parses the same shape).
 type Push = {
@@ -193,6 +199,59 @@ async function forSuggestion(payload: WebhookPayload): Promise<Push[]> {
   return [];
 }
 
+// Cases 6, 7 + 8: the roster changed. A fresh join inserts; a rejoin updates a
+// row that was 'left' back to 'active', because redeeming an invite code
+// upserts. A dissolution ('group_dissolved') stays silent — it would announce
+// every member at once to a group that no longer exists.
+async function forMembership(payload: WebhookPayload): Promise<Push[]> {
+  const row = payload.record as MembershipRow | null;
+  if (!row) return [];
+  const old = payload.old_record as MembershipRow | null;
+
+  const joined = row.status === 'active' && old?.status !== 'active';
+  const left = row.status === 'left' && old?.status === 'active';
+  const removed = row.status === 'kicked' && old?.status === 'active';
+  if (!joined && !left && !removed) return [];
+
+  const [members, groups, who] = await Promise.all([
+    activeMembers([row.group_id]),
+    groupInfo([row.group_id]),
+    personName(row.person_id),
+  ]);
+
+  // A kick is the leader's doing, so the leader hears nothing; a join or a
+  // leave belongs to the person themselves. Someone who left or was removed is
+  // already out of activeMembers, so the person_id filter mainly covers a
+  // joiner being told about their own arrival.
+  const actorId = removed ? groups.get(row.group_id)?.created_by ?? null : row.person_id;
+  const what = joined ? 'joined the group!' : removed ? 'was removed from the group!' : 'left the group!';
+  const groupName = groups.get(row.group_id)?.name ?? '';
+  const type = joined ? 'joined' : removed ? 'removed' : 'left';
+
+  const pushes: Push[] = (members.get(row.group_id) ?? [])
+    .filter(id => id !== row.person_id && id !== actorId)
+    .map(userId => ({
+      userId,
+      title: `[${groupName}]`,
+      body: `${who} ${what}`,
+      data: { type, groupId: row.group_id },
+    }));
+
+  // The one notification that goes to the subject rather than about them.
+  // They're already out of activeMembers by now, so it has to be added rather
+  // than left to the loop above.
+  if (removed) {
+    pushes.push({
+      userId: row.person_id,
+      title: `[${groupName}]`,
+      body: 'you were removed from the group!',
+      data: { type: 'removed', groupId: row.group_id },
+    });
+  }
+
+  return pushes;
+}
+
 async function send(pushes: Push[]) {
   const userIds = [...new Set(pushes.map(p => p.userId))];
   const { data: tokenRows } = await supabase
@@ -255,7 +314,9 @@ Deno.serve(async req => {
       ? await forMessage(payload)
       : payload.table === 'group_suggestions'
         ? await forSuggestion(payload)
-        : [];
+        : payload.table === 'memberships'
+          ? await forMembership(payload)
+          : [];
   if (pushes.length) await send(pushes);
   return new Response('ok');
 });

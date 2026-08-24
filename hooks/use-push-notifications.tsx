@@ -54,9 +54,12 @@ export function PushNotificationManager() {
   useEffect(() => {
     if (!pendingTap || loadingGroups) return;
     setPendingTap(null);
-    // Dropped rather than routed if you've since left the group.
-    if (!myGroupIds.includes(pendingTap.groupId)) return;
-    setCurrentGroupId(pendingTap.groupId);
+    const stillMine = myGroupIds.includes(pendingTap.groupId);
+    // Dropped rather than routed if you've since left the group — except a
+    // removal, whose whole point is that the group isn't yours any more. That
+    // one opens the Groups tab without switching to a group you're not in.
+    if (!stillMine && pendingTap.type !== 'removed') return;
+    if (stillMine) setCurrentGroupId(pendingTap.groupId);
     routeToNotification(router, pendingTap);
   }, [pendingTap, loadingGroups, myGroupIds, setCurrentGroupId, router]);
 

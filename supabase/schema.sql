@@ -512,3 +512,15 @@ drop trigger if exists notify_messages_webhook on public.messages;
 create trigger notify_messages_webhook
   after insert on public.messages
   for each row execute function public.notify_webhook();
+
+-- Migration (run separately): "X joined the group" / "X left the group".
+-- replica identity full is what makes this work at all — by default a change
+-- event carries only the primary key of the old row, and both the client and
+-- the function need the *previous* status to tell a join from a rejoin from a
+-- leave. Without it every update looks the same.
+alter table memberships replica identity full;
+
+drop trigger if exists notify_memberships_webhook on public.memberships;
+create trigger notify_memberships_webhook
+  after insert or update on public.memberships
+  for each row execute function public.notify_webhook();
