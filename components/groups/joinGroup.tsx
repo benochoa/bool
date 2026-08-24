@@ -32,39 +32,22 @@ export default function JoinGroup({ visible, onClose, onJoined }: Props) {
     setJoinLoading(true);
     setJoinError(null);
 
-    const { data, error } = await supabase
-      .from('groups')
-      .select('id')
-      .eq('invite_code', code)
-      .maybeSingle();
-    if (error || !data) {
-      setJoinLoading(false);
+    // Looking the group up by code and joining it are one server-side step now.
+    // Matching on the column needs permission to read it, and a code any client
+    // can read is one every client can harvest — so neither half happens here.
+    // The function still upserts rather than inserts, so redeeming a code for a
+    // group you left reactivates that row: leaving isn't a one-way door.
+    const { data: joinedGroupId, error } = await supabase.rpc('join_group_by_code', {
+      p_code: code,
+    });
+    setJoinLoading(false);
+    if (error || !joinedGroupId) {
       setJoinError('Invalid code');
       return;
     }
 
-    // Upsert (not ignoreDuplicates): redeeming a code for a group you already
-    // belong to just re-sets you active — and crucially reactivates a row you'd
-    // previously left, so leaving a group isn't a one-way door.
-    const { error: joinErr } = await supabase
-      .from('memberships')
-      .upsert(
-        {
-          group_id: data.id,
-          person_id: session.user.id,
-          status: 'active',
-          status_at: new Date().toISOString(),
-        },
-        { onConflict: 'group_id,person_id' }
-      );
-    setJoinLoading(false);
-    if (joinErr) {
-      setJoinError('Could not join, try again');
-      return;
-    }
-
     setCodeInput('');
-    onJoined(data.id);
+    onJoined(joinedGroupId as string);
     onClose();
   }
 

@@ -5,6 +5,7 @@ import { ChevronRight } from '@/assets/symbols/ChevronRight';
 import SlideOver from '@/components/ui/slideOver';
 import { Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
+import { deleteMyMedia } from '@/lib/deleteMyMedia';
 import { unregisterPushToken } from '@/lib/registerPushToken';
 import { PRIVACY_POLICY_HTML } from '@/legal/privacyPolicy';
 import { TERMS_AND_CONDITIONS_HTML } from '@/legal/termsAndConditions';
@@ -45,6 +46,10 @@ export default function Settings({ onClose }: Props) {
 
   async function performDelete() {
     setDeleting(true);
+    // Photos first: the storage policies that permit these deletes read the
+    // profile and group rows the RPC below is about to remove, so afterwards
+    // there would be nothing left to prove the files were ever ours.
+    if (session?.user) await deleteMyMedia(session.user.id);
     const { error } = await supabase.rpc('delete_my_account');
     if (error) {
       setDeleting(false);

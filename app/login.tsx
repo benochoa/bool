@@ -68,7 +68,11 @@ export default function LoginScreen() {
     });
     if (error) {
       setLoading(false);
-      setError(error.message);
+      // Supabase phrases this one as "Token has expired or is invalid", which
+      // reads like something went wrong on our side rather than a typo.
+      setError(
+        /token|otp|invalid|expired/i.test(error.message) ? 'Invalid code' : error.message
+      );
       return;
     }
 
@@ -106,6 +110,7 @@ export default function LoginScreen() {
               keyboardType="phone-pad"
             />
           </View>
+          {error ? <Text style={styles.error}>{error}</Text> : null}
           <TouchableOpacity style={styles.button} onPress={handleSendCode} disabled={loading}>
             {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.buttonText}>Send code</Text>}
           </TouchableOpacity>
@@ -121,6 +126,7 @@ export default function LoginScreen() {
             onChangeText={setCode}
             keyboardType="number-pad"
           />
+          {error ? <Text style={styles.error}>{error}</Text> : null}
           <TouchableOpacity style={styles.button} onPress={handleVerifyCode} disabled={loading}>
             {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.buttonText}>Verify</Text>}
           </TouchableOpacity>
@@ -129,8 +135,6 @@ export default function LoginScreen() {
           </TouchableOpacity>
         </>
       )}
-
-      {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {/* Draws nothing — it exists to mint the CAPTCHA token that sending a
           code requires. Mounted for the whole screen so the widget has loaded
@@ -279,11 +283,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 16,
   },
+  // Sits between the field and the button, where it can't be pushed under the
+  // keyboard: this screen has no scroll view, so anything below the fold is
+  // simply clipped — which is how a wrong code used to fail in silence.
   error: {
     ...Type.label,
     fontFamily: FontFamily.regular,
     color: '#d32f2f',
-    textAlign: 'center',
-    marginTop: 16,
+    marginTop: -4,
+    marginBottom: 14,
   },
 });

@@ -1,4 +1,5 @@
 import { Image } from 'expo-image';
+import { authedSource } from '@/lib/storageAuth';
 import { ReactNode, useEffect, useState } from 'react';
 import { Dimensions, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -59,7 +60,7 @@ function Tile({ label, height, imageUrl, onPress, children }: {
 }) {
   return (
     <TouchableOpacity style={[styles.tile, { height }]} onPress={onPress}>
-      {imageUrl ? <Image source={{ uri: imageUrl }} style={styles.photo} contentFit="cover" /> : children}
+      {imageUrl ? <Image source={authedSource(imageUrl)} style={styles.photo} contentFit="cover" /> : children}
       <Text style={[styles.tileLabel, imageUrl ? styles.tileLabelOnPhoto : null]} numberOfLines={1}>{label}</Text>
     </TouchableOpacity>
   );

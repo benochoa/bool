@@ -1,5 +1,6 @@
 import { canonicalPair } from '@/lib/canonicalPair';
 import { supabase } from '@/supabaseClient';
+import { authenticatedStorageUrl } from '@/lib/storageAuth';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 
 // Puts a photo in the chat-media bucket and hands back its public URL, or null
@@ -32,5 +33,5 @@ export async function uploadChatPhoto(
     .upload(path, arrayBuffer, { contentType: 'image/jpeg' });
   if (error) return null;
 
-  return supabase.storage.from('chat-media').getPublicUrl(path).data.publicUrl;
+  return authenticatedStorageUrl('chat-media', path);
 }

@@ -404,7 +404,66 @@ as $$
 $$;
 
 revoke all on function register_push_token(text) from public;
+-- Supabase grants EXECUTE to anon explicitly on every new function, and a
+-- revoke from PUBLIC does not remove a role-specific grant — so anon keeps it
+-- until named here. Worth repeating for every function added below.
+revoke all on function register_push_token(text) from anon;
 grant execute on function register_push_token(text) to authenticated;
+
+-- Migration (run separately): invite codes stop being readable. fetchGroup
+-- used to select invite_code for any group, and the For You deck loads other
+-- groups constantly — so every client held every code, and a code is a key to
+-- a group's chats. Note that filtering on a column needs select permission on
+-- it too, which is why looking a group up by code had to move server-side as
+-- well; generation moved into a column default for the same reason.
+create or replace function private.generate_invite_code()
+returns text language plpgsql security definer set search_path = public as $$
+declare
+  chars text := 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';  -- no 0/O, 1/I/L: read aloud
+  code text;
+  i int;
+begin
+  loop
+    code := '';
+    for i in 1..6 loop
+      code := code || substr(chars, floor(random() * length(chars))::int + 1, 1);
+    end loop;
+    exit when not exists (select 1 from groups where invite_code = code);
+  end loop;
+  return code;
+end;
+$$;
+
+alter table groups alter column invite_code set default private.generate_invite_code();
+
+create or replace function join_group_by_code(p_code text)
+returns text language plpgsql security definer set search_path = public as $$
+declare g_id text;
+begin
+  select id into g_id from groups where invite_code = upper(trim(p_code));
+  if g_id is null then raise exception 'invalid code'; end if;
+
+  insert into memberships (group_id, person_id, status, status_at)
+  values (g_id, auth.uid(), 'active', now())
+  on conflict (group_id, person_id)
+    do update set status = 'active', status_at = now();
+
+  return g_id;
+end;
+$$;
+
+create or replace function get_invite_code(p_group_id text)
+returns text language sql stable security definer set search_path = public as $$
+  select invite_code from groups
+   where id = p_group_id and created_by = auth.uid();
+$$;
+
+revoke select (invite_code) on groups from authenticated, anon;
+
+revoke all on function join_group_by_code(text) from public, anon;
+revoke all on function get_invite_code(text)   from public, anon;
+grant execute on function join_group_by_code(text) to authenticated;
+grant execute on function get_invite_code(text)    to authenticated;
 
 -- Migration (run separately, AFTER the notify edge function is deployed):
 -- push webhooks. Two triggers POST row changes to the notify function

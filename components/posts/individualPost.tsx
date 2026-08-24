@@ -15,6 +15,7 @@ import {
 } from '@/lib/identifiers';
 import { PostSkeleton } from '@/components/ui/skeleton';
 import { supabase } from '@/supabaseClient';
+import { authedSource, authenticatedStorageUrl } from '@/lib/storageAuth';
 import { Image } from 'expo-image';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
@@ -281,7 +282,7 @@ export default function IndividualPost({ personId, creating = false, editMode = 
         Alert.alert('Photo upload failed', error.message);
         return false;
       }
-      profilePicUrl = supabase.storage.from('people').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
+      profilePicUrl = authenticatedStorageUrl('people', path) + '?v=' + Date.now();
     }
 
     // Every slot's final URL is recorded on the row (image_urls), so reads
@@ -311,7 +312,7 @@ export default function IndividualPost({ personId, creating = false, editMode = 
         Alert.alert('Photo upload failed', error.message);
         return false;
       }
-      imageUrls.push(supabase.storage.from('people').getPublicUrl(path).data.publicUrl + '?v=' + Date.now());
+      imageUrls.push(authenticatedStorageUrl('people', path) + '?v=' + Date.now());
     }
 
     const qa = questions.map((q, i) => ({ question: q, answer: answers[i] }));
@@ -367,7 +368,9 @@ export default function IndividualPost({ personId, creating = false, editMode = 
       );
     }
     const item = data?.qa[slot.index];
-    if (!item) return null;
+    // A question nobody answered is a prompt, not content — it belongs in the
+    // edit form, where it's still there to fill in, and nowhere else.
+    if (!item?.answer?.trim()) return null;
     return (
       <View key={key} style={styles.qaCard}>
         <Text style={styles.question}>{item.question}</Text>
@@ -477,7 +480,7 @@ export default function IndividualPost({ personId, creating = false, editMode = 
             onPress={pickProfilePic}
           >
             {(isEditMode ? profilePic : data?.profilePicUrl) ? (
-              <Image source={{ uri: (isEditMode ? profilePic : data?.profilePicUrl)! }} style={styles.profilePic} contentFit="cover" />
+              <Image source={authedSource((isEditMode ? profilePic : data?.profilePicUrl)!)} style={styles.profilePic} contentFit="cover" />
             ) : (
               <View style={styles.profilePicPlaceholder} />
             )}

@@ -1,4 +1,5 @@
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { authedSource } from '@/lib/storageAuth';
 import { Image } from 'expo-image';
 import { useState, useCallback, useEffect } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
@@ -186,7 +187,7 @@ export default function ChatsScreen() {
                 onPress={() => setSelected(preview)}
               >
                 {preview.imageUrl ? (
-                  <Image source={{ uri: preview.imageUrl }} style={styles.previewPhoto} contentFit="cover" />
+                  <Image source={authedSource(preview.imageUrl)} style={styles.previewPhoto} contentFit="cover" />
                 ) : (
                   <View style={styles.previewPhotoPlaceholder} />
                 )}

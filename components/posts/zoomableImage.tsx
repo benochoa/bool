@@ -1,4 +1,5 @@
 import { Image, ImageProps } from 'expo-image';
+import { authedSource } from '@/lib/storageAuth';
 import { useState } from 'react';
 import { ImageStyle, StyleProp, StyleSheet } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -84,7 +85,7 @@ export default function ZoomableImage({ uri, style, onLoad, onPress }: Props) {
         collapsable={false}
         style={[style, styles.wrapper, { opacity: zooming ? 0 : 1 }]}
       >
-        <Image source={{ uri }} style={styles.fill} contentFit="cover" onLoad={onLoad} />
+        <Image source={authedSource(uri)} style={styles.fill} contentFit="cover" onLoad={onLoad} />
       </Animated.View>
     </GestureDetector>
   );

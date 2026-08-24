@@ -1,4 +1,5 @@
 import { StyleSheet, View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, Keyboard, LayoutAnimation, Dimensions, Platform, Alert } from 'react-native';
+import { authedSource } from '@/lib/storageAuth';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image } from 'expo-image';
 import { supabase } from '@/supabaseClient';
@@ -512,7 +513,7 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
         {!isMine && <Text style={styles.senderName}>{m.senderName}</Text>}
         {m.kind === 'image' && m.mediaUrl ? (
           <Image
-            source={{ uri: m.mediaUrl }}
+            source={authedSource(m.mediaUrl)}
             style={[styles.messagePhoto, { aspectRatio: m.mediaAspectRatio ?? 1 }]}
             contentFit="cover"
           />
@@ -670,7 +671,7 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
                     ) : (
                       <TouchableOpacity activeOpacity={0.7} onPress={() => setOpenPersonId(m.senderId)}>
                         {m.senderProfilePicUrl ? (
-                          <Image source={{ uri: m.senderProfilePicUrl }} style={styles.senderPic} contentFit="cover" />
+                          <Image source={authedSource(m.senderProfilePicUrl)} style={styles.senderPic} contentFit="cover" />
                         ) : (
                           <View style={styles.senderPic} />
                         )}
@@ -865,7 +866,7 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
           out are Cancel and Send. */}
       {pending && (
         <View style={styles.confirmOverlay}>
-          <Image source={{ uri: pending.uri }} style={styles.confirmPhoto} contentFit="contain" />
+          <Image source={authedSource(pending.uri)} style={styles.confirmPhoto} contentFit="contain" />
           <View style={styles.confirmRow}>
             <TouchableOpacity onPress={() => setPending(null)} disabled={sendingPhoto}>
               <Text style={styles.confirmCancel}>Cancel</Text>

@@ -14,6 +14,10 @@ import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 
 // than as decoration.
 const ICON_SIZE = 27;
 const ICON_COLOR = '#555';
+// How far the grid's rules stop short of the card's own edges. Applied to the
+// outward end of each line only — where they meet each other they stay flush,
+// or the cross would come apart at the middle.
+const LINE_INSET = 14;
 
 // Four fields, same for a person and a group — only the age and gender options
 // differ.
@@ -39,51 +43,60 @@ export function IdentifiersView({ identifiers }: ViewProps) {
   // Two rows of two, pairing a short value with a long one: age and gender need
   // a few characters, city and college need room, so each row spends its width
   // where it's needed instead of splitting evenly four ways.
+  // An empty slot still takes its share of the row. College is the one optional
+  // field, and dropping it used to let Gender spread across the whole width, so
+  // the bar was laid out differently depending on whether someone had filled it
+  // in. The space is left blank instead and everything else stays put.
   function item(field: Field, value: string | null, wide: boolean) {
-    if (!value) return null;
     const Icon = ICONS[field];
     return (
       <View style={[styles.viewItem, wide ? styles.viewItemWide : styles.viewItemNarrow]}>
-        <Icon size={ICON_SIZE} color={ICON_COLOR} />
-        <Text style={styles.viewValue} numberOfLines={1}>{value}</Text>
+        {value ? (
+          <>
+            <Icon size={ICON_SIZE} color={ICON_COLOR} />
+            <Text style={styles.viewValue} numberOfLines={1}>{value}</Text>
+          </>
+        ) : null}
       </View>
     );
   }
 
-  function row(left: ReactNode, right: ReactNode) {
-    if (!left && !right) return null;
+  // The vertical rule stops short of the card's own edge, so each row insets
+  // it on the side that faces outwards and leaves the other flush against the
+  // horizontal rule — that's what keeps the two meeting as a cross.
+  function row(left: ReactNode, right: ReactNode, dividerInset: 'top' | 'bottom') {
     return (
       <View style={styles.viewRow}>
         {left}
-        {/* Only between two present values — a missing College leaves Gender
-            alone on its row rather than trailing a rule. */}
-        {left && right && <View style={styles.viewDivider} />}
+        <View
+          style={[
+            styles.viewDivider,
+            dividerInset === 'top' ? styles.viewDividerTop : styles.viewDividerBottom,
+          ]}
+        />
         {right}
       </View>
     );
   }
 
-  const topRow = row(item('Age', identifiers.age, false), item('City', identifiers.city, true));
-  const bottomRow = row(item('Gender', identifiers.gender, false), item('College', identifiers.college, true));
+  const topRow = (identifiers.age || identifiers.city)
+    ? row(item('Age', identifiers.age, false), item('City', identifiers.city, true), 'top')
+    : null;
+
+  // With no university there is nothing to divide from, so the bottom half of
+  // the vertical rule comes out and gender takes the whole row.
+  const bottomRow = identifiers.college
+    ? row(item('Gender', identifiers.gender, false), item('College', identifiers.college, true), 'bottom')
+    : identifiers.gender
+      ? <View style={styles.viewRow}>{item('Gender', identifiers.gender, true)}</View>
+      : null;
 
   return (
     <View style={styles.viewCard}>
       {topRow}
-      {/* A rule under each column rather than one across the card, so it
-          separates age from gender and city from college without cutting
-          through the gap between the two halves. Each segment appears only
-          where there's something on both sides of it. */}
-      {topRow && bottomRow && (
-        <View style={styles.viewRow}>
-          <View style={styles.viewItemNarrow}>
-            {identifiers.age && identifiers.gender && <View style={styles.viewHLine} />}
-          </View>
-          <View style={styles.viewDividerGap} />
-          <View style={styles.viewItemWide}>
-            {identifiers.city && identifiers.college && <View style={styles.viewHLine} />}
-          </View>
-        </View>
-      )}
+      {/* One rule straight across, meeting the vertical one so the four values
+          read as a grid rather than as two stacked pairs. */}
+      {topRow && bottomRow && <View style={styles.viewHLine} />}
       {bottomRow}
     </View>
   );
@@ -235,17 +248,20 @@ const styles = StyleSheet.create({
   // View mode — one bar of icon/value pairs, always a single line. Items share
   // the card's width evenly rather than sizing to their contents, so the bar
   // fills the card whatever is in it.
+  // No padding of its own: the rules run to the card's edges, so the breathing
+  // room lives on the items instead. overflow keeps the lines inside the
+  // rounded corners.
   viewCard: {
     backgroundColor: '#fff',
     borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 6,
-    gap: 12,
+    overflow: 'hidden',
   },
 
   viewRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    // stretch rather than center, so the vertical rule fills the row's whole
+    // height and meets the horizontal one instead of floating inside it.
+    alignItems: 'stretch',
   },
 
   viewItem: {
@@ -253,7 +269,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingHorizontal: 6,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
   },
 
   // A third of the row for age and gender, two thirds for city and college.
@@ -265,23 +282,25 @@ const styles = StyleSheet.create({
     flex: 2,
   },
 
-  // Full height of the row rather than a fixed length, so it stays tied to the
-  // items either side of it.
+  // No height of its own — the row stretches it. The margin below pulls the
+  // outward end back from the card's edge while the other stays flush against
+  // the horizontal rule, so the two still meet.
   viewDivider: {
     width: 1,
-    height: 30,
     backgroundColor: '#e2e2e2',
   },
 
-  // Stands in for the vertical rule's width on the divider row, so the two
-  // horizontal segments line up with the columns above and below them.
-  viewDividerGap: {
-    width: 1,
+  viewDividerTop: {
+    marginTop: LINE_INSET,
+  },
+
+  viewDividerBottom: {
+    marginBottom: LINE_INSET,
   },
 
   viewHLine: {
     height: 1,
-    marginHorizontal: 6,
+    marginHorizontal: LINE_INSET,
     backgroundColor: '#e2e2e2',
   },
 

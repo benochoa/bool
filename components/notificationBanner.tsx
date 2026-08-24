@@ -1,4 +1,5 @@
 import { Image } from 'expo-image';
+import { authedSource } from '@/lib/storageAuth';
 import { useEffect } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -81,7 +82,7 @@ export default function NotificationBanner({ notification, onDismiss, onPress }:
     <GestureDetector gesture={Gesture.Race(pan, tap)}>
       <Animated.View style={[styles.banner, { top: insets.top + 6 }, slide]}>
         {notification.pfpUrl ? (
-          <Image source={{ uri: notification.pfpUrl }} style={styles.pfp} contentFit="cover" />
+          <Image source={authedSource(notification.pfpUrl)} style={styles.pfp} contentFit="cover" />
         ) : (
           <View style={[styles.pfp, styles.pfpPlaceholder]} />
         )}

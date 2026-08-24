@@ -13,7 +13,6 @@ export interface GroupData {
   members: GroupMember[];
   imageUrls: string[];
   created_by: string | null;
-  invite_code: string | null;
   imageAspectRatio: number | null;
   // Stored card order as slot keys; null on rows saved before it was editable.
   cardOrder: string[] | null;
@@ -27,7 +26,9 @@ export async function fetchGroup(groupId: string): Promise<GroupData | null> {
   // needs to be asked what files exist.
   const { data, error } = await supabase
     .from('groups')
-    .select('name, qa, created_by, invite_code, image_urls, image_aspect_ratio, card_order, age, gender, city, college, memberships(person_id, status, profiles(name, profile_pic_url))')
+    // invite_code is deliberately absent: the column is revoked from clients,
+    // and the leader reads their own through fetchInviteCode.
+    .select('name, qa, created_by, image_urls, image_aspect_ratio, card_order, age, gender, city, college, memberships(person_id, status, profiles(name, profile_pic_url))')
     .eq('id', groupId)
     .single();
   if (error || !data) return null;
@@ -50,7 +51,6 @@ export async function fetchGroup(groupId: string): Promise<GroupData | null> {
     members,
     imageUrls: data.image_urls ?? [],
     created_by: data.created_by,
-    invite_code: data.invite_code,
     imageAspectRatio: data.image_aspect_ratio ?? null,
     cardOrder: data.card_order ?? null,
     identifiers: {

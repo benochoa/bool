@@ -1,4 +1,5 @@
 import { BlurView } from 'expo-blur';
+import { authedSource } from '@/lib/storageAuth';
 import { Image } from 'expo-image';
 import { Dimensions, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Type } from '@/constants/theme';
@@ -35,7 +36,7 @@ export default function MemberManagement({ visible, member, rect, onRemove, onMa
             {/* Sharp copy of the selected row, drawn over the blur */}
             <View style={[styles.clearRow, { top: rect.y, left: rect.x, width: rect.width, height: rect.height }]}>
               {member.profilePicUrl ? (
-                <Image source={{ uri: member.profilePicUrl }} style={styles.memberCircle} contentFit="cover" />
+                <Image source={authedSource(member.profilePicUrl)} style={styles.memberCircle} contentFit="cover" />
               ) : (
                 <View style={styles.memberCircle} />
               )}

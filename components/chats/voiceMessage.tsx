@@ -1,6 +1,7 @@
 import { Pause } from '@/assets/symbols/Pause';
 import { Play } from '@/assets/symbols/Play';
 import { FontFamily } from '@/constants/theme';
+import { authedSource } from '@/lib/storageAuth';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
@@ -21,7 +22,9 @@ function formatDuration(seconds: number): string {
 export default function VoiceMessage(
   { url, mine, waveform }: { url: string; mine: boolean; waveform?: number[] | null }
 ) {
-  const player = useAudioPlayer(url);
+  // The recording lives in a private bucket, so the player has to carry the
+  // viewer's token the same way an <Image> does.
+  const player = useAudioPlayer(authedSource(url));
   const status = useAudioPlayerStatus(player);
 
   // Reads against the bubble it sits in — mine is black, theirs is light grey.

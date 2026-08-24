@@ -1,4 +1,5 @@
 import { Image } from 'expo-image';
+import { authedSource } from '@/lib/storageAuth';
 import { Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Defs, FeColorMatrix, Filter, Image as SvgImage } from 'react-native-svg';
 import { Type } from '@/constants/theme';
@@ -40,7 +41,10 @@ export default function GroupPostPreview({ groupName, firstImageUrl, suggesterPi
             </Filter>
           </Defs>
           <SvgImage
-            href={{ uri: firstImageUrl }}
+            // Same token the plain <Image> below carries — the bucket is
+            // private, and this path is easy to miss because it's an SVG
+            // image with an href rather than a source.
+            href={authedSource(firstImageUrl)}
             width={CARD_WIDTH}
             height={CARD_HEIGHT}
             preserveAspectRatio="xMidYMid slice"
@@ -48,14 +52,14 @@ export default function GroupPostPreview({ groupName, firstImageUrl, suggesterPi
           />
         </Svg>
       ) : (
-        <Image source={{ uri: firstImageUrl }} style={styles.photo} contentFit="cover" />
+        <Image source={authedSource(firstImageUrl)} style={styles.photo} contentFit="cover" />
       )}
 
       {/* Suggester profile pic — top-right, stays in color even on greyed-out tiles.
           Suppressed entirely on screens with no suggester to attribute (Received). */}
       {hideSuggesterPic ? null : suggesterPicUrl ? (
         <Image
-          source={{ uri: suggesterPicUrl }}
+          source={authedSource(suggesterPicUrl)}
           style={[styles.suggesterPic, alertRing && styles.suggesterRingAlert]}
           contentFit="cover"
         />

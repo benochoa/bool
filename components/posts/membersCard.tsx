@@ -1,4 +1,5 @@
 import FontAwesome6 from '@expo/vector-icons/FontAwesome6';
+import { authedSource } from '@/lib/storageAuth';
 import { Image } from 'expo-image';
 import React, { useRef } from 'react';
 import {
@@ -26,7 +27,7 @@ function MemberRow({ name, profilePicUrl, isGroupLeader, onPress, onLongPress }:
       onLongPress={() => rowRef.current?.measureInWindow((x, y, width, height) => onLongPress?.({ x, y, width, height }))}
     >
       {profilePicUrl ? (
-        <Image source={{ uri: profilePicUrl }} style={styles.memberCircle} contentFit="cover" />
+        <Image source={authedSource(profilePicUrl)} style={styles.memberCircle} contentFit="cover" />
       ) : (
         <View style={styles.memberCircle} />
       )}

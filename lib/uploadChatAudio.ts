@@ -1,5 +1,6 @@
 import { canonicalPair } from '@/lib/canonicalPair';
 import { supabase } from '@/supabaseClient';
+import { authenticatedStorageUrl } from '@/lib/storageAuth';
 
 // Puts a voice recording in the chat-media bucket and hands back its public
 // URL, or null if the upload failed. No manipulation step — unlike a photo
@@ -22,5 +23,5 @@ export async function uploadChatAudio(
     .upload(path, arrayBuffer, { contentType: 'audio/mp4' });
   if (error) return null;
 
-  return supabase.storage.from('chat-media').getPublicUrl(path).data.publicUrl;
+  return authenticatedStorageUrl('chat-media', path);
 }

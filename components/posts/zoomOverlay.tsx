@@ -1,4 +1,5 @@
 import { Image } from 'expo-image';
+import { authedSource } from '@/lib/storageAuth';
 import { createContext, ReactNode, useContext, useState } from 'react';
 import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -86,7 +87,7 @@ function ZoomOverlayProvider({ children }: { children: ReactNode }) {
         <Animated.View pointerEvents="none" style={StyleSheet.absoluteFill}>
           <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, backdropStyle]} />
           <Animated.View style={[styles.clone, cloneStyle]}>
-            <Image source={{ uri }} style={styles.cloneImage} contentFit="cover" />
+            <Image source={authedSource(uri)} style={styles.cloneImage} contentFit="cover" />
           </Animated.View>
         </Animated.View>
       )}

@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
+import { supabase } from '@/supabaseClient';
 import GroupPost, { GroupPostHandle } from '@/components/posts/groupPost';
 import { GroupData } from '@/lib/fetchGroup';
 import PersonPanel from '@/components/posts/personPanel';
@@ -47,6 +48,9 @@ export default function GroupsScreen() {
   const [snapshot, setSnapshot] = useState<GroupData | null>(null);
   // Bumped after a save so the read copy underneath re-reads what was written.
   const [readKey, setReadKey] = useState(0);
+  // Bumped when the group changed elsewhere. Unlike readKey this doesn't
+  // remount the post — it asks the mounted one to refetch in place.
+  const [refreshToken, setRefreshToken] = useState(0);
   // Stays true through the slide-out, so the edit copy is still there to watch
   // leave; `editMode` alone would unmount it mid-animation.
   const [editorMounted, setEditorMounted] = useState(false);
@@ -74,6 +78,51 @@ export default function GroupsScreen() {
   useEffect(() => {
     fetchGroupSummaries(myGroupIds).then(setGroups);
   }, [myGroupIds]);
+
+  // The switcher needs every group's name, so a refresh needs the whole id
+  // list — but refreshGroups hands back a brand new array each time, so naming
+  // myGroupIds in a dependency array would tear the channel down and rebuild it
+  // on every refresh. Read through a ref, it stays current without doing that.
+  const myGroupIdsRef = useRef(myGroupIds);
+  myGroupIdsRef.current = myGroupIds;
+
+  // Everything this tab shows, brought up to date. refreshGroups only re-reads
+  // which groups are mine, so on its own it misses every change that doesn't
+  // add or remove one — which is most of them.
+  const refreshTab = useCallback(() => {
+    refreshGroups();
+    fetchGroupSummaries(myGroupIdsRef.current).then(setGroups);
+    setRefreshToken(t => t + 1);
+  }, [refreshGroups]);
+
+  // Live updates for the group on screen: the leader's edits land on the row,
+  // and joins, leaves and kicks all land on its memberships. use-current-group
+  // already watches memberships filtered to *me*, which catches my own leaving
+  // but nothing anyone else does.
+  useEffect(() => {
+    if (!currentGroupId) return;
+
+    const refetch = () => {
+      fetchGroupSummaries(myGroupIdsRef.current).then(setGroups);
+      setRefreshToken(t => t + 1);
+    };
+
+    const channel = supabase
+      .channel(`groups-tab-${currentGroupId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'groups', filter: `id=eq.${currentGroupId}` },
+        refetch
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'memberships', filter: `group_id=eq.${currentGroupId}` },
+        refetch
+      )
+      .subscribe(status => console.log('[realtime] groups tab channel:', status));
+
+    return () => { supabase.removeChannel(channel); };
+  }, [currentGroupId]);
 
   const currentGroup = groups.find(g => g.id === currentGroupId);
   const currentGroupName = currentGroup?.name ?? '';
@@ -120,17 +169,19 @@ export default function GroupsScreen() {
     ]);
   }
 
-  // Refetch "my groups" every time this tab is focused, so joins/leaves made
-  // elsewhere (or directly in Supabase) don't stay stale on screen.
+  // Refetch on focus, so anything changed while this tab was in the background
+  // — a rename, a join, a leave, an edit made straight in Supabase — is already
+  // right by the time it's on screen.
   useFocusEffect(
     useCallback(() => {
-      refreshGroups();
-    }, [refreshGroups])
+      refreshTab();
+    }, [refreshTab])
   );
 
-  // Same reason, for the resume that focus can't see — a group you were kicked
-  // from while backgrounded would otherwise stay in the switcher.
-  useAppResume(refreshGroups);
+  // Same reason, for the resume that focus can't see. It also covers what the
+  // channel above missed: postgres_changes has no replay, so every event sent
+  // while the socket was down is simply gone.
+  useAppResume(refreshTab);
 
   return (
     <View style={styles.container}>
@@ -201,6 +252,7 @@ export default function GroupsScreen() {
               groupId={currentGroupId}
               isMember
               topInset={114}
+              refreshToken={refreshToken}
               onSelectMember={setOpenPersonId}
               onLoaded={setSnapshot}
               // Only the leader gets a pencil, so only the leader gets the toggle.

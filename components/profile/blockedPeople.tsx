@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { authedSource } from '@/lib/storageAuth';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Image } from 'expo-image';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
@@ -65,7 +66,7 @@ export default function BlockedPeople({ onClose }: Props) {
           {people.map(person => (
             <View key={person.id} style={styles.row}>
               {person.profilePicUrl ? (
-                <Image source={{ uri: person.profilePicUrl }} style={styles.circle} contentFit="cover" />
+                <Image source={authedSource(person.profilePicUrl)} style={styles.circle} contentFit="cover" />
               ) : (
                 <View style={styles.circle} />
               )}

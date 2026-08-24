@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { authedSource, storageHeaders } from '@/lib/storageAuth';
 import { ActivityIndicator, Alert, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Image } from 'expo-image';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -129,7 +130,11 @@ export default function ImageViewer({ image, onClose }: Props) {
       // in the photo library this copy is disposable.
       const destination = new Directory(Paths.cache, 'saved-photos');
       if (!destination.exists) destination.create();
-      const file = await File.downloadFileAsync(shown.url, destination);
+      // The bucket is private, so this fetch needs the same token the <Image>
+      // above carries — without it the download comes back 401.
+      const file = await File.downloadFileAsync(shown.url, destination, {
+        headers: await storageHeaders(),
+      });
 
       await MediaLibrary.saveToLibraryAsync(file.uri);
       // The cached copy has done its job; the photo library owns it now.
@@ -268,7 +273,7 @@ export default function ImageViewer({ image, onClose }: Props) {
 
       <GestureDetector gesture={gesture}>
         <Animated.View style={[styles.frame, frameStyle]}>
-          <Image source={{ uri: shown.url }} style={styles.image} contentFit="cover" />
+          <Image source={authedSource(shown.url)} style={styles.image} contentFit="cover" />
         </Animated.View>
       </GestureDetector>
 

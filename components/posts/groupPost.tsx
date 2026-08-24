@@ -4,15 +4,18 @@ import {
   KeyboardAvoidingView, Platform
 } from 'react-native';
 import { Ref, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import * as Crypto from 'expo-crypto';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '@/supabaseClient';
+import { authenticatedStorageUrl } from '@/lib/storageAuth';
 import { Pencil } from '@/assets/symbols/Pencil';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { useKeyboardAwareScroll } from '@/hooks/use-keyboard-aware-scroll';
 import { fetchGroup, GroupData } from '@/lib/fetchGroup';
+import { fetchInviteCode } from '@/lib/fetchInviteCode';
 import { leaveGroup } from '@/lib/leaveGroup';
 import { Ellipsis } from '@/assets/symbols/Ellipsis';
 import { dissolveGroup } from '@/lib/dissolveGroup';
@@ -38,34 +41,21 @@ const CARD_WIDTH = width - 40;
 const PHOTO_SLOTS = 3;
 
 // Helpers (editable mode only)
-async function getNextGroupId(): Promise<string> {
-  const { data } = await supabase.from('groups').select('id');
-  const nums = (data ?? [])
-    .map(row => row.id as string)
-    .filter(id => /^Group-\d+$/.test(id))
-    .map(id => parseInt(id.split('-')[1]));
-  const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
-  return `Group-${next}`;
+//
+// A random id rather than the next number in a sequence. Counting meant reading
+// every group id in the app to find the highest — which handed each client the
+// full inventory, and gave two people creating a group at the same moment the
+// same id. It also made a group's photos findable: storage paths are built from
+// this, so `Group-8` next to `Group-7` is a URL anyone can guess.
+// Existing Group-N rows keep their ids; the column is text either way.
+function createGroupId(): string {
+  return Crypto.randomUUID();
 }
 
-// No 0/O, 1/I/L: avoids ambiguous characters when codes are shared aloud.
-const INVITE_CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-
-function generateInviteCode(): string {
-  let code = '';
-  for (let i = 0; i < 6; i++) code += INVITE_CODE_CHARS[Math.floor(Math.random() * INVITE_CODE_CHARS.length)];
-  return code;
-}
-
-async function getUniqueInviteCode(): Promise<string> {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const code = generateInviteCode();
-    const { data } = await supabase.from('groups').select('id').eq('invite_code', code).maybeSingle();
-    if (!data) return code;
-  }
-  // The unique constraint on groups.invite_code catches the leftover race.
-  return generateInviteCode();
-}
+// Invite codes are minted by the database (groups.invite_code has a default
+// that loops until it finds a free one). Generating them here meant reading the
+// column back to check uniqueness, and a column the client can read is a column
+// every client can harvest.
 
 async function fetchRandomGroupQuestions(): Promise<string[]> {
   const { data } = await supabase
@@ -130,16 +120,25 @@ interface Props {
   // sheet itself belongs to the screen, so its tint covers that screen's
   // floating chevron instead of being trapped under it.
   onOpenActions?: (groupId: string) => void;
+  // Bumped by the screen when something it watches says this group changed —
+  // a leader's edit, a join, a leave. Refetches in place rather than through
+  // the mount path, which would blank the post and flash a skeleton over
+  // content that is already on screen and mostly still right.
+  refreshToken?: number;
   ref?: Ref<GroupPostHandle>;
 }
 
-export default function GroupPost({ groupId, creating = false, editMode = false, onClose, onCreated, isMember = false, onLeft, onDissolved, onDirty, onToggleEdit, onLoaded, initialData, topInset, onSelectMember, onOpenActions, ref }: Props) {
+export default function GroupPost({ groupId, creating = false, editMode = false, onClose, onCreated, isMember = false, onLeft, onDissolved, onDirty, onToggleEdit, onLoaded, initialData, topInset, onSelectMember, onOpenActions, refreshToken, ref }: Props) {
 
   const { session } = useSession();
 
   // State - read mode
   const [data, setData] = useState<GroupData | null>(initialData ?? null);
   const [loading, setLoading] = useState(!creating && !initialData);
+  // Fetched separately from the group row, and only for the leader — the
+  // column is revoked from clients, so it can't ride along with everything
+  // else. Null for anyone else, which is also what hides the invite row.
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
   // Leader-only member popover (opened by long-pressing a member row).
   const [managedMember, setManagedMember] = useState<{ id: string; name: string; profilePicUrl: string | null } | null>(null);
   const [manageRect, setManageRect] = useState<MemberRect | null>(null);
@@ -182,7 +181,11 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
     } else if (initialData) {
       // Handed the row by whoever already fetched it (the edit overlay), so
       // this instance can mount fully formed instead of round-tripping again.
+      // The code is the exception — it never travels with the row.
       prefillFromData(initialData);
+      if (groupId && session?.user && initialData.created_by === session.user.id) {
+        fetchInviteCode(groupId).then(setInviteCode);
+      }
     } else if (groupId) {
       // The same instance can be reused for another group (explore feed), so
       // clear the previous group's data — which would otherwise flash on
@@ -190,12 +193,23 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
       setData(null);
       setLoading(true);
       setPhotoAspects([null, null, null]);
+      setInviteCode(null);
       fetchGroup(groupId).then(result => {
         setData(result);
+        // Card order decides how the post reads, not just how the form is
+        // laid out, so it comes off the row for everyone. It used to be set
+        // only inside the leader-only prefill below, which meant the leader
+        // saw their saved arrangement and every other viewer got the default
+        // — the same group looking different depending on who opened it.
+        if (result) setCardOrder(reconcileCardOrder(result.cardOrder, DEFAULT_GROUP_CARD_ORDER));
         // Leaders edit in place (pencils always live), so prefill the form
         // from the fetched data the moment it arrives.
         if (result && session?.user && result.created_by === session.user.id) {
           prefillFromData(result);
+          // A second round trip, but only for the one person who can see a
+          // code — the alternative is shipping every group's code to every
+          // viewer, which is what this replaced.
+          fetchInviteCode(groupId).then(setInviteCode);
         }
         setLoading(false);
         onLoaded?.(result);
@@ -203,6 +217,22 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupId, creating, session]);
+
+  // A nudge from the screen that this group changed under us. Deliberately not
+  // the mount path: that clears `data` first, so a member joining would blank
+  // the post and flash a skeleton over content that's still almost entirely
+  // correct. Edit mode is skipped outright — refetching there would overwrite
+  // whatever the leader is halfway through typing.
+  useEffect(() => {
+    if (!refreshToken || !groupId || creating || isEditMode) return;
+    fetchGroup(groupId).then(result => {
+      if (!result) return;
+      setData(result);
+      setCardOrder(reconcileCardOrder(result.cardOrder, DEFAULT_GROUP_CARD_ORDER));
+      onLoaded?.(result);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshToken]);
 
   // Pre-fill the edit form from fetched data; also used by Cancel to discard edits.
   function prefillFromData(d: GroupData) {
@@ -325,7 +355,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
           Alert.alert('Photo upload failed', error.message);
           return false;
         }
-        imageUrls.push(supabase.storage.from('groups').getPublicUrl(path).data.publicUrl + '?v=' + Date.now());
+        imageUrls.push(authenticatedStorageUrl('groups', path) + '?v=' + Date.now());
       }
 
       const { error } = await supabase
@@ -352,7 +382,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
     }
 
     // Creation
-    const newGroupId = await getNextGroupId();
+    const newGroupId = createGroupId();
 
     const imageUrls: string[] = [];
     for (const i of photoSlotOrder()) {
@@ -366,7 +396,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
       await supabase.storage
         .from('groups')
         .upload(path, arrayBuffer, { contentType: 'image/jpeg' });
-      imageUrls.push(supabase.storage.from('groups').getPublicUrl(path).data.publicUrl + '?v=' + Date.now());
+      imageUrls.push(authenticatedStorageUrl('groups', path) + '?v=' + Date.now());
     }
 
     const { error } = await supabase.from('groups').insert({
@@ -374,7 +404,6 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
       name: groupName.trim(),
       qa,
       created_by: session?.user.id ?? null,
-      invite_code: await getUniqueInviteCode(),
       image_urls: imageUrls,
       card_order: toStoredCardOrder(cardOrder),
       ...identifierColumns(identifiers),
@@ -535,7 +564,9 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
       );
     }
     const item = data?.qa[slot.index];
-    if (!item) return null;
+    // A question nobody answered is a prompt, not content — it belongs in the
+    // edit form, where it's still there to fill in, and nowhere else.
+    if (!item?.answer?.trim()) return null;
     return (
       <View key={key} style={styles.qaCard}>
         <Text style={styles.question}>{item.question}</Text>
@@ -684,7 +715,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
           style={styles.membersCard}
           members={data.members}
           leaderId={data.created_by}
-          inviteCode={isLeader ? data.invite_code : null}
+          inviteCode={inviteCode}
           onSelectMember={id => onSelectMember?.(id)}
           onManageMember={(m, rect) => {
             // Managing members is an edit, so it lives in edit mode — and
@@ -698,7 +729,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
         />
       ) : (
         <View style={[styles.card, styles.membersCard]}>
-          <Text style={styles.membersPlaceholder}>Members — coming soon</Text>
+          <Text style={styles.membersPlaceholder}>Members — invite your friends after creation</Text>
         </View>
       )}
 
