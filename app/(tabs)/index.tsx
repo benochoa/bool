@@ -288,12 +288,12 @@ export default function ExploreScreen() {
   // Chats now.
   const pendingSections = [
     {
-      label: 'Waiting on your leader...',
+      label: 'Waiting on your group leader',
       items: suggestions.filter(s => s.status === 'pending'),
       empty: 'No groups suggested by your friends',
     },
     {
-      label: 'Waiting on them...',
+      label: 'Waiting on the other group',
       items: suggestions.filter(s => s.status === 'sent'),
       empty: 'No match requests sent yet',
     },
@@ -352,68 +352,73 @@ export default function ExploreScreen() {
   return (
     <View style={styles.container}>
 
-      {/* For You feed */}
-      {activeTab === 'ForYou' && (
-        <View style={styles.feedContainer}>
+      {/* For You feed. Hidden rather than unmounted when Pending is up: a fresh
+          GroupPost starts at loading and replays its skeleton, so tearing this
+          down meant a loader every time you flipped back. The other tabs keep
+          their screens mounted for the same reason. */}
+      <View style={[styles.feedContainer, activeTab !== 'ForYou' && styles.feedHidden]}>
 
-          {/* For You / Pending toggle */}
-          {tabRow}
+        {/* For You / Pending toggle */}
+        {tabRow}
 
-          {done ? (
-            <View style={styles.doneContainer}>
-              <Text style={styles.doneText}>You've seen all groups!</Text>
+        {done ? (
+          <View style={styles.doneContainer}>
+            <Text style={styles.doneText}>You've seen all groups!</Text>
+          </View>
+        ) : (
+          <>
+            {/* 10 + the card's own 16 is the same 26 every tab leaves under
+                its header. */}
+            <GroupPost groupId={currentCardGroupId} topInset={10} onSelectMember={setOpenPersonId} onOpenActions={setActionsFor} />
+
+            {/* Check / X buttons */}
+            <View style={styles.buttonRow}>
+              <TouchableOpacity style={styles.xButton} onPress={handleX}>
+                <XMark />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.checkButton} onPress={handleCheck}>
+                <CheckMark />
+              </TouchableOpacity>
             </View>
-          ) : (
-            <>
-              {/* 10 + the card's own 16 is the same 26 every tab leaves under
-                  its header. */}
-              <GroupPost groupId={currentCardGroupId} topInset={10} onSelectMember={setOpenPersonId} onOpenActions={setActionsFor} />
+          </>
+        )}
+      </View>
 
-              {/* Check / X buttons */}
-              <View style={styles.buttonRow}>
-                <TouchableOpacity style={styles.xButton} onPress={handleX}>
-                  <XMark />
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.checkButton} onPress={handleCheck}>
-                  <CheckMark />
-                </TouchableOpacity>
-              </View>
-            </>
-          )}
-        </View>
-      )}
-
-      {/* Pending feed — suggested (color), then sent (B&W) */}
-      {activeTab === 'Pending' && (
-        <View style={styles.feedContainer}>
-          <ScrollView contentContainerStyle={styles.previewList}>
-            {tabRow}
-            {/* Both headings render even with nothing under them, so the two
-                stages stay discoverable on an empty feed. Fragments, so the
-                tiles stay one flat column rather than nesting per stage. */}
-            {pendingSections.map((section, i) => (
-              <Fragment key={section.label}>
-                <Text style={[styles.sectionLabel, i > 0 && styles.sectionLabelStacked]}>{section.label}</Text>
-                {section.items.length === 0 ? (
-                  <Text style={styles.sectionEmpty}>{section.empty}</Text>
-                ) : section.items.map(s => (
-                  // The ring only reddens on the pile waiting on your leader —
-                  // a sent one is off your hands, which the greying says too.
-                  <GroupPostPreview
-                    key={s.targetGroupId}
-                    groupName={s.groupName}
-                    firstImageUrl={s.firstImageUrl}
-                    suggesterPicUrl={s.suggestedByPicUrl}
-                    tint={s.status === 'sent' ? 'bw' : undefined}
-                    alertRing={s.status === 'pending'}
-                    onPress={() => setDetail(s)}
-                  />
-                ))}
-              </Fragment>
-            ))}
-          </ScrollView>
-        </View>
-      )}
+      {/* Pending feed — suggested (color), then sent (B&W). Kept mounted too,
+          so its tiles don't reload their photos on every flip. */}
+      <View style={[styles.feedContainer, activeTab !== 'Pending' && styles.feedHidden]}>
+        <ScrollView contentContainerStyle={styles.previewList}>
+          {tabRow}
+          {/* Both headings render even with nothing under them, so the two
+              stages stay discoverable on an empty feed. Fragments, so the
+              tiles stay one flat column rather than nesting per stage. */}
+          {pendingSections.map((section, i) => (
+            <Fragment key={section.label}>
+              <Text style={[
+                styles.sectionLabel,
+                i > 0 && styles.sectionLabelStacked,
+                section.items.length > 0 && styles.sectionLabelFilled,
+              ]}>{section.label}</Text>
+              {section.items.length === 0 ? (
+                <Text style={styles.sectionEmpty}>{section.empty}</Text>
+              ) : section.items.map(s => (
+                // The ring only reddens on the pile waiting on your leader —
+                // a sent one is off your hands, which the greying says too.
+                <GroupPostPreview
+                  key={s.targetGroupId}
+                  groupName={s.groupName}
+                  firstImageUrl={s.firstImageUrl}
+                  suggesterPicUrl={s.suggestedByPicUrl}
+                  tint={s.status === 'sent' ? 'bw' : undefined}
+                  alertRing={s.status === 'pending'}
+                  loose
+                  onPress={() => setDetail(s)}
+                />
+              ))}
+            </Fragment>
+          ))}
+        </ScrollView>
+      </View>
 
       {/* Detail panel — full group, with leader Send/Remove for pending items */}
       <SlideOver visible={detail !== null} onRequestClose={() => setDetail(null)}>
@@ -492,12 +497,20 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     paddingHorizontal: 20,
     color: '#000',
-    // Only the first heading uses this — the stacked one below overrides it —
-    // so it's the tab's header gap, the same 26 the other three now leave. The
-    // 8 underneath stays put: widening it would float the heading off its own
-    // cards.
-    marginTop: 26,
+    // Only the first heading uses this — the stacked one below overrides it.
+    // Wider than the 26 the other tabs leave under their headers: this one
+    // opens a stage rather than just starting a list, so it wants the break.
+    // The 8 underneath is the empty-stage gap, which `sectionEmpty` widens from
+    // its own side; a stage with tiles overrides it below.
+    marginTop: 44,
     marginBottom: 8,
+  },
+
+  // A stage that actually has tiles gets more room under its heading than the
+  // 20 the tiles keep between themselves, so the heading reads as opening the
+  // column rather than sitting on top of the first card.
+  sectionLabelFilled: {
+    marginBottom: 26,
   },
 
   // Every heading but the first opens a stage that follows another one, so it
@@ -527,8 +540,13 @@ const styles = StyleSheet.create({
     marginBottom: 64,
   },
 
+  // Sized to the band rather than padded past it: 24pt Manrope needs ~34, and
+  // 7pt of padding either side made the button taller than the 44 the row
+  // leaves it, which clipped the descender of "Pending". A fixed 44 keeps the
+  // tap target and centres the word at the same height it already sat at.
   tabButton: {
-    paddingVertical: 7,
+    height: 44,
+    justifyContent: 'center',
     paddingHorizontal: 20,
   },
 
@@ -577,6 +595,13 @@ const styles = StyleSheet.create({
   feedContainer: {
     flex: 1,
     width: '100%',
+  },
+
+  // The sub-tab that isn't showing. `display: 'none'` keeps it mounted and out
+  // of layout both, which is the whole point — the feed holds its card, its
+  // photos and its scroll position for the flip back.
+  feedHidden: {
+    display: 'none',
   },
 
   doneContainer: {

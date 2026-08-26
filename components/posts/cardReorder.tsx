@@ -5,6 +5,7 @@ import Animated, {
   SharedValue, useAnimatedStyle, useSharedValue, withTiming,
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
+import * as Haptics from 'expo-haptics';
 import { CardSlot, slotKey } from '@/lib/cardOrder';
 
 const { width } = Dimensions.get('window');
@@ -79,6 +80,11 @@ function targetIndex(from: number, offset: number, count: number) {
   return Math.min(count - 1, Math.max(0, moved));
 }
 
+// Fired from the drag worklet through scheduleOnRN — haptics are a JS-thread call.
+function tap() {
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+}
+
 function Slot({ index, count, draggingIndex, dragY, onCommit, onReset, children }: {
   index: number;
   count: number;
@@ -95,6 +101,7 @@ function Slot({ index, count, draggingIndex, dragY, onCommit, onReset, children 
     .onStart(() => {
       draggingIndex.value = index;
       dragY.value = 0;
+      scheduleOnRN(tap);
     })
     .onUpdate(e => {
       dragY.value = e.translationY;

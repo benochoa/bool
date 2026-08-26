@@ -22,6 +22,7 @@ import { MessageSkeleton } from '@/components/ui/skeleton';
 import SlideOver from '@/components/ui/slideOver';
 import ChatDetails from './chatDetails';
 import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useAppResume } from '@/hooks/use-app-resume';
 import { useBlockedPeople } from '@/hooks/use-blocked-people';
@@ -394,6 +395,9 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
     // Let go while that was running — start nothing.
     if (!holding.current) return;
     recorder.record();
+    // Here rather than on press-in: the tap means recording started, so a denied
+    // permission or a busy mic doesn't buzz as if it had.
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     // getStatus() is synchronous, so this reads the live level without going
     // through the hook that would re-render on every reading.
@@ -425,6 +429,9 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
     const uri = recorder.uri;
     // Anything this short was a tap on the mic, not a message.
     if (!uri || heldFor < 1000 || !session?.user) return;
+
+    // Closes the pair the start tap opened — only for a release that sends.
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     const waveform = buildWaveform(meterSamples.current);
 
@@ -549,6 +556,9 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
     if (message.deletedAt) return;
     const node = bubbleRefs.current.get(message.id);
     if (!node) return;
+    // Taps only once the overlay is actually going to open — a long press on a
+    // deleted message stays silent.
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     node.measureInWindow((x, y, width, height) => {
       setActionTarget({ message, rect: { x, y, width, height } });
     });

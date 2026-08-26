@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { Ref, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import * as Crypto from 'expo-crypto';
+import * as Haptics from 'expo-haptics';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '@/supabaseClient';
@@ -727,6 +728,7 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
             // Managing members is an edit, so it lives in edit mode — and
             // never on yourself.
             if (!isEditMode || !session?.user || m.id === session.user.id) return;
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             // Force the clear band to the full members-card width (card is
             // centered at CARD_WIDTH), keeping only the measured vertical.
             setManageRect({ x: (width - CARD_WIDTH) / 2, y: rect.y, width: CARD_WIDTH, height: rect.height });

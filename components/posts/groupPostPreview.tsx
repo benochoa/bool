@@ -22,11 +22,14 @@ interface Props {
   // Rings the suggester in the notification red rather than white — Pending
   // only, where the tile is something still waiting on someone.
   alertRing?: boolean;
+  // A little more air under the tile. Pending stacks two lists in one scroll,
+  // so its column reads better looser than the flat single lists elsewhere.
+  loose?: boolean;
 }
 
-export default function GroupPostPreview({ groupName, firstImageUrl, suggesterPicUrl, tint, onPress, hideSuggesterPic, alertRing }: Props) {
+export default function GroupPostPreview({ groupName, firstImageUrl, suggesterPicUrl, tint, onPress, hideSuggesterPic, alertRing, loose }: Props) {
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.9}>
+    <TouchableOpacity style={[styles.card, loose && styles.cardLoose]} onPress={onPress} activeOpacity={0.9}>
 
       {/* Photo layer */}
       {!firstImageUrl ? (
@@ -82,6 +85,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 16,
     backgroundColor: '#eee',
+  },
+
+  cardLoose: {
+    marginBottom: 20,
   },
 
   photo: {
