@@ -56,9 +56,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 12,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    // Half the pill's height, so it stays a stadium rather than a rounded box.
+    borderRadius: 14,
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#e2e2e2',
@@ -72,12 +73,12 @@ const styles = StyleSheet.create({
   },
 
   emoji: {
-    fontSize: 13,
+    fontSize: 17,
   },
 
   count: {
     fontFamily: FontFamily.semiBold,
-    fontSize: 11,
+    fontSize: 13,
     color: '#666',
   },
 });

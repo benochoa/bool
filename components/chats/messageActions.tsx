@@ -36,13 +36,14 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const GAP = 10;
 const ACTION_HEIGHT = 48;
 const ACTIONS_WIDTH = 200;
-const EMOJI_SIZE = 42;
+const EMOJI_SIZE = 52;
 const BAR_PADDING = 6;
 const BAR_WIDTH = REACTION_EMOJIS.length * EMOJI_SIZE + BAR_PADDING * 2;
 const BAR_HEIGHT = EMOJI_SIZE + BAR_PADDING * 2;
-// Keeps the bar off either edge of the screen when the bubble it belongs to
-// sits near one.
-const SCREEN_MARGIN = 12;
+// The bar is centred on the screen rather than hung off its bubble's edge: at
+// this size it's most of the screen's width, so there's nowhere for it to hang
+// that wouldn't just be pinned to a margin anyway.
+const BAR_LEFT = (SCREEN_WIDTH - BAR_WIDTH) / 2;
 // Room kept clear at either end, so a bubble at the very top or bottom of the
 // thread still has its menu fully on screen.
 const TOP_INSET = 80;
@@ -69,16 +70,6 @@ export default function MessageActions({
     Math.min(rect.y, SCREEN_HEIGHT - BOTTOM_INSET - actionsHeight - GAP - rect.height)
   );
 
-  // The bar hangs off the same edge as its bubble, then gets pulled back inside
-  // the screen if that would push it off.
-  const barLeft = Math.max(
-    SCREEN_MARGIN,
-    Math.min(
-      mine ? rect.x + rect.width - BAR_WIDTH : rect.x,
-      SCREEN_WIDTH - SCREEN_MARGIN - BAR_WIDTH
-    )
-  );
-
   return (
     <View style={styles.overlay}>
       {/* Everything behind goes soft, and a press anywhere on it closes. */}
@@ -86,7 +77,7 @@ export default function MessageActions({
         <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
       </Pressable>
 
-      <View style={[styles.emojiBar, { left: barLeft, top: top - GAP - BAR_HEIGHT }]}>
+      <View style={[styles.emojiBar, { top: top - GAP - BAR_HEIGHT }]}>
         {REACTION_EMOJIS.map(emoji => (
           <TouchableOpacity
             key={emoji}
@@ -141,6 +132,7 @@ const styles = StyleSheet.create({
 
   emojiBar: {
     position: 'absolute',
+    left: BAR_LEFT,
     flexDirection: 'row',
     width: BAR_WIDTH,
     height: BAR_HEIGHT,
@@ -164,7 +156,7 @@ const styles = StyleSheet.create({
   },
 
   emoji: {
-    fontSize: 24,
+    fontSize: 30,
   },
 
   actions: {
