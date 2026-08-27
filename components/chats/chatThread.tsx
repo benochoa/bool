@@ -14,6 +14,7 @@ import MessageActions, { BubbleRect } from '@/components/chats/messageActions';
 import { ViewerImage } from '@/components/chats/imageViewer';
 import LiveWaveform from '@/components/chats/liveWaveform';
 import ReactionRow from '@/components/chats/reactionRow';
+import ReactionsSheet from '@/components/chats/reactionsSheet';
 import SwipeToReply from '@/components/chats/swipeToReply';
 import VoiceMessage from '@/components/chats/voiceMessage';
 import PersonPanel from '@/components/posts/personPanel';
@@ -84,6 +85,8 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   const [sending, setSending] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [openPersonId, setOpenPersonId] = useState<string | null>(null);
+  // Which message's reactors the sheet is listing, if any.
+  const [reactorsMessageId, setReactorsMessageId] = useState<number | null>(null);
   // A photo taken or picked but not sent yet — its presence is what puts the
   // confirm screen up.
   const [pending, setPending] = useState<ImagePicker.ImagePickerAsset | null>(null);
@@ -573,9 +576,21 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
     const next = mine?.emoji === emoji ? null : emoji;
 
     // Applied straight away: a tapback that waits on a round trip feels broken.
+    // My own name and picture come from the sender cache, or from the reaction
+    // this one replaces — either way the refetch the realtime event triggers
+    // puts the authoritative row in place a moment later.
+    const me = senders.current.get(userId);
     setReactions(prev => {
       const others = prev.filter(r => !(r.messageId === messageId && r.userId === userId));
-      return next ? [...others, { messageId, userId, emoji: next }] : others;
+      if (!next) return others;
+      return [...others, {
+        messageId,
+        userId,
+        emoji: next,
+        name: me?.name ?? mine?.name ?? '...',
+        profilePicUrl: me?.profilePicUrl ?? mine?.profilePicUrl ?? null,
+        createdAt: new Date().toISOString(),
+      }];
     });
 
     const ok = await setMessageReaction(messageId, userId, next);
@@ -718,6 +733,7 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
                           reactions={reactionsByMessage.get(m.id) ?? []}
                           myUserId={session?.user.id}
                           onToggle={emoji => toggleReaction(m.id, emoji)}
+                          onShowReactors={() => setReactorsMessageId(m.id)}
                         />
                       )}
                     </View>
@@ -903,6 +919,13 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
       </SlideOver>
 
       {/* Sender's profile, opened from their picture beside a message. */}
+      <ReactionsSheet
+        visible={reactorsMessageId !== null}
+        reactions={reactorsMessageId !== null ? reactionsByMessage.get(reactorsMessageId) ?? [] : []}
+        onSelectPerson={userId => { setReactorsMessageId(null); setOpenPersonId(userId); }}
+        onClose={() => setReactorsMessageId(null)}
+      />
+
       <PersonPanel personId={openPersonId} onClose={() => setOpenPersonId(null)} />
 
       {/* Reporting a message, from its long-press menu. */}

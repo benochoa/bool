@@ -7,11 +7,14 @@ interface Props {
   myUserId: string | undefined;
   // Tapping a pill sets that emoji, or clears it when it's already yours.
   onToggle: (emoji: string) => void;
+  // Holding any pill opens the list of everyone who reacted to the message —
+  // the whole message, not just the pill that was held.
+  onShowReactors: () => void;
 }
 
 // The tapbacks under one message: one pill per distinct emoji, with a count
 // once more than one person has picked it.
-export default function ReactionRow({ reactions, myUserId, onToggle }: Props) {
+export default function ReactionRow({ reactions, myUserId, onToggle, onShowReactors }: Props) {
   // Grouped in first-seen order, so pills don't reshuffle as they come in.
   const order: string[] = [];
   const counts = new Map<string, number>();
@@ -30,6 +33,7 @@ export default function ReactionRow({ reactions, myUserId, onToggle }: Props) {
           key={emoji}
           style={[styles.pill, emoji === mine && styles.pillMine]}
           onPress={() => onToggle(emoji)}
+          onLongPress={onShowReactors}
           activeOpacity={0.7}
         >
           <Text style={styles.emoji}>{emoji}</Text>
