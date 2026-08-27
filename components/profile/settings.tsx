@@ -1,3 +1,4 @@
+import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
@@ -7,12 +8,16 @@ import { Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { deleteMyMedia } from '@/lib/deleteMyMedia';
 import { unregisterPushToken } from '@/lib/registerPushToken';
-import { PRIVACY_POLICY_HTML } from '@/legal/privacyPolicy';
-import { TERMS_AND_CONDITIONS_HTML } from '@/legal/termsAndConditions';
 import { supabase } from '@/supabaseClient';
 import BlockedPeople from './blockedPeople';
 import BugReport from './bugReport';
-import LegalDocument from './legalDocument';
+
+// The published documents, opened in a browser rather than bundled into the
+// app. One copy on the site is the copy everyone reads — the app store listings
+// point at these same URLs — so a correction takes a redeploy instead of a
+// release. Trailing slashes are required: the site is a static export.
+const PRIVACY_URL = 'https://boolsocial.com/privacy/';
+const TERMS_URL = 'https://boolsocial.com/terms/';
 
 interface Props {
   onClose: () => void;
@@ -21,8 +26,6 @@ interface Props {
 export default function Settings({ onClose }: Props) {
   const { session } = useSession();
   const [deleting, setDeleting] = useState(false);
-  const [privacyOpen, setPrivacyOpen] = useState(false);
-  const [termsOpen, setTermsOpen] = useState(false);
   const [blockedOpen, setBlockedOpen] = useState(false);
   const [bugOpen, setBugOpen] = useState(false);
 
@@ -85,13 +88,16 @@ export default function Settings({ onClose }: Props) {
         </TouchableOpacity>
 
         <Text style={[styles.sectionHeader, styles.legalHeader]}>Legal</Text>
-        <TouchableOpacity style={styles.legalRow} onPress={() => setPrivacyOpen(true)}>
+        <TouchableOpacity
+          style={styles.legalRow}
+          onPress={() => WebBrowser.openBrowserAsync(PRIVACY_URL)}
+        >
           <Text style={[styles.sectionText, styles.legalText]}>Privacy Policy</Text>
           <ChevronRight />
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.legalRow, styles.legalRowLast]}
-          onPress={() => setTermsOpen(true)}
+          onPress={() => WebBrowser.openBrowserAsync(TERMS_URL)}
         >
           <Text style={[styles.sectionText, styles.legalText]}>Terms of Service</Text>
           <ChevronRight />
@@ -127,22 +133,6 @@ export default function Settings({ onClose }: Props) {
 
       <SlideOver visible={bugOpen} onRequestClose={() => setBugOpen(false)}>
         <BugReport onClose={() => setBugOpen(false)} />
-      </SlideOver>
-
-      <SlideOver visible={privacyOpen} onRequestClose={() => setPrivacyOpen(false)}>
-        <LegalDocument
-          title="Privacy Policy"
-          html={PRIVACY_POLICY_HTML}
-          onClose={() => setPrivacyOpen(false)}
-        />
-      </SlideOver>
-
-      <SlideOver visible={termsOpen} onRequestClose={() => setTermsOpen(false)}>
-        <LegalDocument
-          title="Terms of Service"
-          html={TERMS_AND_CONDITIONS_HTML}
-          onClose={() => setTermsOpen(false)}
-        />
       </SlideOver>
     </View>
   );
