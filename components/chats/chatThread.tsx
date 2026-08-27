@@ -1,6 +1,6 @@
 import { StyleSheet, View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, Keyboard, LayoutAnimation, Dimensions, Platform, Alert } from 'react-native';
 import { authedSource } from '@/lib/storageAuth';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image } from 'expo-image';
 import { supabase } from '@/supabaseClient';
 import { Camera } from '@/assets/symbols/Camera';
@@ -15,6 +15,7 @@ import { ViewerImage } from '@/components/chats/imageViewer';
 import LiveWaveform from '@/components/chats/liveWaveform';
 import ReactionRow from '@/components/chats/reactionRow';
 import ReactionsSheet from '@/components/chats/reactionsSheet';
+import RevealRow from '@/components/chats/revealRow';
 import SwipeToReply from '@/components/chats/swipeToReply';
 import VoiceMessage from '@/components/chats/voiceMessage';
 import PersonPanel from '@/components/posts/personPanel';
@@ -32,6 +33,7 @@ import { canonicalPair } from '@/lib/canonicalPair';
 import { fetchMessageReactions, MessageReaction } from '@/lib/fetchMessageReactions';
 import { fetchMessages, Message } from '@/lib/fetchMessages';
 import { fetchPerson } from '@/lib/fetchPerson';
+import { messageClock, messageSeparator } from '@/lib/formatMessageTime';
 import { setMessageReaction } from '@/lib/setMessageReaction';
 import { sendMessage } from '@/lib/sendMessage';
 import { ReportTarget } from '@/lib/submitReport';
@@ -42,6 +44,8 @@ import {
   AudioModule, RecordingPresets, setAudioModeAsync, useAudioRecorder, useAudioRecorderState,
 } from 'expo-audio';
 import * as ImagePicker from 'expo-image-picker';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { useSharedValue, withTiming } from 'react-native-reanimated';
 
 // The three composer icons are drawn at one size and one colour — they're a set,
 // and the row only reads as one control if they match.
@@ -57,6 +61,19 @@ const KEYBOARD_SETTLE_MS = 250;
 // How often the loudness is read while recording. Fast enough that a one-second
 // message still has ten bars' worth of shape to draw from.
 const METER_INTERVAL_MS = 100;
+
+// Dragging the thread left to read the times. The reveal has to carry each time
+// from off the screen to the list's own right margin, so it is the width of the
+// time itself plus the content padding it lands against — keep the three in
+// step, or the times come to rest short of the margin or past it.
+const REVEAL_TIME_WIDTH = 52;
+const REVEAL_CONTENT_PADDING = 20;
+const REVEAL_WIDTH = REVEAL_TIME_WIDTH + REVEAL_CONTENT_PADDING;
+// Under SwipeToReply's 8, so neither drag has to wait on the other to give up;
+// they are told apart by direction, not by distance.
+const REVEAL_ACTIVATE_X = 8;
+// Vertical past this belongs to the scroll.
+const REVEAL_FAIL_Y = 10;
 
 // m:ss from the recorder's milliseconds.
 function formatRecordingTime(ms: number): string {
@@ -87,6 +104,10 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   const [openPersonId, setOpenPersonId] = useState<string | null>(null);
   // Which message's reactors the sheet is listing, if any.
   const [reactorsMessageId, setReactorsMessageId] = useState<number | null>(null);
+
+  // How far the thread is currently dragged left, uncovering the times parked
+  // off the right edge. Shared by every row, so they move together.
+  const revealX = useSharedValue(0);
   // A photo taken or picked but not sent yet — its presence is what puts the
   // confirm screen up.
   const [pending, setPending] = useState<ImagePicker.ImagePickerAsset | null>(null);
@@ -536,6 +557,24 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
     );
   }
 
+  // Drag the thread leftward and every message follows, pulling its time in
+  // from off the right edge; let go and the whole list settles back. Leftward
+  // only, which is what keeps it clear of the two rightward drags already in
+  // play here — SwipeToReply activates at +8, SlideOver's dismiss at +12, and
+  // neither can be reached by a drag that only ever goes negative.
+  const revealDrag = Gesture.Pan()
+    .activeOffsetX(-REVEAL_ACTIVATE_X)
+    // Vertical wins outright: the thread still has to scroll.
+    .failOffsetY([-REVEAL_FAIL_Y, REVEAL_FAIL_Y])
+    .onUpdate(e => {
+      revealX.value = Math.min(0, Math.max(e.translationX, -REVEAL_WIDTH));
+    })
+    // onFinalize, not onEnd — a cancelled drag has to settle too, or the thread
+    // would stay held open at an offset with nothing to close it.
+    .onFinalize(() => {
+      revealX.value = withTiming(0, { duration: 180 });
+    });
+
   // Long-press opens the actions over the bubble, which means knowing where on
   // screen that bubble is — hence the measure before anything is shown.
   // The photo grows out of where it sits in the thread, so opening it starts
@@ -662,87 +701,106 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
           <MessageSkeleton />
         </View>
       ) : (
-        <ScrollView
-          ref={scrollViewRef}
-          style={styles.messageList}
-          contentContainerStyle={styles.messageListContent}
-          keyboardShouldPersistTaps="handled"
-          // Scrolling back through history dismisses the keyboard, rather than
-          // costing a separate tap to get it out of the way. Not 'interactive':
-          // iOS moves the keyboard with the thumb there but sends no frame
-          // events until the gesture ends, so the composer couldn't follow and
-          // the two came apart mid-drag. Going at once keeps them together.
-          keyboardDismissMode="on-drag"
-        >
-          {messages.length === 0 ? (
-            <Text style={styles.emptyText}>No messages yet — say hi!</Text>
-          ) : (
-            messages.map(m => {
-              const isMine = m.senderId === session?.user.id;
-              // Nothing of theirs is drawn: not the photo beside the bubble,
-              // not the image inside it, not the tap that would open it.
-              const isBlocked = blockedIds.has(m.senderId);
-              return (
-                <View
-                  key={m.id}
-                  style={[styles.bubbleRow, isMine && styles.bubbleRowMine]}
-                  onLayout={e => { messageOffsets.current.set(m.id, e.nativeEvent.layout.y); }}
-                >
-                  {/* Theirs is labelled by picture and name; yours needs
-                      neither — being on the right says who sent it. */}
-                  {!isMine && (
-                    isBlocked ? (
-                      <View style={styles.senderPic} />
-                    ) : (
-                      <TouchableOpacity activeOpacity={0.7} onPress={() => setOpenPersonId(m.senderId)}>
-                        {m.senderProfilePicUrl ? (
-                          <Image source={authedSource(m.senderProfilePicUrl)} style={styles.senderPic} contentFit="cover" />
-                        ) : (
+        <GestureDetector gesture={revealDrag}>
+          <ScrollView
+            ref={scrollViewRef}
+            style={styles.messageList}
+            contentContainerStyle={styles.messageListContent}
+            keyboardShouldPersistTaps="handled"
+            // Scrolling back through history dismisses the keyboard, rather than
+            // costing a separate tap to get it out of the way. Not 'interactive':
+            // iOS moves the keyboard with the thumb there but sends no frame
+            // events until the gesture ends, so the composer couldn't follow and
+            // the two came apart mid-drag. Going at once keeps them together.
+            keyboardDismissMode="on-drag"
+          >
+            {messages.length === 0 ? (
+              <Text style={styles.emptyText}>No messages yet — say hi!</Text>
+            ) : (
+              messages.map((m, i) => {
+                const isMine = m.senderId === session?.user.id;
+                // Nothing of theirs is drawn: not the photo beside the bubble,
+                // not the image inside it, not the tap that would open it.
+                const isBlocked = blockedIds.has(m.senderId);
+                // Null unless enough time has passed since the message above to
+                // be worth marking — so a fast exchange gets one heading, not one
+                // per bubble.
+                const separator = messageSeparator(
+                  m.createdAt,
+                  i > 0 ? messages[i - 1].createdAt : null
+                );
+                return (
+                  <Fragment key={m.id}>
+                    {separator && <Text style={styles.timeSeparator}>{separator}</Text>}
+                    <RevealRow
+                      revealX={revealX}
+                      style={[styles.bubbleRow, isMine && styles.bubbleRowMine]}
+                      onLayout={e => { messageOffsets.current.set(m.id, e.nativeEvent.layout.y); }}
+                    >
+                      {/* Theirs is labelled by picture and name; yours needs
+                          neither — being on the right says who sent it. */}
+                      {!isMine && (
+                        isBlocked ? (
                           <View style={styles.senderPic} />
-                        )}
-                      </TouchableOpacity>
-                    )
-                  )}
-                  {/* Bubble and its tapbacks share a column, so the pills sit
-                      under the message on the same side as it. The column is
-                      what slides for a reply swipe, leaving the sender's
-                      picture anchored where it is. */}
-                  <SwipeToReply style={styles.swipeWrap} onReply={() => setReplyTo(m)}>
-                    <View style={[styles.bubbleColumn, isMine && styles.bubbleColumnMine]}>
-                      <TouchableOpacity
-                        activeOpacity={1}
-                        onPress={() => {
-                          // Only a photo opens; a deleted one, or one from
-                          // someone blocked, is a tombstone with nothing
-                          // behind it.
-                          if (m.kind === 'image' && m.mediaUrl && !m.deletedAt && !isBlocked) openImage(m);
-                        }}
-                        onLongPress={() => openActions(m)}
-                        ref={node => { bubbleRefs.current.set(m.id, node as unknown as View | null); }}
-                        style={[
-                          styles.bubble,
-                          isMine ? styles.bubbleMine : styles.bubbleTheirs,
-                          m.kind === 'image' && !m.deletedAt && !isBlocked && styles.bubblePhoto,
-                        ]}
-                      >
-                        {messageBubbleContent(m, isMine)}
-                      </TouchableOpacity>
-
-                      {(reactionsByMessage.get(m.id)?.length ?? 0) > 0 && (
-                        <ReactionRow
-                          reactions={reactionsByMessage.get(m.id) ?? []}
-                          myUserId={session?.user.id}
-                          onToggle={emoji => toggleReaction(m.id, emoji)}
-                          onShowReactors={() => setReactorsMessageId(m.id)}
-                        />
+                        ) : (
+                          <TouchableOpacity activeOpacity={0.7} onPress={() => setOpenPersonId(m.senderId)}>
+                            {m.senderProfilePicUrl ? (
+                              <Image source={authedSource(m.senderProfilePicUrl)} style={styles.senderPic} contentFit="cover" />
+                            ) : (
+                              <View style={styles.senderPic} />
+                            )}
+                          </TouchableOpacity>
+                        )
                       )}
-                    </View>
-                  </SwipeToReply>
-                </View>
-              );
-            })
-          )}
-        </ScrollView>
+                      {/* Bubble and its tapbacks share a column, so the pills sit
+                          under the message on the same side as it. The column is
+                          what slides for a reply swipe, leaving the sender's
+                          picture anchored where it is. */}
+                      <SwipeToReply style={styles.swipeWrap} onReply={() => setReplyTo(m)}>
+                        <View style={[styles.bubbleColumn, isMine && styles.bubbleColumnMine]}>
+                          <TouchableOpacity
+                            activeOpacity={1}
+                            onPress={() => {
+                              // Only a photo opens; a deleted one, or one from
+                              // someone blocked, is a tombstone with nothing
+                              // behind it.
+                              if (m.kind === 'image' && m.mediaUrl && !m.deletedAt && !isBlocked) openImage(m);
+                            }}
+                            onLongPress={() => openActions(m)}
+                            ref={node => { bubbleRefs.current.set(m.id, node as unknown as View | null); }}
+                            style={[
+                              styles.bubble,
+                              isMine ? styles.bubbleMine : styles.bubbleTheirs,
+                              m.kind === 'image' && !m.deletedAt && !isBlocked && styles.bubblePhoto,
+                            ]}
+                          >
+                            {messageBubbleContent(m, isMine)}
+                          </TouchableOpacity>
+
+                          {(reactionsByMessage.get(m.id)?.length ?? 0) > 0 && (
+                            <ReactionRow
+                              reactions={reactionsByMessage.get(m.id) ?? []}
+                              myUserId={session?.user.id}
+                              onToggle={emoji => toggleReaction(m.id, emoji)}
+                              onShowReactors={() => setReactorsMessageId(m.id)}
+                            />
+                          )}
+                        </View>
+                      </SwipeToReply>
+
+                      {/* Parked just off the right edge of the screen and carried
+                          in by the drag. Out of the flex flow, so it costs the
+                          bubble beside it no width. */}
+                      <View style={styles.revealTime} pointerEvents="none">
+                        <Text style={styles.revealTimeText}>{messageClock(m.createdAt)}</Text>
+                      </View>
+                    </RevealRow>
+                  </Fragment>
+                );
+              })
+            )}
+          </ScrollView>
+        </GestureDetector>
       )}
 
       {/* Composer. Empty, it offers the three ways to send something that isn't
@@ -982,6 +1040,36 @@ const styles = StyleSheet.create({
     color: '#555',
     textAlign: 'center',
     marginTop: 60,
+  },
+
+  // Quiet enough to scan past — it's a heading for the messages under it, not
+  // something to read. More room above than below, so it belongs to the stretch
+  // it introduces rather than floating between two of them.
+  timeSeparator: {
+    ...Type.caption,
+    color: Palette.muted,
+    textAlign: 'center',
+    marginTop: 20,
+    marginBottom: 8,
+  },
+
+  // Sits one full reveal past the row's right edge, which puts it off the screen
+  // entirely — the row's edge is already inset by the content padding, and the
+  // reveal covers both that inset and the width of the time itself. Dragging the
+  // full distance lands its right edge on the list's right margin.
+  revealTime: {
+    position: 'absolute',
+    right: -REVEAL_WIDTH,
+    width: REVEAL_TIME_WIDTH,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+  },
+
+  revealTimeText: {
+    ...Type.caption,
+    color: Palette.muted,
+    textAlign: 'right',
   },
 
   bubbleRow: {
