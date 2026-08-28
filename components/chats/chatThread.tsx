@@ -34,8 +34,14 @@ import { fetchMessageReactions, MessageReaction } from '@/lib/fetchMessageReacti
 import { fetchMessages, Message } from '@/lib/fetchMessages';
 import { fetchPerson } from '@/lib/fetchPerson';
 import { messageClock, messageSeparator } from '@/lib/formatMessageTime';
+import { fetchDiscussionMessages } from '@/lib/fetchDiscussionMessages';
+import { fetchDiscussionReactions } from '@/lib/fetchDiscussionReactions';
+import { sendDiscussionMessage } from '@/lib/sendDiscussionMessage';
+import { setDiscussionReaction } from '@/lib/setDiscussionReaction';
+import { uploadDiscussionAudio } from '@/lib/uploadDiscussionAudio';
+import { uploadDiscussionPhoto } from '@/lib/uploadDiscussionPhoto';
 import { setMessageReaction } from '@/lib/setMessageReaction';
-import { sendMessage } from '@/lib/sendMessage';
+import { MessageMedia, sendMessage } from '@/lib/sendMessage';
 import { ReportTarget } from '@/lib/submitReport';
 import { buildWaveform } from '@/lib/waveform';
 import { uploadChatAudio } from '@/lib/uploadChatAudio';
@@ -85,6 +91,15 @@ interface Props {
   myGroupId: string;
   otherGroupId: string;
   otherGroupName: string;
+  // Turns this into your own group's private discussion ABOUT otherGroupId,
+  // rather than a chat WITH it. Only the data calls change — the composer, the
+  // actions menu, replies, reactions and the reveal drag are the same code
+  // either way, which is what holds the two at parity by construction instead
+  // of by remembering to add every feature twice.
+  discussion?: boolean;
+  // The discussion sheet draws its own title bar and owns dismissal, so the
+  // thread's header would be a second one.
+  hideHeader?: boolean;
   onClose: () => void;
   // Tapping a photo message. Raised to the screen rather than handled here: the
   // viewer pans a zoomed photo, and inside this thread's SlideOver that drag
@@ -92,7 +107,7 @@ interface Props {
   onOpenImage: (image: ViewerImage) => void;
 }
 
-export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, onClose, onOpenImage }: Props) {
+export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, discussion = false, hideHeader = false, onClose, onOpenImage }: Props) {
 
   const { session } = useSession();
 
@@ -161,14 +176,35 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   // just to label and picture it.
   const senders = useRef(new Map<string, { name: string; profilePicUrl: string | null }>());
 
+  // The one write whose SHAPE differs between the two: a chat message needs a
+  // sender group, because a chat has two and the row has to say which sent it;
+  // a discussion has only the one and doesn't. Normalised here so the three
+  // send sites below read identically whichever kind of thread this is.
+  const postMessage = useCallback(
+    (
+      senderId: string,
+      text: string,
+      options: { media?: MessageMedia; replyToId?: number | null } = {}
+    ) => (discussion
+      ? sendDiscussionMessage(myGroupId, otherGroupId, senderId, text, options)
+      : sendMessage(myGroupId, otherGroupId, myGroupId, senderId, text, options)),
+    [discussion, myGroupId, otherGroupId]
+  );
+
   const loadThread = useCallback(() => {
-    fetchMessages(myGroupId, otherGroupId).then(msgs => {
+    (discussion
+      ? fetchDiscussionMessages(myGroupId, otherGroupId)
+      : fetchMessages(myGroupId, otherGroupId)
+    ).then(msgs => {
       msgs.forEach(m => senders.current.set(m.senderId, { name: m.senderName, profilePicUrl: m.senderProfilePicUrl }));
       setMessages(msgs);
       setLoading(false);
     });
-    fetchMessageReactions(myGroupId, otherGroupId).then(setReactions);
-  }, [myGroupId, otherGroupId]);
+    (discussion
+      ? fetchDiscussionReactions(myGroupId, otherGroupId)
+      : fetchMessageReactions(myGroupId, otherGroupId)
+    ).then(setReactions);
+  }, [myGroupId, otherGroupId, discussion]);
 
   useEffect(() => {
     loadThread();
@@ -239,15 +275,21 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   // group_1_id server-side and group_2_id is double-checked client-side.
   useEffect(() => {
     const [g1, g2] = canonicalPair(myGroupId, otherGroupId);
+    // A discussion is filtered by its owning group and narrowed to one subject
+    // client-side, the same one-condition limit the pair works around above.
+    const table = discussion ? 'discussion_messages' : 'messages';
+    const filter = discussion ? `group_id=eq.${myGroupId}` : `group_1_id=eq.${g1}`;
+    const belongsHere = (row: any) =>
+      discussion ? row.about_group_id === otherGroupId : row.group_2_id === g2;
 
     const channel = supabase
-      .channel(`messages-${g1}-${g2}`)
+      .channel(`${table}-${g1}-${g2}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages', filter: `group_1_id=eq.${g1}` },
+        { event: 'INSERT', schema: 'public', table, filter },
         async payload => {
           const row = payload.new;
-          if (row.group_2_id !== g2) return;
+          if (!belongsHere(row)) return;
 
           let sender = senders.current.get(row.sender_id);
           if (!sender) {
@@ -258,7 +300,9 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
 
           setMessages(prev => [...prev, {
             id: row.id,
-            senderGroupId: row.sender_group_id,
+            // A discussion row has no sender group column — it has exactly one
+            // side, and that side is the group whose discussion this is.
+            senderGroupId: discussion ? myGroupId : row.sender_group_id,
             senderId: row.sender_id,
             senderName: sender.name,
             senderProfilePicUrl: sender.profilePicUrl,
@@ -277,10 +321,10 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
       // side learns about it through an update rather than a delete.
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'messages', filter: `group_1_id=eq.${g1}` },
+        { event: 'UPDATE', schema: 'public', table, filter },
         payload => {
           const row = payload.new;
-          if (row.group_2_id !== g2) return;
+          if (!belongsHere(row)) return;
           setMessages(prev => prev.map(m => m.id === row.id ? {
             ...m,
             body: row.body,
@@ -293,7 +337,7 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [myGroupId, otherGroupId]);
+  }, [myGroupId, otherGroupId, discussion]);
 
   // Reactions live on their own channel, and unfiltered: a postgres_changes
   // filter takes one column=value condition, and nothing on message_reactions
@@ -303,22 +347,26 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   // carries only the key.
   useEffect(() => {
     const [g1, g2] = canonicalPair(myGroupId, otherGroupId);
+    const table = discussion ? 'discussion_reactions' : 'message_reactions';
 
     const channel = supabase
-      .channel(`reactions-${g1}-${g2}`)
+      .channel(`${table}-${g1}-${g2}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'message_reactions' },
+        { event: '*', schema: 'public', table },
         payload => {
           const messageId = (payload.new as any)?.message_id ?? (payload.old as any)?.message_id;
           if (!messageIds.current.has(messageId)) return;
-          fetchMessageReactions(myGroupId, otherGroupId).then(setReactions);
+          (discussion
+            ? fetchDiscussionReactions(myGroupId, otherGroupId)
+            : fetchMessageReactions(myGroupId, otherGroupId)
+          ).then(setReactions);
         }
       )
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [myGroupId, otherGroupId]);
+  }, [myGroupId, otherGroupId, discussion]);
 
   // Which messages are on screen, for the reaction channel to filter against.
   // A ref, so the subscription doesn't have to be torn down and rebuilt every
@@ -357,9 +405,11 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
     if (!session?.user) return;
     setSendingPhoto(true);
 
-    const url = await uploadChatPhoto(myGroupId, otherGroupId, asset.uri, asset.width);
-    const ok = url && await sendMessage(
-      myGroupId, otherGroupId, myGroupId, session.user.id,
+    const url = await (discussion
+      ? uploadDiscussionPhoto(myGroupId, otherGroupId, asset.uri, asset.width)
+      : uploadChatPhoto(myGroupId, otherGroupId, asset.uri, asset.width));
+    const ok = url && await postMessage(
+      session.user.id,
       // The body every count and preview reads, since neither can show a photo.
       'Photo',
       {
@@ -460,9 +510,11 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
     const waveform = buildWaveform(meterSamples.current);
 
     setSendingVoice(true);
-    const url = await uploadChatAudio(myGroupId, otherGroupId, uri);
-    const ok = url && await sendMessage(
-      myGroupId, otherGroupId, myGroupId, session.user.id,
+    const url = await (discussion
+      ? uploadDiscussionAudio(myGroupId, otherGroupId, uri)
+      : uploadChatAudio(myGroupId, otherGroupId, uri));
+    const ok = url && await postMessage(
+      session.user.id,
       'Voice message',
       {
         // Empty when metering gave nothing back, which the player reads the
@@ -632,9 +684,16 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
       }];
     });
 
-    const ok = await setMessageReaction(messageId, userId, next);
+    const ok = await (discussion
+      ? setDiscussionReaction(messageId, userId, next)
+      : setMessageReaction(messageId, userId, next));
     // Put the truth back if the write didn't land.
-    if (!ok) fetchMessageReactions(myGroupId, otherGroupId).then(setReactions);
+    if (!ok) {
+      (discussion
+        ? fetchDiscussionReactions(myGroupId, otherGroupId)
+        : fetchMessageReactions(myGroupId, otherGroupId)
+      ).then(setReactions);
+    }
   }
 
   async function handleCopy() {
@@ -653,7 +712,7 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
     // there would keep showing a message its sender had deleted.
     const deletedAt = new Date().toISOString();
     const { error } = await supabase
-      .from('messages')
+      .from(discussion ? 'discussion_messages' : 'messages')
       .update({ deleted_at: deletedAt, body: 'Deleted message', media_url: null, media_aspect_ratio: null })
       .eq('id', id);
     if (error) {
@@ -669,9 +728,8 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
     const trimmed = body.trim();
     if (!trimmed || !session?.user) return;
     setSending(true);
-    const ok = await sendMessage(
-      myGroupId, otherGroupId, myGroupId, session.user.id, trimmed,
-      { replyToId: replyTo?.id ?? null }
+    const ok = await postMessage(
+      session.user.id, trimmed, { replyToId: replyTo?.id ?? null }
     );
     setSending(false);
     if (!ok) {
@@ -685,16 +743,18 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, on
   return (
     <View style={[styles.container, { paddingBottom: keyboardInset }]}>
 
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={onClose}>
-          <ChevronLeft size={28} color="#000" />
-        </TouchableOpacity>
-        {/* Name and chevron are one target — both open who's in the chat. */}
-        <TouchableOpacity style={styles.titleRow} onPress={() => setDetailsOpen(true)}>
-          <Text style={styles.title} numberOfLines={1}>{otherGroupName}</Text>
-          <ChevronRight />
-        </TouchableOpacity>
-      </View>
+      {!hideHeader && (
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={onClose}>
+            <ChevronLeft size={28} color="#000" />
+          </TouchableOpacity>
+          {/* Name and chevron are one target — both open who's in the chat. */}
+          <TouchableOpacity style={styles.titleRow} onPress={() => setDetailsOpen(true)}>
+            <Text style={styles.title} numberOfLines={1}>{otherGroupName}</Text>
+            <ChevronRight />
+          </TouchableOpacity>
+        </View>
+      )}
 
       {loading ? (
         <View style={styles.messageListContent}>

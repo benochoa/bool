@@ -1,6 +1,8 @@
 import { CheckMark } from '@/assets/symbols/CheckMark';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { XMark } from '@/assets/symbols/XMark';
+import DiscussionSheet from '@/components/chats/discussionSheet';
+import ImageViewer, { ViewerImage } from '@/components/chats/imageViewer';
 import GroupPost from '@/components/posts/groupPost';
 import GroupPostPreview from '@/components/posts/groupPostPreview';
 import PersonPanel from '@/components/posts/personPanel';
@@ -12,11 +14,13 @@ import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useAppResume } from '@/hooks/use-app-resume';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useSession } from '@/hooks/use-session';
+import { fetchDiscussionUnreadCounts } from '@/lib/fetchDiscussionUnreadCounts';
 import { fetchGroup } from '@/lib/fetchGroup';
 import { fetchReceivedGroups, ReceivedGroup } from '@/lib/fetchReceivedGroups';
 import { ReportTarget } from '@/lib/submitReport';
 import { supabase } from '@/supabaseClient';
 import { useFocusEffect } from '@react-navigation/native';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
@@ -35,11 +39,18 @@ export default function ReceivedScreen() {
   const [actionsFor, setActionsFor] = useState<string | null>(null);
   const [isLeader, setIsLeader] = useState(false);
   const [loading, setLoading] = useState(true);
+  // The group whose discussion is open, and the unread count behind each tile's
+  // badge, keyed by the group being discussed.
+  const [discussing, setDiscussing] = useState<ReceivedGroup | null>(null);
+  const [unread, setUnread] = useState<Map<string, number>>(new Map());
+  // A photo opened from inside a discussion, shown over everything.
+  const [viewerImage, setViewerImage] = useState<ViewerImage | null>(null);
 
   const refresh = useCallback(() => {
     if (!currentGroupId) {
       setReceived([]);
       setIsLeader(false);
+      setUnread(new Map());
       setLoading(false);
       return;
     }
@@ -47,6 +58,7 @@ export default function ReceivedScreen() {
       setReceived(items);
       setLoading(false);
     });
+    fetchDiscussionUnreadCounts(currentGroupId).then(setUnread);
     if (session?.user) {
       fetchGroup(currentGroupId).then(g => setIsLeader(g?.created_by === session.user.id));
     }
@@ -79,10 +91,35 @@ export default function ReceivedScreen() {
         },
         () => { fetchReceivedGroups(currentGroupId).then(setReceived); }
       )
+      // Discussion badges, live. Filtered to this group's own discussions, so a
+      // message in someone else's is not even delivered. The count differs per
+      // tile and per person, so an event refetches the map rather than trying
+      // to work out from the row which badge to bump.
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'discussion_messages',
+          filter: `group_id=eq.${currentGroupId}`,
+        },
+        () => { fetchDiscussionUnreadCounts(currentGroupId).then(setUnread); }
+      )
       .subscribe(status => console.log('[realtime] received channel:', status));
 
     return () => { supabase.removeChannel(channel); };
   }, [currentGroupId]);
+
+  // A notification tap: the discussion to open rides in as a param, consumed
+  // once the list has arrived. If that suggestion has since been answered the
+  // tile is gone — the param is still cleared and this screen is where you land.
+  const { openDiscussion } = useLocalSearchParams<{ openDiscussion?: string }>();
+  useEffect(() => {
+    if (!openDiscussion || loading) return;
+    const match = received.find(r => r.suggestingGroupId === openDiscussion);
+    if (match) setDiscussing(match);
+    router.setParams({ openDiscussion: undefined });
+  }, [openDiscussion, received, loading]);
 
   async function handleApprove(suggestingGroupId: string) {
     if (!currentGroupId) return;
@@ -138,6 +175,8 @@ export default function ReceivedScreen() {
               suggesterPicUrl={null}
               hideSuggesterPic
               onPress={() => setDetail(r)}
+              onOpenDiscussion={() => setDiscussing(r)}
+              discussionUnread={unread.get(r.suggestingGroupId) ?? 0}
             />
           ))}
         </ScrollView>
@@ -162,6 +201,26 @@ export default function ReceivedScreen() {
           )}
         </View>
       </SlideOver>
+
+      {/* Your own group's back-room about this one. Closing refreshes the
+          badges: what you just read is no longer unread. */}
+      {currentGroupId && (
+        <DiscussionSheet
+          aboutGroupId={discussing?.suggestingGroupId ?? null}
+          aboutGroupName={discussing?.groupName ?? ''}
+          myGroupId={currentGroupId}
+          onClose={() => {
+            setDiscussing(null);
+            fetchDiscussionUnreadCounts(currentGroupId).then(setUnread);
+          }}
+          onOpenImage={setViewerImage}
+          onSelectMember={setOpenPersonId}
+        />
+      )}
+
+      {/* Outside the panel, so it covers the discussion rather than living
+          inside the panel whose swipe its pan would fight. */}
+      <ImageViewer image={viewerImage} onClose={() => setViewerImage(null)} />
 
       {/* Last, so a member's profile covers the post that opened it. */}
       <PersonPanel personId={openPersonId} onClose={() => setOpenPersonId(null)} />

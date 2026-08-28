@@ -831,3 +831,20 @@ drop trigger if exists notify_memberships_webhook on public.memberships;
 create trigger notify_memberships_webhook
   after insert or update on public.memberships
   for each row execute function public.notify_webhook();
+
+-- ===========================================================================
+-- Group discussions
+--
+-- PENDING: the definitive statements live in supabase/discussions.sql and are
+-- reproduced there in full. Fold them into this mirror once they have actually
+-- been run in the dashboard — until then this file describes the live database
+-- and that one describes where it is going.
+--
+-- A discussion is one group's private back-room about ONE candidate group:
+-- discussion_messages (group_id, about_group_id, ...), discussion_reactions and
+-- discussion_reads, plus get_discussion_unread_counts(), a discussion-media
+-- storage bucket, and a fourth notify webhook. Every policy gates on group_id
+-- alone -- about_group_id names a subject, never a grant, which is what keeps
+-- the group under discussion out of it. It cannot reuse `messages`: that
+-- table's select policy admits active members of EITHER group in the pair.
+-- ===========================================================================

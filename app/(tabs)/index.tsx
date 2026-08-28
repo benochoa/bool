@@ -2,6 +2,8 @@ import { CheckMark } from '@/assets/symbols/CheckMark';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { PaperPlane } from '@/assets/symbols/PaperPlane';
 import { XMark } from '@/assets/symbols/XMark';
+import DiscussionSheet from '@/components/chats/discussionSheet';
+import ImageViewer, { ViewerImage } from '@/components/chats/imageViewer';
 import GroupPost from '@/components/posts/groupPost';
 import GroupPostPreview from '@/components/posts/groupPostPreview';
 import PersonPanel from '@/components/posts/personPanel';
@@ -14,6 +16,7 @@ import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useSession } from '@/hooks/use-session';
 import { ActiveGroup, fetchActiveGroups } from '@/lib/fetchActiveGroups';
 import { fetchAllGroupMembers, GroupMemberRow } from '@/lib/fetchAllGroupMembers';
+import { fetchDiscussionUnreadCounts } from '@/lib/fetchDiscussionUnreadCounts';
 import { fetchGroup, GroupData } from '@/lib/fetchGroup';
 import { fetchGroupSuggestions, GroupSuggestion } from '@/lib/fetchGroupSuggestions';
 import { fetchMatchedGroupIds } from '@/lib/fetchMatchedGroupIds';
@@ -55,6 +58,12 @@ export default function ExploreScreen() {
   const [matchedGroupIds, setMatchedGroupIds] = useState<string[]>([]);
   const [isLeader, setIsLeader] = useState(false);
   const [loading, setLoading] = useState(true);
+  // The group whose discussion is open, and the unread count behind each tile's
+  // badge, keyed by the group being discussed.
+  const [discussing, setDiscussing] = useState<GroupSuggestion | null>(null);
+  const [discussionUnread, setDiscussionUnread] = useState<Map<string, number>>(new Map());
+  // A photo opened from inside a discussion, shown over everything.
+  const [viewerImage, setViewerImage] = useState<ViewerImage | null>(null);
   // Identifies the newest refresh, so a slower earlier one can't overwrite it.
   const refreshRun = useRef(0);
 
@@ -106,6 +115,10 @@ export default function ExploreScreen() {
         setLoading(false);
       }
     );
+
+    // Badges on the Pending tiles. Separate from the run above because it is
+    // the one piece of this screen that is per-person rather than per-group.
+    if (currentGroupId) fetchDiscussionUnreadCounts(currentGroupId).then(setDiscussionUnread);
   }, [currentGroupId, session, loadingGroups]);
 
   // Refetch on focus (switching to Explore from another tab)...
@@ -127,13 +140,23 @@ export default function ExploreScreen() {
 
   // A notification tap lands here asking for the Pending sub-tab; the param is
   // consumed so ordinary visits keep starting wherever they were.
-  const { view } = useLocalSearchParams<{ view?: string }>();
+  const { view, openDiscussion } = useLocalSearchParams<{ view?: string; openDiscussion?: string }>();
   useEffect(() => {
     if (view === 'pending') {
       setActiveTab('Pending');
       router.setParams({ view: undefined });
     }
   }, [view]);
+
+  // The discussion to open rides in on the same tap. Consumed only once the
+  // suggestions have arrived; if that one has since been answered the tile is
+  // gone, and the param is still cleared so it can't fire again later.
+  useEffect(() => {
+    if (!openDiscussion || loading) return;
+    const match = suggestions.find(s => s.targetGroupId === openDiscussion);
+    if (match) setDiscussing(match);
+    router.setParams({ openDiscussion: undefined });
+  }, [openDiscussion, suggestions, loading]);
 
   // Live updates for the Pending feed, so a member's swipe, a leader's send,
   // or the other group's approval shows up without leaving the tab. Both
@@ -169,6 +192,20 @@ export default function ExploreScreen() {
           filter: `target_group_id=eq.${currentGroupId}`,
         },
         () => { fetchReceivedGroupIds(currentGroupId).then(setReceivedGroupIds); }
+      )
+      // Discussion badges, live. Filtered to this group's own discussions, so a
+      // message in someone else's is not even delivered. The count differs per
+      // tile and per person, so an event refetches the map rather than trying
+      // to work out from the row which badge to bump.
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'discussion_messages',
+          filter: `group_id=eq.${currentGroupId}`,
+        },
+        () => { fetchDiscussionUnreadCounts(currentGroupId).then(setDiscussionUnread); }
       )
       .subscribe(status => console.log('[realtime] pending channel:', status));
 
@@ -413,6 +450,8 @@ export default function ExploreScreen() {
                   alertRing={s.status === 'pending'}
                   loose
                   onPress={() => setDetail(s)}
+                  onOpenDiscussion={() => setDiscussing(s)}
+                  discussionUnread={discussionUnread.get(s.targetGroupId) ?? 0}
                 />
               ))}
             </Fragment>
@@ -439,6 +478,26 @@ export default function ExploreScreen() {
           )}
         </View>
       </SlideOver>
+
+      {/* Your own group's back-room about this one. Closing refreshes the
+          badges: what you just read is no longer unread. */}
+      {currentGroupId && (
+        <DiscussionSheet
+          aboutGroupId={discussing?.targetGroupId ?? null}
+          aboutGroupName={discussing?.groupName ?? ''}
+          myGroupId={currentGroupId}
+          onClose={() => {
+            setDiscussing(null);
+            fetchDiscussionUnreadCounts(currentGroupId).then(setDiscussionUnread);
+          }}
+          onOpenImage={setViewerImage}
+          onSelectMember={setOpenPersonId}
+        />
+      )}
+
+      {/* Outside the panel, so it covers the discussion rather than living
+          inside the panel whose swipe its pan would fight. */}
+      <ImageViewer image={viewerImage} onClose={() => setViewerImage(null)} />
 
       {/* Last, so a member's profile covers the post that opened it. */}
       <PersonPanel personId={openPersonId} onClose={() => setOpenPersonId(null)} />

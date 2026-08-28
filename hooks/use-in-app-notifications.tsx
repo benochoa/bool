@@ -6,6 +6,7 @@ import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useSession } from '@/hooks/use-session';
 import { fetchGroup, GroupData } from '@/lib/fetchGroup';
 import { fetchPerson } from '@/lib/fetchPerson';
+import { fetchReceivedGroupIds } from '@/lib/fetchReceivedGroupIds';
 import { NotificationData, routeToNotification } from '@/lib/notificationRouting';
 import { supabase } from '@/supabaseClient';
 
@@ -35,10 +36,20 @@ type MembershipRow = {
   status: string;
 };
 
+type DiscussionRow = {
+  group_id: string;
+  about_group_id: string;
+  sender_id: string;
+  body: string;
+};
+
 interface InAppNotificationContextValue {
   // The chat being looked at right now (the other group's id), so its own
   // messages don't banner over the open thread. Null when none is.
   setOpenChat: (otherGroupId: string | null) => void;
+  // The same, for the discussion panel: the group being discussed, so its own
+  // messages don't banner over the panel you are reading them in.
+  setOpenDiscussion: (aboutGroupId: string | null) => void;
 }
 
 const InAppNotificationContext = createContext<InAppNotificationContextValue | null>(null);
@@ -52,6 +63,7 @@ export function InAppNotificationProvider({ children }: { children: ReactNode })
   const [queue, setQueue] = useState<InAppNotification[]>([]);
   const idRef = useRef(0);
   const openChatRef = useRef<string | null>(null);
+  const openDiscussionRef = useRef<string | null>(null);
   // Read through a ref because the realtime handlers below close over it and
   // the channel outlives a block being made.
   const { blockedIds } = useBlockedPeople();
@@ -76,6 +88,10 @@ export function InAppNotificationProvider({ children }: { children: ReactNode })
 
   const setOpenChat = useCallback((otherGroupId: string | null) => {
     openChatRef.current = otherGroupId;
+  }, []);
+
+  const setOpenDiscussion = useCallback((aboutGroupId: string | null) => {
+    openDiscussionRef.current = aboutGroupId;
   }, []);
 
   const show = useCallback((n: Omit<InAppNotification, 'id'>) => {
@@ -171,6 +187,38 @@ export function InAppNotificationProvider({ children }: { children: ReactNode })
       });
     }
 
+    // 9) a message in one of this group's private discussions. Framed by my own
+    // group, exactly as the push is: the candidate being discussed is not named,
+    // because the banner is about my group's own conversation. Blocked senders
+    // are dropped here for the same reason they are for chat — the thread shows
+    // them a tombstone, and a banner would put the content on screen anyway.
+    async function onDiscussion(row: DiscussionRow) {
+      if (row.sender_id === userId || blockedRef.current.has(row.sender_id)) return;
+      // Already reading that discussion — the message is arriving in front of
+      // them, so bannering it over the top would only cover it up.
+      if (openDiscussionRef.current === row.about_group_id) return;
+      const [me, sender, receivedIds] = await Promise.all([
+        myGroupRef.current,
+        fetchPerson(row.sender_id),
+        // Which tab the candidate's tile is on, so tapping the banner opens the
+        // discussion rather than merely landing on the wrong list. One query per
+        // banner, not per render, and the push works it out the same way.
+        fetchReceivedGroupIds(row.group_id),
+      ]);
+      if (!me) return;
+      show({
+        pfpUrl: sender?.profilePicUrl ?? null,
+        line1: `[${me.name}] ${sender?.name || 'Someone'}`,
+        line2: row.body,
+        data: {
+          type: 'discussion',
+          groupId: row.group_id,
+          otherGroupId: row.about_group_id,
+          surface: receivedIds.includes(row.about_group_id) ? 'received' : 'pending',
+        },
+      });
+    }
+
     // 6) / 7) / 8) the roster changed. Joining is an insert, or an update back
     // to active for someone rejoining a group they'd left — the invite code
     // path upserts, so a rejoin never inserts. A dissolution
@@ -256,6 +304,13 @@ export function InAppNotificationProvider({ children }: { children: ReactNode })
         { event: 'UPDATE', schema: 'public', table: 'memberships', filter: `group_id=eq.${currentGroupId}` },
         payload => { onMembership(payload.new as MembershipRow, payload.old as MembershipRow); }
       )
+      // One condition is enough here, unlike chat: a discussion has a single
+      // owning group rather than an unordered pair.
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'discussion_messages', filter: `group_id=eq.${currentGroupId}` },
+        payload => { onDiscussion(payload.new as DiscussionRow); }
+      )
       .subscribe(status => console.log('[realtime] notifications channel:', status));
 
     return () => { supabase.removeChannel(channel); };
@@ -272,7 +327,7 @@ export function InAppNotificationProvider({ children }: { children: ReactNode })
   );
 
   return (
-    <InAppNotificationContext.Provider value={{ setOpenChat }}>
+    <InAppNotificationContext.Provider value={{ setOpenChat, setOpenDiscussion }}>
       {children}
       {current && (
         <NotificationBanner

@@ -1,7 +1,8 @@
-// Push notifications. Called by two Database Webhooks (dashboard → Database →
-// Webhooks): group_suggestions on INSERT + UPDATE, and messages on INSERT —
-// both POST here with an `x-webhook-secret` header matching the WEBHOOK_SECRET
-// function secret. Deploy with --no-verify-jwt (webhooks carry no user JWT).
+// Push notifications. Called by four Database Webhooks (dashboard → Database →
+// Webhooks): group_suggestions on INSERT + UPDATE, messages on INSERT,
+// memberships on INSERT + UPDATE, and discussion_messages on INSERT — all POST
+// here with an `x-webhook-secret` header matching the WEBHOOK_SECRET function
+// secret. Deploy with --no-verify-jwt (webhooks carry no user JWT).
 //
 // Recipients are worked out server-side from active memberships, minus the
 // person whose action caused the event, so pushes go out even after the actor
@@ -44,13 +45,26 @@ type MembershipRow = {
   status: string;
 };
 
+type DiscussionRow = {
+  group_id: string;
+  about_group_id: string;
+  sender_id: string;
+  body: string;
+};
+
 // One push to one person; fan-out to their devices happens at send time. data
 // is what a tap routes on (lib/notificationRouting.ts parses the same shape).
 type Push = {
   userId: string;
   title: string;
   body: string;
-  data: { type: string; groupId: string; otherGroupId?: string };
+  data: {
+    type: string;
+    groupId: string;
+    otherGroupId?: string;
+    // Discussion pushes only: which tab the candidate's tile is on.
+    surface?: 'pending' | 'received';
+  };
 };
 
 async function activeMembers(groupIds: string[]): Promise<Map<string, string[]>> {
@@ -199,6 +213,56 @@ async function forSuggestion(payload: WebhookPayload): Promise<Push[]> {
   return [];
 }
 
+// Case 9: someone posted in the group's private discussion about a candidate
+// group. Only that group's own members hear about it — the group under
+// discussion has no part in this and is never told it is being talked about.
+async function forDiscussion(payload: WebhookPayload): Promise<Push[]> {
+  if (payload.type !== 'INSERT' || !payload.record) return [];
+  const row = payload.record as DiscussionRow;
+
+  const [members, groups, senderName, blocked, surface] = await Promise.all([
+    activeMembers([row.group_id]),
+    groupInfo([row.group_id]),
+    personName(row.sender_id),
+    blockedWith(row.sender_id),
+    discussionSurface(row.group_id, row.about_group_id),
+  ]);
+
+  return (members.get(row.group_id) ?? [])
+    .filter(id => id !== row.sender_id && !blocked.has(id))
+    .map(userId => ({
+      userId,
+      // The recipient's OWN group, as every other notification in the app does
+      // — the bracket answers "which of my groups is this about?", and someone
+      // in several would otherwise have no way to tell. The candidate being
+      // discussed is deliberately left out of it.
+      title: `[${groups.get(row.group_id)?.name ?? ''}] ${senderName}`,
+      body: row.body,
+      // A discussion has no screen of its own — it opens from a tile, so the tap
+      // has to land on whichever tab that tile is sitting on.
+      data: { type: 'discussion', groupId: row.group_id, otherGroupId: row.about_group_id, surface },
+    }));
+}
+
+// Which tab the candidate's tile lives on. A suggestion this group made is in
+// Pending; one aimed at it is in Received. Defaults to Pending for a discussion
+// whose suggestion has since been answered — the tile is gone either way, and
+// the tab is the closest thing to right.
+async function discussionSurface(
+  groupId: string,
+  aboutGroupId: string,
+): Promise<'pending' | 'received'> {
+  const { data } = await supabase
+    .from('group_suggestions')
+    .select('suggesting_group_id')
+    .or(
+      `and(suggesting_group_id.eq.${groupId},target_group_id.eq.${aboutGroupId}),` +
+      `and(suggesting_group_id.eq.${aboutGroupId},target_group_id.eq.${groupId})`,
+    )
+    .maybeSingle();
+  return data?.suggesting_group_id === aboutGroupId ? 'received' : 'pending';
+}
+
 // Cases 6, 7 + 8: the roster changed. A fresh join inserts; a rejoin updates a
 // row that was 'left' back to 'active', because redeeming an invite code
 // upserts. A dissolution ('group_dissolved') stays silent — it would announce
@@ -316,7 +380,9 @@ Deno.serve(async req => {
         ? await forSuggestion(payload)
         : payload.table === 'memberships'
           ? await forMembership(payload)
-          : [];
+          : payload.table === 'discussion_messages'
+            ? await forDiscussion(payload)
+            : [];
   if (pushes.length) await send(pushes);
   return new Response('ok');
 });
