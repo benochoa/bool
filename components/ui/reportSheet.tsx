@@ -8,6 +8,7 @@ import SlideOver from '@/components/ui/slideOver';
 import { Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { ReportTarget, submitReport } from '@/lib/submitReport';
+import { HEADER_TOP } from '@/constants/layout';
 
 // Fixed list rather than free text alone: a reason that's one of a known set can
 // be counted and sorted later, and most people won't write a paragraph.
@@ -139,7 +140,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 60,
+    paddingTop: HEADER_TOP,
     paddingBottom: 16,
     paddingHorizontal: 20,
   },

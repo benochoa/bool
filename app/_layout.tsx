@@ -70,6 +70,18 @@ export default function RootLayout() {
   // login until it lands; the cover hides that flip to (tabs).
   const covered = loading || !fontsLoaded || !minElapsed;
 
+  // The cover normally tears the splash down itself, via onShown, the moment the
+  // animation paints. Two things can strand it there instead: the GIF finishing
+  // after the cover has already unmounted, which takes the only hideAsync call
+  // with it, or `covered` never going false at all because the session or the
+  // fonts never land. Either way the native splash sits over the app forever.
+  // minElapsed is on a plain timer that nothing can block, so tearing down on it
+  // too puts a hard ceiling on how long the splash can hold. Whichever path
+  // fires first wins; the second call is a no-op.
+  useEffect(() => {
+    if (!covered || minElapsed) SplashScreen.hideAsync();
+  }, [covered, minElapsed]);
+
   return (
     <View style={styles.root}>
       <ZoomRoot>

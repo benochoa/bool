@@ -52,6 +52,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSharedValue, withTiming } from 'react-native-reanimated';
+import { COMPOSER_BOTTOM, CONFIRM_ROW_BOTTOM, HEADER_TOP } from '@/constants/layout';
 
 // The three composer icons are drawn at one size and one colour — they're a set,
 // and the row only reads as one control if they match.
@@ -1063,7 +1064,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 60,
+    paddingTop: HEADER_TOP,
     paddingBottom: 16,
     paddingHorizontal: 20,
   },
@@ -1306,7 +1307,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     // Lifts the composer clear of the bottom edge — the padding sits below the
     // border, so the rule stays tight to the row rather than floating.
-    paddingBottom: 44,
+    paddingBottom: COMPOSER_BOTTOM,
     borderTopWidth: 1,
     borderTopColor: '#eee',
   },
@@ -1386,7 +1387,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 32,
     paddingTop: 20,
-    paddingBottom: 48,
+    paddingBottom: CONFIRM_ROW_BOTTOM,
   },
 
   confirmCancel: {

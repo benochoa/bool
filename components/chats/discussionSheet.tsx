@@ -10,6 +10,7 @@ import { Palette, Type } from '@/constants/theme';
 import { useInAppNotifications } from '@/hooks/use-in-app-notifications';
 import { useSession } from '@/hooks/use-session';
 import { markDiscussionRead } from '@/lib/markDiscussionRead';
+import { HEADER_TOP, FLOATING_TOP } from '@/constants/layout';
 
 // Your own group's private back-room about one candidate group — a full-screen
 // panel over whatever opened it, leaving by its back chevron or by a swipe to
@@ -123,7 +124,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 60,
+    paddingTop: HEADER_TOP,
     paddingBottom: 16,
     paddingHorizontal: 20,
   },
@@ -151,12 +152,12 @@ const styles = StyleSheet.create({
   postPanel: {
     flex: 1,
     backgroundColor: Palette.background,
-    paddingTop: 100,
+    paddingTop: FLOATING_TOP,
   },
 
   postBack: {
     position: 'absolute',
-    top: 60,
+    top: HEADER_TOP,
     left: 20,
     zIndex: 10,
   },

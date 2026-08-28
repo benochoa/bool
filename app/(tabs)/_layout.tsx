@@ -16,6 +16,7 @@ import { PushNotificationManager } from '@/hooks/use-push-notifications';
 import { useSession } from '@/hooks/use-session';
 import { TabBadgeProvider, useTabBadges } from '@/hooks/use-tab-badges';
 import { supabase } from '@/supabaseClient';
+import { HEADER_TOP } from '@/constants/layout';
 
 // Off-white — pure #fff glares against the bar, so the icons sit just under it.
 const TAB_ICON = '#E8E8EA';
@@ -259,7 +260,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 60,
+    paddingTop: HEADER_TOP,
     paddingHorizontal: 20,
   },
   gateTitle: {

@@ -28,6 +28,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { FLOATING_TOP, HEADER_TOP, LEADER_ROW_BOTTOM } from '@/constants/layout';
 
 // Leads the For You deck when it qualifies, ahead of the id ordering the
 // feed otherwise follows.
@@ -557,7 +558,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 8,
-    paddingTop: 60,
+    paddingTop: HEADER_TOP,
     height: 104,
   },
 
@@ -725,20 +726,22 @@ const styles = StyleSheet.create({
   detailModal: {
     flex: 1,
     backgroundColor: Palette.background,
-    paddingTop: 100,
+    paddingTop: FLOATING_TOP,
   },
 
   detailBack: {
     position: 'absolute',
-    top: 60,
+    top: HEADER_TOP,
     left: 20,
     zIndex: 10,
   },
 
-  // Leader-only Send/Remove, floating at the bottom of the detail modal
+  // Leader-only Send/Remove, floating at the bottom of the detail modal.
+  // The modal's SlideOver hides the tab bar, so this really is the screen's
+  // bottom edge — hence the inset-aware constant rather than a literal.
   modalLeaderRow: {
     position: 'absolute',
-    bottom: 40,
+    bottom: LEADER_ROW_BOTTOM,
     left: 0,
     right: 0,
     flexDirection: 'row',

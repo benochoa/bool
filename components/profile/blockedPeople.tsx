@@ -9,6 +9,7 @@ import { useBlockedPeople } from '@/hooks/use-blocked-people';
 import { useSession } from '@/hooks/use-session';
 import { BlockedPerson, fetchMyBlockedPeople } from '@/lib/fetchMyBlockedPeople';
 import { setPersonBlock } from '@/lib/setPersonBlock';
+import { HEADER_TOP } from '@/constants/layout';
 
 interface Props {
   onClose: () => void;
@@ -92,7 +93,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 60,
+    paddingTop: HEADER_TOP,
     paddingBottom: 16,
     paddingHorizontal: 20,
   },

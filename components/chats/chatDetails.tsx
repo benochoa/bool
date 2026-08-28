@@ -12,6 +12,7 @@ import PersonPanel from '@/components/posts/personPanel';
 import SlideOver from '@/components/ui/slideOver';
 import { Palette, Type } from '@/constants/theme';
 import { fetchGroup, GroupData } from '@/lib/fetchGroup';
+import { HEADER_TOP } from '@/constants/layout';
 
 // Matches the members card beneath it, so names and cards share a left edge.
 const CARD_WIDTH = Dimensions.get('window').width - 40;
@@ -126,7 +127,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 60,
+    paddingTop: HEADER_TOP,
     paddingHorizontal: 20,
   },
 
@@ -139,7 +140,7 @@ const styles = StyleSheet.create({
   // button floats over it.
   floatingBack: {
     position: 'absolute',
-    top: 60,
+    top: HEADER_TOP,
     left: 20,
     height: 44,
     justifyContent: 'center',

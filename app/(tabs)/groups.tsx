@@ -20,6 +20,7 @@ import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useHideTabBar } from '@/hooks/use-hide-tab-bar';
 import { useSession } from '@/hooks/use-session';
 import { fetchGroupSummaries, GroupSummary } from '@/lib/fetchGroupSummaries';
+import { HEADER_TOP } from '@/constants/layout';
 
 // How far offscreen the editor rests — a full screen width to the right.
 const WIDTH = Dimensions.get('window').width;
@@ -318,7 +319,7 @@ const styles = StyleSheet.create({
   // shifts when one replaces the other.
   editBand: {
     position: 'absolute',
-    top: 60,
+    top: HEADER_TOP,
     left: 20,
     right: 20,
     height: 44,
@@ -345,7 +346,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    paddingTop: 60,
+    paddingTop: HEADER_TOP,
     backgroundColor: Palette.background,
     alignItems: 'center',
     zIndex: 3,

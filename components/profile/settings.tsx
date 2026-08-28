@@ -11,6 +11,7 @@ import { unregisterPushToken } from '@/lib/registerPushToken';
 import { supabase } from '@/supabaseClient';
 import BlockedPeople from './blockedPeople';
 import BugReport from './bugReport';
+import { HEADER_TOP } from '@/constants/layout';
 
 // The published documents, opened in a browser rather than bundled into the
 // app. One copy on the site is the copy everyone reads — the app store listings
@@ -147,7 +148,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 60,
+    paddingTop: HEADER_TOP,
     paddingBottom: 16,
     paddingHorizontal: 20,
   },

@@ -9,6 +9,7 @@ import SlideOver from '@/components/ui/slideOver';
 import { Palette, Type } from '@/constants/theme';
 import { fetchGroupSummaries, GroupSummary } from '@/lib/fetchGroupSummaries';
 import { fetchMatchedGroupIds } from '@/lib/fetchMatchedGroupIds';
+import { HEADER_TOP, FLOATING_TOP } from '@/constants/layout';
 
 interface Props {
   groupId: string;
@@ -113,7 +114,7 @@ const styles = StyleSheet.create({
   // The content scrolls under it, so it floats rather than taking a row.
   backButton: {
     position: 'absolute',
-    top: 60,
+    top: HEADER_TOP,
     left: 20,
     zIndex: 2,
   },
@@ -140,6 +141,6 @@ const styles = StyleSheet.create({
   postPanel: {
     flex: 1,
     backgroundColor: Palette.background,
-    paddingTop: 100,
+    paddingTop: FLOATING_TOP,
   },
 });

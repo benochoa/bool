@@ -11,6 +11,7 @@ import { useBlockedPeople } from '@/hooks/use-blocked-people';
 import { useSession } from '@/hooks/use-session';
 import { setPersonBlock } from '@/lib/setPersonBlock';
 import { ReportTarget } from '@/lib/submitReport';
+import { HEADER_TOP } from '@/constants/layout';
 
 // Someone's profile, read-only, over whatever opened it — a members card, a
 // message's picture. A panel can only cover its own screen, so this belongs to
@@ -116,7 +117,7 @@ const styles = StyleSheet.create({
   // over it.
   backButton: {
     position: 'absolute',
-    top: 60,
+    top: HEADER_TOP,
     left: 20,
     height: 44,
     justifyContent: 'center',

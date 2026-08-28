@@ -13,6 +13,7 @@ import { Palette, Type } from '@/constants/theme';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { useHideTabBar } from '@/hooks/use-hide-tab-bar';
 import { useSession } from '@/hooks/use-session';
+import { HEADER_TOP } from '@/constants/layout';
 
 // How far offscreen the editor rests — a full screen width to the right.
 const WIDTH = Dimensions.get('window').width;
@@ -185,7 +186,7 @@ const styles = StyleSheet.create({
     // Back at the left, Done at the right.
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 60,
+    paddingTop: HEADER_TOP,
     paddingHorizontal: 20,
   },
   body: {

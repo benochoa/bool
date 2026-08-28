@@ -23,6 +23,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { FLOATING_TOP, HEADER_TOP, LEADER_ROW_BOTTOM } from '@/constants/layout';
 
 export default function ReceivedScreen() {
 
@@ -252,7 +253,7 @@ const styles = StyleSheet.create({
 
   // Page title — the same 44pt band at top: 60 the other tabs use.
   headerBand: {
-    marginTop: 60,
+    marginTop: HEADER_TOP,
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
@@ -286,20 +287,22 @@ const styles = StyleSheet.create({
   detailModal: {
     flex: 1,
     backgroundColor: Palette.background,
-    paddingTop: 100,
+    paddingTop: FLOATING_TOP,
   },
 
   detailBack: {
     position: 'absolute',
-    top: 60,
+    top: HEADER_TOP,
     left: 20,
     zIndex: 10,
   },
 
-  // Leader-only Approve/Reject, floating at the bottom of the detail modal
+  // Leader-only Approve/Reject, floating at the bottom of the detail modal.
+  // The modal's SlideOver hides the tab bar, so this really is the screen's
+  // bottom edge — hence the inset-aware constant rather than a literal.
   modalLeaderRow: {
     position: 'absolute',
-    bottom: 40,
+    bottom: LEADER_ROW_BOTTOM,
     left: 0,
     right: 0,
     flexDirection: 'row',

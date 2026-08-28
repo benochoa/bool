@@ -35,6 +35,7 @@ import {
 import CardReorder, { EDIT_CARD_HEIGHT, EDIT_CARD_WIDTH } from './cardReorder';
 import { IdentifiersEdit, IdentifiersView } from './identifiersCard';
 import ZoomableImage from './zoomableImage';
+import { HEADER_TOP } from '@/constants/layout';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
@@ -568,7 +569,7 @@ const styles = StyleSheet.create({
   // which is what keeps the profile tab's layout where it was when its fixed
   // header carried the icons.
   headerRightInset: {
-    paddingTop: 60,
+    paddingTop: HEADER_TOP,
   },
 
   // Only the standalone member-profile modal needs this — nothing else on

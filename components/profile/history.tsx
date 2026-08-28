@@ -9,6 +9,7 @@ import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { fetchGroupSummaries, GroupSummary } from '@/lib/fetchGroupSummaries';
 import { fetchMyPastGroups, PastMembershipStatus } from '@/lib/fetchMyPastGroups';
+import { HEADER_TOP } from '@/constants/layout';
 
 interface Props {
   onClose: () => void;
@@ -116,7 +117,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 60,
+    paddingTop: HEADER_TOP,
     paddingBottom: 16,
     paddingHorizontal: 20,
   },

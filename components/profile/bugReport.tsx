@@ -7,6 +7,7 @@ import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
 import { Palette, Type } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { submitBugReport } from '@/lib/submitBugReport';
+import { HEADER_TOP } from '@/constants/layout';
 
 interface Props {
   onClose: () => void;
@@ -97,7 +98,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 60,
+    paddingTop: HEADER_TOP,
     paddingBottom: 16,
     paddingHorizontal: 20,
   },

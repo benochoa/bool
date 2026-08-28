@@ -11,6 +11,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import { XMark } from '@/assets/symbols/XMark';
 import { Type } from '@/constants/theme';
+import { HEADER_TOP } from '@/constants/layout';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -324,7 +325,7 @@ const styles = StyleSheet.create({
 
   closeButton: {
     position: 'absolute',
-    top: 60,
+    top: HEADER_TOP,
     left: 20,
     height: 44,
     width: 44,
@@ -334,7 +335,7 @@ const styles = StyleSheet.create({
 
   saveButton: {
     position: 'absolute',
-    top: 60,
+    top: HEADER_TOP,
     right: 20,
     height: 44,
     minWidth: 44,

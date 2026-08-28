@@ -36,6 +36,7 @@ import {
   CardSlot, DEFAULT_GROUP_CARD_ORDER, photoSlotsFromUrls, reconcileCardOrder,
   slotKey, toStoredCardOrder,
 } from '@/lib/cardOrder';
+import { HEADER_TOP, FLOATING_TOP } from '@/constants/layout';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
@@ -806,7 +807,7 @@ const styles = StyleSheet.create({
   // this is the same 100 the groups tab passes as `topInset` to clear its own
   // floating band.
   contentWithBackButton: {
-    paddingTop: 100,
+    paddingTop: FLOATING_TOP,
   },
 
   // Members card box — rows carry their own horizontal padding, so the crown
@@ -1001,7 +1002,7 @@ const styles = StyleSheet.create({
   // Back (creation flow)
   backButton: {
     position: 'absolute',
-    top: 60,
+    top: HEADER_TOP,
     left: 20,
     zIndex: 10,
   },

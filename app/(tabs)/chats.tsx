@@ -19,6 +19,7 @@ import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useInAppNotifications } from '@/hooks/use-in-app-notifications';
 import { useSession } from '@/hooks/use-session';
 import { useTabBadges } from '@/hooks/use-tab-badges';
+import { HEADER_TOP } from '@/constants/layout';
 
 export default function ChatsScreen() {
 
@@ -241,7 +242,7 @@ const styles = StyleSheet.create({
   },
   // Page title — the same 44pt band at top: 60 the other tabs use.
   headerBand: {
-    marginTop: 60,
+    marginTop: HEADER_TOP,
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
