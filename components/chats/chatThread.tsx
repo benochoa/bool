@@ -65,6 +65,9 @@ const RECORDING_COLOR = '#FF3B30';
 // carry a duration of their own. Raise it for a slower settle — past the
 // keyboard's own ~250ms the bar starts trailing it rather than moving with it.
 const KEYBOARD_SETTLE_MS = 250;
+// How far a drag has to travel back through the history before it counts as
+// reaching for older messages rather than a wobble on the way to a tap.
+const KEYBOARD_DISMISS_DRAG = 16;
 // How often the loudness is read while recording. Fast enough that a one-second
 // message still has ten bars' worth of shape to draw from.
 const METER_INTERVAL_MS = 100;
@@ -173,6 +176,10 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, di
   useEffect(() => stopMetering, []);
 
   const scrollViewRef = useRef<ScrollView>(null);
+  // Where the current drag started, so its direction can be read off the scroll
+  // events that follow — the keyboard only leaves on the way back through the
+  // history, never on the way down to the newest message.
+  const dragOriginY = useRef(0);
   // Sender details already seen, so a live message doesn't refetch the person
   // just to label and picture it.
   const senders = useRef(new Map<string, { name: string; profilePicUrl: string | null }>());
@@ -220,7 +227,19 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, di
   const [keyboardInset, setKeyboardInset] = useState(0);
 
   useEffect(() => {
-    if (Platform.OS !== 'ios') return;
+    // Android's window doesn't shrink for the keyboard under edge-to-edge —
+    // the same thing useKeyboardAwareScroll works around — so without this the
+    // composer stayed at the bottom of a full-height window with the keyboard
+    // drawn over it. It reports no will-change frame and no duration to animate
+    // against either, so the height comes off the did-events and the inset
+    // lands in one step rather than on a curve the platform never described.
+    if (Platform.OS !== 'ios') {
+      const onShow = Keyboard.addListener('keyboardDidShow', e => {
+        setKeyboardInset(e.endCoordinates.height);
+      });
+      const onHide = Keyboard.addListener('keyboardDidHide', () => setKeyboardInset(0));
+      return () => { onShow.remove(); onHide.remove(); };
+    }
 
     // Every path animates, on the keyboard's own curve and its own duration
     // where it reports one. Missing this on any of them is what made the drop
@@ -769,11 +788,26 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, di
             contentContainerStyle={styles.messageListContent}
             keyboardShouldPersistTaps="handled"
             // Scrolling back through history dismisses the keyboard, rather than
-            // costing a separate tap to get it out of the way. Not 'interactive':
-            // iOS moves the keyboard with the thumb there but sends no frame
-            // events until the gesture ends, so the composer couldn't follow and
-            // the two came apart mid-drag. Going at once keeps them together.
-            keyboardDismissMode="on-drag"
+            // costing a separate tap to get it out of the way — but only that
+            // way. 'on-drag' fires on a drag in either direction, so pulling up
+            // toward the newest message put the keyboard away just as readily,
+            // which is never what that gesture is asking for. 'interactive'
+            // isn't the alternative: iOS moves the keyboard with the thumb there
+            // but sends no frame events until the gesture ends, so the composer
+            // couldn't follow and the two came apart mid-drag. Hence by hand,
+            // gated on direction, which also gets Android the same behaviour —
+            // it only ever supported 'none' and 'on-drag' anyway.
+            keyboardDismissMode="none"
+            scrollEventThrottle={16}
+            onScrollBeginDrag={e => { dragOriginY.current = e.nativeEvent.contentOffset.y; }}
+            onScroll={e => {
+              if (keyboardInset === 0) return;
+              // Content sliding down, offset shrinking: the drag is heading back
+              // through the history, and far enough in to mean it.
+              if (e.nativeEvent.contentOffset.y < dragOriginY.current - KEYBOARD_DISMISS_DRAG) {
+                Keyboard.dismiss();
+              }
+            }}
           >
             {messages.length === 0 ? (
               <Text style={styles.emptyText}>No messages yet — say hi!</Text>

@@ -241,9 +241,11 @@ const styles = StyleSheet.create({
   tabIcon: {
     width: 56,
     marginTop: 4,
-    // Only bites when this wraps a child (the house) rather than styling the
-    // symbol itself.
+    // alignItems only centers a View's children (House, which wraps a child);
+    // the other four icons apply this style directly to the symbol's own Text
+    // glyph, which alignItems does nothing for — textAlign is what centers that.
     alignItems: 'center',
+    textAlign: 'center',
   },
 
   center: {
