@@ -114,9 +114,33 @@ create policy dm_insert on discussion_messages
     and private.is_active_member(group_id)
   );
 -- No delete policy: deletion is soft (deleted_at via update), as in messages.
+-- Membership is checked on update as well as insert: a policy that looks only
+-- at sender_id would accept a PATCH that also moved group_id, planting the
+-- message in a discussion the sender is not part of.
 create policy dm_update_own on discussion_messages
   for update to authenticated
-  using (auth.uid() = sender_id) with check (auth.uid() = sender_id);
+  using (auth.uid() = sender_id and private.is_active_member(group_id))
+  with check (auth.uid() = sender_id and private.is_active_member(group_id));
+
+-- And the keys are frozen outright, since nothing legitimate ever moves a
+-- message: the app updates four columns, to soft-delete. Without this, the
+-- policy above still permits shuffling one between two groups you are in.
+create or replace function private.discussion_message_keys_frozen()
+returns trigger language plpgsql as $$
+begin
+  if new.group_id <> old.group_id
+     or new.about_group_id <> old.about_group_id
+     or new.sender_id <> old.sender_id then
+    raise exception 'a discussion message cannot change group, subject or sender';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists discussion_messages_keys_frozen on discussion_messages;
+create trigger discussion_messages_keys_frozen
+  before update on discussion_messages
+  for each row execute function private.discussion_message_keys_frozen();
 
 -- discussion_reactions -------------------------------------------------------
 create policy dr_select on discussion_reactions
@@ -135,8 +159,19 @@ create policy dr_insert_own on discussion_reactions
       where m.id = message_id and private.is_active_member(m.group_id)
     )
   );
+-- The message check is repeated on update for the same reason it is on
+-- discussion_messages: a policy that looks only at user_id would let you
+-- re-point your own reaction at any message id in the database.
 create policy dr_update_own on discussion_reactions
-  for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+  for update to authenticated
+  using (auth.uid() = user_id)
+  with check (
+    auth.uid() = user_id
+    and exists (
+      select 1 from discussion_messages m
+      where m.id = message_id and private.is_active_member(m.group_id)
+    )
+  );
 create policy dr_delete_own on discussion_reactions
   for delete to authenticated using (auth.uid() = user_id);
 
