@@ -1,7 +1,6 @@
 import { Image } from 'expo-image';
 import { authedSource } from '@/lib/storageAuth';
 import { Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import Svg, { Defs, FeColorMatrix, Filter, Image as SvgImage } from 'react-native-svg';
 import { SpeechBubble } from '@/assets/symbols/SpeechBubble';
 import { FontFamily, Type } from '@/constants/theme';
 
@@ -9,22 +8,18 @@ const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
 const CARD_HEIGHT = 200;
 
-// The same red as the tab badges, so the ring reads as the same "waiting on
-// you" mark they do rather than as its own signal.
-const RING_ALERT = '#FF3B30';
+// The same red as the tab dots, so the unread count reads as the same "waiting
+// on you" mark they do rather than as its own signal.
+const ALERT_RED = '#FF3B30';
 
 interface Props {
   groupName: string;
   firstImageUrl: string | null;
   suggesterPicUrl: string | null;
-  tint?: 'bw';
   onPress: () => void;
   hideSuggesterPic?: boolean;
-  // Rings the suggester in the notification red rather than white — Pending
-  // only, where the tile is something still waiting on someone.
-  alertRing?: boolean;
-  // A little more air under the tile. Pending stacks two lists in one scroll,
-  // so its column reads better looser than the flat single lists elsewhere.
+  // A little more air under the tile. Pending and Sent read better looser than
+  // the flat single list on Received.
   loose?: boolean;
   // Opens your own group's private discussion about this group. The button is
   // drawn whenever this is given, badge or no badge — it's a way in, not a
@@ -34,33 +29,13 @@ interface Props {
   discussionUnread?: number;
 }
 
-export default function GroupPostPreview({ groupName, firstImageUrl, suggesterPicUrl, tint, onPress, hideSuggesterPic, alertRing, loose, onOpenDiscussion, discussionUnread = 0 }: Props) {
+export default function GroupPostPreview({ groupName, firstImageUrl, suggesterPicUrl, onPress, hideSuggesterPic, loose, onOpenDiscussion, discussionUnread = 0 }: Props) {
   return (
     <TouchableOpacity style={[styles.card, loose && styles.cardLoose]} onPress={onPress} activeOpacity={0.9}>
 
       {/* Photo layer */}
       {!firstImageUrl ? (
         <View style={styles.placeholder} />
-      ) : tint === 'bw' ? (
-        // Desaturated to black & white via an SVG color matrix — RN has no
-        // native grayscale filter, and react-native-svg is already a dep.
-        <Svg width={CARD_WIDTH} height={CARD_HEIGHT}>
-          <Defs>
-            <Filter id="grayscale">
-              <FeColorMatrix type="saturate" values="0" />
-            </Filter>
-          </Defs>
-          <SvgImage
-            // Same token the plain <Image> below carries — the bucket is
-            // private, and this path is easy to miss because it's an SVG
-            // image with an href rather than a source.
-            href={authedSource(firstImageUrl)}
-            width={CARD_WIDTH}
-            height={CARD_HEIGHT}
-            preserveAspectRatio="xMidYMid slice"
-            filter="url(#grayscale)"
-          />
-        </Svg>
       ) : (
         <Image source={authedSource(firstImageUrl)} style={styles.photo} contentFit="cover" />
       )}
@@ -70,11 +45,11 @@ export default function GroupPostPreview({ groupName, firstImageUrl, suggesterPi
       {hideSuggesterPic ? null : suggesterPicUrl ? (
         <Image
           source={authedSource(suggesterPicUrl)}
-          style={[styles.suggesterPic, alertRing && styles.suggesterRingAlert]}
+          style={styles.suggesterPic}
           contentFit="cover"
         />
       ) : (
-        <View style={[styles.suggesterPicPlaceholder, alertRing && styles.suggesterRingAlert]} />
+        <View style={styles.suggesterPicPlaceholder} />
       )}
 
       {/* Group name — bottom-left, over the photo. Stops short of the discussion
@@ -144,8 +119,6 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: '#fff',
   },
 
   suggesterPicPlaceholder: {
@@ -155,13 +128,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: '#fff',
     backgroundColor: '#bbb',
-  },
-
-  suggesterRingAlert: {
-    borderColor: RING_ALERT,
   },
 
   name: {
@@ -203,7 +170,7 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 10,
     paddingHorizontal: 5,
-    backgroundColor: RING_ALERT,
+    backgroundColor: ALERT_RED,
     alignItems: 'center',
     justifyContent: 'center',
     // Separates the red from the white circle when the two overlap the photo.

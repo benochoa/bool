@@ -51,9 +51,15 @@ export function parseNotificationData(raw: unknown): NotificationData | null {
 // consumed by their screens (index's `view`, chats' `openChat`).
 export function routeToNotification(router: Router, data: NotificationData) {
   switch (data.type) {
+    // A member swiped: the suggestion is waiting on the leader, so it is on
+    // Pending.
     case 'suggestion':
-    case 'sent':
       router.navigate({ pathname: '/', params: { view: 'pending' } });
+      break;
+    // The leader sent it, which moves that row to 'sent' — it has left Pending
+    // for the Sent tab, and that is where the tap has to land to find it.
+    case 'sent':
+      router.navigate({ pathname: '/', params: { view: 'sent' } });
       break;
     case 'received':
       router.navigate('/received');

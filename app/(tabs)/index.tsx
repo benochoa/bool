@@ -26,7 +26,7 @@ import { supabase } from '@/supabaseClient';
 import { FontFamily, Palette, Type } from '@/constants/theme';
 import { useFocusEffect } from '@react-navigation/native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 // Leads the For You deck when it qualifies, ahead of the id ordering the
@@ -39,7 +39,7 @@ export default function ExploreScreen() {
   const { currentGroupId, loadingGroups } = useCurrentGroup();
 
   // State
-  const [activeTab, setActiveTab] = useState<'ForYou' | 'Pending'>('ForYou');
+  const [activeTab, setActiveTab] = useState<'ForYou' | 'Pending' | 'Sent'>('ForYou');
   const [activeGroups, setActiveGroups] = useState<ActiveGroup[]>([]);
   // The city of the group we're acting as — the deck only offers its own city.
   const [myCity, setMyCity] = useState<string | null>(null);
@@ -142,19 +142,23 @@ export default function ExploreScreen() {
   // consumed so ordinary visits keep starting wherever they were.
   const { view, openDiscussion } = useLocalSearchParams<{ view?: string; openDiscussion?: string }>();
   useEffect(() => {
-    if (view === 'pending') {
-      setActiveTab('Pending');
-      router.setParams({ view: undefined });
-    }
+    if (view !== 'pending' && view !== 'sent') return;
+    setActiveTab(view === 'sent' ? 'Sent' : 'Pending');
+    router.setParams({ view: undefined });
   }, [view]);
 
   // The discussion to open rides in on the same tap. Consumed only once the
   // suggestions have arrived; if that one has since been answered the tile is
-  // gone, and the param is still cleared so it can't fire again later.
+  // gone, and the param is still cleared so it can't fire again later. The tab
+  // follows the tile's own stage, so closing the panel leaves you looking at it
+  // rather than at the list it isn't in.
   useEffect(() => {
     if (!openDiscussion || loading) return;
     const match = suggestions.find(s => s.targetGroupId === openDiscussion);
-    if (match) setDiscussing(match);
+    if (match) {
+      setDiscussing(match);
+      setActiveTab(match.status === 'sent' ? 'Sent' : 'Pending');
+    }
     router.setParams({ openDiscussion: undefined });
   }, [openDiscussion, suggestions, loading]);
 
@@ -318,25 +322,48 @@ export default function ExploreScreen() {
 
   // Derived
   const done = remainingGroupIds.length === 0;
-  // The Pending feed in funnel order, each stage under its own heading — the
-  // tints alone (colour, B&W) don't say which stage a tile is at. The headings
-  // name who the stage is waiting on, so neither repeats the "Pending" tab they
-  // sit under. Matched suggestions have left this feed entirely — they live in
-  // Chats now.
-  const pendingSections = [
-    {
-      label: 'Waiting on your group leader',
-      items: suggestions.filter(s => s.status === 'pending'),
-      empty: 'No groups suggested by your friends',
-    },
-    {
-      label: 'Waiting on the other group',
-      items: suggestions.filter(s => s.status === 'sent'),
-      empty: 'No match requests sent yet',
-    },
-  ];
+  // The two stages of the funnel, one per sub-tab. Each keeps its heading: the
+  // tab names the stage, the heading names who it is waiting on. The tiles look
+  // the same in both — which list you are on is what tells them apart. Matched
+  // suggestions have left both feeds entirely; they live in Chats now.
+  const pendingSection = {
+    label: 'Waiting on your group leader',
+    items: suggestions.filter(s => s.status === 'pending'),
+    empty: 'No groups suggested by your friends',
+  };
+  const sentSection = {
+    label: 'Waiting on these other groups',
+    items: suggestions.filter(s => s.status === 'sent'),
+    empty: 'No match requests sent yet',
+  };
 
-  // Tab row (reused in all three feeds)
+  // One stage's heading and tiles. Shared by both feeds so the two can't drift
+  // apart: the heading renders even with nothing under it, so an empty stage
+  // still says what it is rather than showing a bare tab.
+  const renderSection = (section: typeof pendingSection) => (
+    <>
+      <Text style={[
+        styles.sectionLabel,
+        section.items.length > 0 && styles.sectionLabelFilled,
+      ]}>{section.label}</Text>
+      {section.items.length === 0 ? (
+        <Text style={styles.sectionEmpty}>{section.empty}</Text>
+      ) : section.items.map(s => (
+        <GroupPostPreview
+          key={s.targetGroupId}
+          groupName={s.groupName}
+          firstImageUrl={s.firstImageUrl}
+          suggesterPicUrl={s.suggestedByPicUrl}
+          loose
+          onPress={() => setDetail(s)}
+          onOpenDiscussion={() => setDiscussing(s)}
+          discussionUnread={discussionUnread.get(s.targetGroupId) ?? 0}
+        />
+      ))}
+    </>
+  );
+
+  // Tab row (reused in all four feeds)
   const tabRow = (
     <View style={styles.tabRow}>
       <TouchableOpacity
@@ -352,16 +379,24 @@ export default function ExploreScreen() {
         style={styles.tabButton}
         onPress={() => setActiveTab('Pending')}
       >
-        {/* The badge hangs off the word, so it's anchored to a wrapper drawn
-            tight around it rather than to the button's padded box. Read from
-            the same list the Pending feed renders, so the two can't disagree. */}
+        {/* The dot hangs off the word, so it's anchored to a wrapper drawn tight
+            around it rather than to the button's padded box. Read from the same
+            list the feed renders, so the two can't disagree. */}
         <View>
           <Text style={[styles.tabText, activeTab === 'Pending' && styles.tabTextActive]}>Pending</Text>
-          {pendingSections[0].items.length > 0 && (
-            <View style={styles.pendingBadge}>
-              <Text style={styles.pendingBadgeText}>{pendingSections[0].items.length}</Text>
-            </View>
-          )}
+          {pendingSection.items.length > 0 && <View style={styles.tabDot} />}
+        </View>
+      </TouchableOpacity>
+
+      <Text style={styles.tabDivider}>|</Text>
+
+      <TouchableOpacity
+        style={styles.tabButton}
+        onPress={() => setActiveTab('Sent')}
+      >
+        <View>
+          <Text style={[styles.tabText, activeTab === 'Sent' && styles.tabTextActive]}>Sent</Text>
+          {sentSection.items.length > 0 && <View style={styles.tabDot} />}
         </View>
       </TouchableOpacity>
     </View>
@@ -421,41 +456,20 @@ export default function ExploreScreen() {
         )}
       </View>
 
-      {/* Pending feed — suggested (color), then sent (B&W). Kept mounted too,
-          so its tiles don't reload their photos on every flip. */}
+      {/* Pending feed — waiting on your leader. Kept mounted too, so its tiles
+          don't reload their photos on every flip. */}
       <View style={[styles.feedContainer, activeTab !== 'Pending' && styles.feedHidden]}>
         <ScrollView contentContainerStyle={styles.previewList}>
           {tabRow}
-          {/* Both headings render even with nothing under them, so the two
-              stages stay discoverable on an empty feed. Fragments, so the
-              tiles stay one flat column rather than nesting per stage. */}
-          {pendingSections.map((section, i) => (
-            <Fragment key={section.label}>
-              <Text style={[
-                styles.sectionLabel,
-                i > 0 && styles.sectionLabelStacked,
-                section.items.length > 0 && styles.sectionLabelFilled,
-              ]}>{section.label}</Text>
-              {section.items.length === 0 ? (
-                <Text style={styles.sectionEmpty}>{section.empty}</Text>
-              ) : section.items.map(s => (
-                // The ring only reddens on the pile waiting on your leader —
-                // a sent one is off your hands, which the greying says too.
-                <GroupPostPreview
-                  key={s.targetGroupId}
-                  groupName={s.groupName}
-                  firstImageUrl={s.firstImageUrl}
-                  suggesterPicUrl={s.suggestedByPicUrl}
-                  tint={s.status === 'sent' ? 'bw' : undefined}
-                  alertRing={s.status === 'pending'}
-                  loose
-                  onPress={() => setDetail(s)}
-                  onOpenDiscussion={() => setDiscussing(s)}
-                  discussionUnread={discussionUnread.get(s.targetGroupId) ?? 0}
-                />
-              ))}
-            </Fragment>
-          ))}
+          {renderSection(pendingSection)}
+        </ScrollView>
+      </View>
+
+      {/* Sent feed — waiting on the groups you've asked. */}
+      <View style={[styles.feedContainer, activeTab !== 'Sent' && styles.feedHidden]}>
+        <ScrollView contentContainerStyle={styles.previewList}>
+          {tabRow}
+          {renderSection(sentSection)}
         </ScrollView>
       </View>
 
@@ -533,12 +547,16 @@ const styles = StyleSheet.create({
   // Discover / Pending toggle
   // Occupies the same 60 + 44 band the other tabs give their titles, so the
   // toggle sits at their height and the content under all four starts level.
+  // The row is centred and narrower than the screen, so this padding is a floor
+  // on the margins rather than something you see — it only bites on a narrow
+  // phone, where three tabs plus two dividers come close to the full width.
+  // Kept small so the gaps between the tabs are what runs out of room last.
   tabRow: {
     width: '100%',
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 8,
     paddingTop: 60,
     height: 104,
   },
@@ -574,10 +592,6 @@ const styles = StyleSheet.create({
 
   // Every heading but the first opens a stage that follows another one, so it
   // needs a bigger break above it than the first needs below the tab row.
-  sectionLabelStacked: {
-    marginTop: 64,
-  },
-
   // Stands in for the tiles of an empty stage: smaller than the heading above
   // it, greyed and centred so it reads as an absence rather than another
   // heading. Kept to one compact line — reserving a full tile's height twice
@@ -606,7 +620,7 @@ const styles = StyleSheet.create({
   tabButton: {
     height: 44,
     justifyContent: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
   },
 
   // Just the words — the active tab is heavily bold, the other is regular.
@@ -620,6 +634,7 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.bold,
   },
 
+  // Same size as the words it separates, so it scales with them.
   tabDivider: {
     fontFamily: FontFamily.regular,
     fontSize: 24,
@@ -627,28 +642,21 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
 
-  // Count of suggestions waiting on the leader, sitting just past the word's
-  // last letter on its midline. Absolute rather than a row beside the text, so
-  // the tab row doesn't jump sideways when the count appears or clears; the
-  // half-height negative margin is what centres it against `top: 50%`.
-  pendingBadge: {
+  // Whether that stage holds anything, not how much — the number was never
+  // acted on differently at two than at one. Small enough to sit in the tab's
+  // own padding, so the row needs no room reserved for it and a word stays put
+  // whether or not its dot is showing. Centred on the text's midline: the
+  // half-height negative margin is what centres it against `top: 50%`, measured
+  // against a wrapper drawn tight around the word.
+  tabDot: {
     position: 'absolute',
     top: '50%',
-    marginTop: -11,
-    right: -28,
-    height: 22,
-    minWidth: 22,
-    borderRadius: 11,
-    paddingHorizontal: 5,
+    marginTop: -3,
+    right: -8,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: '#FF3B30',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  pendingBadgeText: {
-    fontFamily: FontFamily.bold,
-    fontSize: 13,
-    color: '#fff',
   },
 
   feedContainer: {
