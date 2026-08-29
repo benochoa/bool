@@ -376,6 +376,14 @@ const styles = StyleSheet.create({
 
   emptyText: {
     ...Type.title,
+    // A step under the scale's 24: this is a prompt rather than a heading, and
+    // at full title size it reads as if something has gone wrong. Kept bold so
+    // it still holds an otherwise empty screen.
+    fontSize: 20,
+    // The message wraps into two sentences, so it reads as two lines rather
+    // than one run-on. Manrope's default leading sets them tight enough to
+    // look like one; this opens the gap without spacing the words apart.
+    lineHeight: 32,
     color: '#000',
     textAlign: 'center',
     paddingHorizontal: 40,

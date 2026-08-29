@@ -423,14 +423,35 @@ export default function GroupPost({ groupId, creating = false, editMode = false,
       return false;
     }
 
-    // The creator is the group's first member.
-    if (session?.user) {
-      await supabase.from('memberships').insert({
-        group_id: newGroupId,
-        person_id: session.user.id,
-        status: 'active',
-        status_at: new Date().toISOString(),
-      });
+    // The creator is the group's first member. This row is what makes the group
+    // theirs — fetchMyActiveGroupIds reads it, can_see_group leans on it, and
+    // memberships_insert_self only accepts it while the groups row above names
+    // them as leader. Without it the group exists and belongs to nobody: it
+    // can't be opened, left, or dissolved from inside the app.
+    //
+    // So both failures are surfaced rather than passed over. They used to be
+    // silent — the insert's error was discarded and a missing session skipped
+    // it entirely — which left the group created, the screen closed, and no
+    // sign anything had gone wrong.
+    if (!session?.user) {
+      setSaving(false);
+      Alert.alert(
+        'Group created without you',
+        'Your session was not available, so you were not added as a member. Reload the app — if the group is missing from your list, contact support.'
+      );
+      return false;
+    }
+
+    const { error: membershipError } = await supabase.from('memberships').insert({
+      group_id: newGroupId,
+      person_id: session.user.id,
+      status: 'active',
+      status_at: new Date().toISOString(),
+    });
+    if (membershipError) {
+      setSaving(false);
+      Alert.alert('Group created without you', membershipError.message);
+      return false;
     }
 
     setSaving(false);

@@ -1,23 +1,28 @@
 -- bool — database schema (current-state mirror)
 --
--- This file is NOT a chronological migration log. It is a faithful snapshot of
--- the live Supabase database, reconstructed from a full introspection on
--- 2026-08-25 (pg catalog dump of tables, constraints, indexes, RLS policies,
--- functions, triggers, grants and storage buckets). Regenerate it after any
--- dashboard change so it stops drifting; the authoritative tool once Docker is
--- available is `supabase db dump --schema public,storage,auth`.
+-- NOT a chronological migration log. A snapshot of the live Supabase database
+-- (Postgres 17.6), captured 2026-08-29T03:52Z by running supabase/introspect.sql
+-- in the dashboard and folding the result in here.
 --
--- It includes the security hardening from the 2026-08 audit (see the SECURITY
--- section headers throughout). The `<WEBHOOK_SECRET>` below is a placeholder —
--- the real value lives in the notify function's WEBHOOK_SECRET secret and is
--- never committed.
+-- Every line below was read out of pg_catalog: column definitions, constraints,
+-- indexes, RLS policies, function bodies, triggers, grants, buckets, realtime
+-- membership and event triggers. Nothing here is transcribed from intent, which
+-- is the whole point — the previous copy had drifted three changes behind
+-- without anything noticing, and one policy did not mean what it said.
+--
+-- Regenerate after any dashboard change: run supabase/introspect.sql, paste the
+-- JSON, fold it in. That loop is the only thing keeping this file honest.
+--
+-- The <WEBHOOK_SECRET> below is a placeholder. The live notify_webhook() body
+-- carries the real value; introspect.sql redacts it on the way out so a capture
+-- can be pasted and committed safely.
 --
 -- Access model in one line: Supabase grants anon + authenticated broad table
--- privileges by default, and ROW-LEVEL SECURITY is the real gate. Every table
--- has RLS enabled; the policies below (and the private.* helpers they call) are
--- what actually enforce who can see and change what. Anonymous callers get
--- nothing anywhere, because every rule funnels through auth.uid(), which is
--- null for anon.
+-- privileges by default, and ROW-LEVEL SECURITY is the real gate. Every table in
+-- public has RLS enabled; the policies below (and the private.* helpers they
+-- call) enforce who sees and changes what. Anonymous callers get nothing
+-- anywhere, because every rule funnels through auth.uid(), which is null for
+-- anon — verified live by probing all 15 tables with the publishable key.
 
 -- ===========================================================================
 -- Extensions & schemas
@@ -38,7 +43,7 @@ create schema if not exists private;
 create or replace function private.generate_invite_code()
 returns text language plpgsql security definer set search_path = public as $$
 declare
-  chars text := 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  chars text := 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';  -- no 0/O/1/I/L: read aloud
   code text;
   i int;
 begin
@@ -78,8 +83,17 @@ create table profiles (
   college            text
 );
 
+-- SECURITY (2026-08 audit): groups.id is client-supplied text. Two storage
+-- policies recover group ids from a folder name by splitting on '_', which is
+-- only sound while an id contains none — and the notify function interpolates
+-- ids into a PostgREST filter string while holding the service role. Ids are
+-- Crypto.randomUUID() in the app, but nothing enforced it until this
+-- constraint. NOT VALID: it binds new writes without rejecting legacy rows.
+--
+-- created_by has no ON DELETE: a profile cannot be deleted out from under a
+-- group it leads. delete_my_account removes the led groups first, in order.
 create table groups (
-  id                 text primary key,
+  id                 text primary key constraint groups_id_format check (id ~ '^[A-Za-z0-9-]+$') not valid,
   name               text not null default '' constraint groups_name_len check (char_length(name) <= 60),
   qa                 jsonb not null default '[]' constraint groups_qa_size check (char_length(qa::text) <= 8000),
   created_by         uuid references profiles (id),               -- the leader (nullable: legacy rows)
@@ -100,11 +114,14 @@ create table questions (
 );
 
 -- Only status='active' rows define a group. left/kicked/group_dissolved rows
--- are kept for History (with the moment and manner each ended).
+-- are kept for History (with the moment and manner each ended). The constraint
+-- names still say group_members: the table was renamed, they were not.
 create table memberships (
   group_id  text not null references groups (id) on delete cascade,
   person_id uuid not null references profiles (id) on delete cascade,
-  status    text not null default 'active' check (status in ('active', 'kicked', 'left', 'group_dissolved')),
+  status    text not null default 'active'
+              constraint group_members_status_check
+              check (status in ('active', 'kicked', 'left', 'group_dissolved')),
   status_at timestamptz not null default now(),
   constraint group_members_pkey primary key (group_id, person_id)
 );
@@ -164,7 +181,8 @@ create table message_reactions (
 
 -- Read state for Chats: one row per user per chat, stamped when they close the
 -- thread. Per-user, unlike the group content above — who has read what is
--- nobody else's business. Keyed by the canonical pair.
+-- nobody else's business. Keyed by the canonical pair. References auth.users
+-- rather than profiles: it is login state, and it should go when the login does.
 create table chat_reads (
   user_id      uuid not null references auth.users (id) on delete cascade,
   group_1_id   text not null references groups (id) on delete cascade,
@@ -208,7 +226,8 @@ create table bug_reports (
 
 -- Abuse reports. Only one target_* is set, per target_type. message_snapshot
 -- copies the body at report time because messages are soft-deletable — without
--- it a sender could blank the evidence before anyone reads the report.
+-- it a sender could blank the evidence before anyone reads the report. The
+-- targets are ON DELETE SET NULL, so a report outlives what it points at.
 create table reports (
   id                bigint generated always as identity primary key,
   reporter_id       uuid not null references profiles (id) on delete cascade,
@@ -224,13 +243,83 @@ create table reports (
 
 create index reports_created_at_idx on reports (created_at desc);
 
--- Realtime streams nothing until a table is added to this publication (no error
--- if forgotten, just silence). Chats watch messages + reactions; the Groups tab
--- and current-group context watch groups + memberships.
+-- ---------------------------------------------------------------------------
+-- Group discussions
+--
+-- A discussion is a group's private back-room about ONE candidate group: the
+-- members of `group_id` talking among themselves about `about_group_id`. The
+-- candidate has no path to it whatsoever, which is the point and the reason it
+-- cannot live in `messages`:
+--
+--   * messages_select grants read to active members of EITHER group in the
+--     pair, so a discussion stored there would be readable by the group being
+--     discussed.
+--   * messages_insert requires private.groups_matched(), and a suggestion in
+--     Pending or Received is by definition not matched.
+--
+-- Every policy gates on `group_id` alone. `about_group_id` is a subject, never
+-- a grant. Deliberately NOT cascading on the suggestion: a discussion outlives
+-- the suggestion that prompted it. The rows go only when a group itself goes.
+-- ---------------------------------------------------------------------------
+
+-- Mirrors `messages` column for column, minus the canonical-pair machinery:
+-- a discussion has one owning group, not an unordered two.
+create table discussion_messages (
+  id                 bigint generated always as identity primary key,
+  group_id           text not null references groups (id) on delete cascade,
+  about_group_id     text not null references groups (id) on delete cascade,
+  sender_id          uuid not null references profiles (id) on delete cascade,
+  body               text not null constraint discussion_messages_body_len check (char_length(body) <= 4000),
+  created_at         timestamptz not null default now(),
+  kind               text not null default 'text' check (kind in ('text', 'image', 'audio')),
+  media_url          text,
+  media_aspect_ratio numeric,
+  deleted_at         timestamptz,
+  reply_to_id        bigint references discussion_messages (id) on delete set null,
+  media_waveform     jsonb,
+  -- A group discussing itself is not a thing the UI can produce, and allowing
+  -- it would make the storage path ambiguous.
+  constraint discussion_not_self check (group_id <> about_group_id)
+);
+
+create index discussion_messages_thread_idx
+  on discussion_messages (group_id, about_group_id, created_at);
+create index discussion_messages_sender_recent_idx
+  on discussion_messages (sender_id, created_at desc);
+
+-- One tapback per person per message, same shape as message_reactions.
+create table discussion_reactions (
+  message_id bigint not null references discussion_messages (id) on delete cascade,
+  user_id    uuid   not null references profiles (id) on delete cascade,
+  emoji      text   not null,
+  created_at timestamptz not null default now(),
+  primary key (message_id, user_id)
+);
+
+-- Read state per user per discussion — what the red badge on each preview tile
+-- is measured against. Per-user, like chat_reads, and keyed to auth.users too.
+create table discussion_reads (
+  user_id        uuid not null references auth.users (id) on delete cascade,
+  group_id       text not null references groups (id) on delete cascade,
+  about_group_id text not null references groups (id) on delete cascade,
+  last_read_at   timestamptz not null default now(),
+  primary key (user_id, group_id, about_group_id)
+);
+
+-- ===========================================================================
+-- Realtime
+-- Streams nothing until a table is added to this publication (no error if
+-- forgotten, just silence). Realtime re-checks the SELECT policy per
+-- subscriber, so a table here is only as private as its select policy.
+-- ===========================================================================
+
 alter publication supabase_realtime add table messages;
 alter publication supabase_realtime add table message_reactions;
 alter publication supabase_realtime add table groups;
 alter publication supabase_realtime add table memberships;
+alter publication supabase_realtime add table group_suggestions;
+alter publication supabase_realtime add table discussion_messages;
+alter publication supabase_realtime add table discussion_reactions;
 
 -- replica identity full: a change event otherwise carries only the primary key
 -- of the old row, but the client and the notify function need the *previous*
@@ -242,6 +331,11 @@ alter table memberships replica identity full;
 -- All are STABLE SECURITY DEFINER with a pinned search_path: they bypass RLS
 -- internally (so the policies that call them don't recurse), return only a
 -- boolean, and test only the caller's own relationships.
+--
+-- Using these rather than an inline subquery is not a style preference. A
+-- subquery inside a policy is itself subject to RLS, which is what broke
+-- memberships_insert_self: it asked whether you owned a group you could not yet
+-- see, and the answer was always no. See the note on that policy.
 -- ===========================================================================
 
 create or replace function private.is_active_member(p_group_id text)
@@ -261,16 +355,16 @@ $$;
 
 -- Visible when: it's one of mine now or in the past (History needs the ones I've
 -- left), or an active candidate in a city where I have a group, or already
--- related to one of mine via a suggestion. The past-membership branch is
--- deliberate — History shows a group you've left exactly like any other,
--- current members included.
+-- related to one of mine via a suggestion.
 create or replace function private.can_see_group(p_group_id text)
 returns boolean language sql stable security definer set search_path = public as $$
   select
+    -- one of mine, now or in the past — History needs the ones I've left
     exists (
       select 1 from memberships
        where group_id = p_group_id and person_id = auth.uid()
     )
+    -- or a candidate in the deck: an active group in a city where I have one
     or exists (
       select 1 from groups g
        where g.id = p_group_id
@@ -282,6 +376,7 @@ returns boolean language sql stable security definer set search_path = public as
             where m.person_id = auth.uid() and m.status = 'active'
          )
     )
+    -- or already related to one of mine, whichever way it started
     or exists (
       select 1 from group_suggestions gs
        where (gs.suggesting_group_id = p_group_id and private.is_active_member(gs.target_group_id))
@@ -334,7 +429,19 @@ returns boolean language sql stable security definer set search_path = public as
   );
 $$;
 
--- Message rate limit (BEFORE INSERT trigger below): 30 per sender per minute.
+-- SECURITY (2026-08-29 audit): exists so the groups-bucket insert policy can ask
+-- "does this group row exist yet?" without opening a subquery on `groups` inside
+-- the policy. It did have one, and the bare `name` in it bound to groups.name
+-- rather than storage.objects.name — which made the branch always true and the
+-- policy bucket-only, letting any authenticated user write into any group's
+-- folder. A function argument cannot be captured that way.
+create or replace function private.group_missing(p_group_id text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select not exists (select 1 from groups where id = p_group_id);
+$$;
+
+-- Rate limits (BEFORE INSERT triggers below): 30 per sender per minute each,
+-- counted separately so a busy discussion can't starve the real chat.
 create or replace function private.check_message_rate()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare recent int;
@@ -345,6 +452,52 @@ begin
      and created_at > now() - interval '1 minute';
   if recent >= 30 then
     raise exception 'Too many messages — slow down.';
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function private.check_discussion_rate()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare recent int;
+begin
+  select count(*) into recent
+    from discussion_messages
+   where sender_id = new.sender_id
+     and created_at > now() - interval '1 minute';
+  if recent >= 30 then
+    raise exception 'Too many messages — slow down.';
+  end if;
+  return new;
+end;
+$$;
+
+-- SECURITY (2026-08 audit): key-freezing triggers. The update policies check who
+-- owns a row; these check that the row cannot move. Without them a policy that
+-- passes on both the old and the new row still permits relocating a message
+-- between two conversations the sender belongs to. Not definer — they only
+-- compare NEW against OLD.
+create or replace function private.message_keys_frozen()
+returns trigger language plpgsql as $$
+begin
+  if new.group_1_id      <> old.group_1_id
+     or new.group_2_id   <> old.group_2_id
+     or new.sender_group_id <> old.sender_group_id
+     or new.sender_id    <> old.sender_id
+     or new.created_at   <> old.created_at then
+    raise exception 'a message cannot change conversation, sender or timestamp';
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function private.discussion_message_keys_frozen()
+returns trigger language plpgsql as $$
+begin
+  if new.group_id <> old.group_id
+     or new.about_group_id <> old.about_group_id
+     or new.sender_id <> old.sender_id then
+    raise exception 'a discussion message cannot change group, subject or sender';
   end if;
   return new;
 end;
@@ -361,8 +514,8 @@ create or replace function get_unread_chat_count(my_group_id text)
 returns integer language sql stable as $$
   select count(*)::int from (
     select m.group_1_id, m.group_2_id
-    from messages m
-    left join chat_reads r
+    from public.messages m
+    left join public.chat_reads r
       on  r.user_id    = auth.uid()
       and r.group_1_id = m.group_1_id
       and r.group_2_id = m.group_2_id
@@ -377,28 +530,42 @@ $$;
 -- already hides a blocker's rows, so the lateral lands on the newest message
 -- this viewer can see; the case only relabels a message from someone THIS user
 -- has blocked (their own block hides nothing by itself).
+--
+-- last_message_sender drives the "Name: message" line in the Chats tab.
 create or replace function get_chat_previews(my_group_id text)
 returns table(other_group_id text, other_group_name text, last_message text,
-              last_message_at timestamptz, other_group_image_urls text[])
+              last_message_at timestamptz, other_group_image_urls text[],
+              last_message_sender text)
 language sql stable as $$
   select
     g.id::text,
     g.name::text,
+    -- The row still shows that they said something, never what. Their side of
+    -- the block needs no case here: RLS withholds those rows entirely, so the
+    -- lateral below simply lands on the newest message this viewer can see.
     case
-      when exists (
-        select 1 from blocked_people bp
-        where bp.blocker_id = auth.uid() and bp.blocked_id = m.sender_id
-      ) then 'Message from blocked user'
+      when exists (select 1 from blocked_people bp
+                   where bp.blocker_id = auth.uid() and bp.blocked_id = m.sender_id)
+      then 'Message from blocked user'
       else m.body::text
     end,
     m.created_at::timestamptz,
-    g.image_urls::text[]
+    g.image_urls::text[],
+    -- 'You' for your own, so the row reads the way the sender thinks of it.
+    -- Null for someone blocked: the body above is already a placeholder, and
+    -- naming them would put back exactly what the placeholder removes. Self
+    -- comes first, though blocked_people_not_self means the two can't overlap.
+    case
+      when m.sender_id = auth.uid() then 'You'
+      when exists (select 1 from blocked_people bp
+                   where bp.blocker_id = auth.uid() and bp.blocked_id = m.sender_id)
+      then null
+      else p.name::text
+    end
   from group_suggestions gs
   cross join lateral (
-    select case
-      when gs.suggesting_group_id = my_group_id then gs.target_group_id
-      else gs.suggesting_group_id
-    end as other_id
+    select case when gs.suggesting_group_id = my_group_id then gs.target_group_id
+                else gs.suggesting_group_id end as other_id
   ) x
   join groups g on g.id = x.other_id
   left join lateral (
@@ -409,9 +576,30 @@ language sql stable as $$
     order by created_at desc
     limit 1
   ) m on true
+  left join profiles p on p.id = m.sender_id
   where gs.status = 'matched'
     and (gs.suggesting_group_id = my_group_id or gs.target_group_id = my_group_id)
   order by m.created_at desc nulls last;
+$$;
+
+-- Every preview tile carries its own badge, so the list needs one round trip
+-- for all of them. Not security definer — the caller's RLS already limits it to
+-- their own group, and auth.uid() rather than an argument means nobody can ask
+-- for another person's counts.
+create or replace function get_discussion_unread_counts(my_group_id text)
+returns table(about_group_id text, unread integer)
+language sql stable as $$
+  select m.about_group_id::text, count(*)::int
+    from discussion_messages m
+    left join discussion_reads r
+      on  r.user_id        = auth.uid()
+      and r.group_id       = m.group_id
+      and r.about_group_id = m.about_group_id
+   where m.group_id = my_group_id
+     and m.sender_id <> auth.uid()
+     and m.deleted_at is null
+     and (r.last_read_at is null or m.created_at > r.last_read_at)
+   group by m.about_group_id;
 $$;
 
 -- Everyone the viewer should see rendered as "Blocked user" (both directions).
@@ -481,6 +669,12 @@ $$;
 -- (lib/deleteMyMedia.ts) because Postgres refuses direct deletes on
 -- storage.objects, and it must happen before the group rows go, or the leader
 -- check in the storage policy has nothing to pass against.
+--
+-- KNOWN GAP: deleteMyMedia only clears the `people` and `groups` buckets.
+-- chat-media and discussion-media have no DELETE policy at all, so a departing
+-- user's sent photos and voice notes stay in storage. Not an access-control
+-- hole — they remain readable only by that chat's members — but it is a
+-- retention question that still wants an answer.
 create or replace function delete_my_account()
 returns void language plpgsql security definer set search_path = public as $$
 declare
@@ -501,7 +695,9 @@ begin
   delete from memberships where person_id = uid;
   delete from messages where sender_id = uid;
   delete from profiles where id = uid;
-  delete from auth.users where id = uid;   -- without this the login/phone survives
+  -- Without this the login survives, the phone number is kept, and everything
+  -- keyed to auth.users (push_tokens, chat_reads, discussion_reads) stays.
+  delete from auth.users where id = uid;
 end;
 $$;
 
@@ -509,21 +705,24 @@ $$;
 -- Row-level security
 -- ===========================================================================
 
-alter table profiles          enable row level security;
-alter table groups            enable row level security;
-alter table memberships       enable row level security;
-alter table questions         enable row level security;
-alter table group_suggestions enable row level security;
-alter table messages          enable row level security;
-alter table message_reactions enable row level security;
-alter table chat_reads        enable row level security;
-alter table blocked_people    enable row level security;
-alter table push_tokens       enable row level security;
-alter table bug_reports       enable row level security;
-alter table reports           enable row level security;
+alter table profiles             enable row level security;
+alter table groups               enable row level security;
+alter table memberships          enable row level security;
+alter table questions            enable row level security;
+alter table group_suggestions    enable row level security;
+alter table messages             enable row level security;
+alter table message_reactions    enable row level security;
+alter table chat_reads           enable row level security;
+alter table blocked_people       enable row level security;
+alter table push_tokens          enable row level security;
+alter table bug_reports          enable row level security;
+alter table reports              enable row level security;
+alter table discussion_messages  enable row level security;
+alter table discussion_reactions enable row level security;
+alter table discussion_reads     enable row level security;
 
 -- Safety net: auto-enable RLS on any new table created in public, so a future
--- table can't ship accidentally world-open.
+-- table can't ship accidentally world-open. Live as event trigger `ensure_rls`.
 create or replace function public.rls_auto_enable()
 returns event_trigger language plpgsql security definer set search_path = pg_catalog as $$
 declare cmd record;
@@ -533,19 +732,22 @@ begin
     where command_tag in ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO')
       and object_type in ('table', 'partitioned table')
   loop
-    if cmd.schema_name = 'public' then
+    if cmd.schema_name is not null and cmd.schema_name in ('public') then
       begin
         execute format('alter table if exists %s enable row level security', cmd.object_identity);
+        raise log 'rls_auto_enable: enabled RLS on %', cmd.object_identity;
       exception when others then
-        raise log 'rls_auto_enable: failed on %', cmd.object_identity;
+        raise log 'rls_auto_enable: failed to enable RLS on %', cmd.object_identity;
       end;
+    else
+      raise log 'rls_auto_enable: skip %', cmd.object_identity;
     end if;
   end loop;
 end;
 $$;
 
-drop event trigger if exists rls_auto_enable;
-create event trigger rls_auto_enable on ddl_command_end
+drop event trigger if exists ensure_rls;
+create event trigger ensure_rls on ddl_command_end
   execute function public.rls_auto_enable();
 
 -- profiles -------------------------------------------------------------------
@@ -555,8 +757,6 @@ create policy profiles_insert_own on profiles
   for insert to authenticated with check (auth.uid() = id);
 create policy profiles_update_own on profiles
   for update to authenticated using (auth.uid() = id) with check (auth.uid() = id);
--- (The live DB also carries a redundant duplicate update policy, "Users can
---  update own profile"; it is harmless and can be dropped.)
 
 -- groups ---------------------------------------------------------------------
 create policy groups_select on groups
@@ -573,16 +773,23 @@ create policy memberships_select on memberships
   for select to authenticated using (private.can_see_group(group_id));
 -- SECURITY (2026-08 audit): a bare (auth.uid() = person_id) let anyone insert
 -- themselves into ANY group, bypassing the invite code. A direct self-insert is
--- now limited to a group you created (the only legitimate one, on creation);
--- every other join goes through join_group_by_code (definer, bypasses RLS).
+-- limited to a group you created (the only legitimate one, on creation); every
+-- other join goes through join_group_by_code (definer, bypasses RLS).
+--
+-- FIXED 2026-08-29: that audit expressed the ownership test as an inline
+-- `exists (select 1 from groups ...)`, which is itself subject to RLS. A
+-- brand-new group is invisible to can_see_group — you have no membership yet,
+-- that being what is being inserted — so the subquery found nothing and every
+-- first group creation was rejected, leaving a group with no members. The
+-- definer helper sees the row and enforces exactly the same rule.
 create policy memberships_insert_self on memberships
   for insert to authenticated with check (
     auth.uid() = person_id
-    and exists (select 1 from groups g where g.id = group_id and g.created_by = auth.uid())
+    and private.is_group_leader(group_id)
   );
 -- SECURITY (2026-08 audit): a bare (auth.uid() = person_id) with_check let a
 -- kicked member set their own row back to 'active', or hop it into another
--- group. Self-updates are now limited to leaving; leaders keep full control.
+-- group. Self-updates are limited to leaving; leaders keep full control.
 create policy memberships_update on memberships
   for update to authenticated
   using (auth.uid() = person_id or private.is_group_leader(group_id))
@@ -628,8 +835,14 @@ create policy messages_insert on messages
     and (sender_group_id = group_1_id or sender_group_id = group_2_id)
     and private.groups_matched(group_1_id, group_2_id)
   );
+-- SECURITY (2026-08-29 audit): was (auth.uid() = sender_id) on both sides and
+-- never looked at the pair, so a PATCH could relocate your own message into any
+-- conversation in the database — re-opening everything messages_insert guards.
+-- The membership check plus the messages_keys_frozen trigger close it.
 create policy messages_update_own on messages
-  for update to authenticated using (auth.uid() = sender_id) with check (auth.uid() = sender_id);
+  for update to authenticated
+  using (auth.uid() = sender_id and private.is_active_member(sender_group_id))
+  with check (auth.uid() = sender_id and private.is_active_member(sender_group_id));
 
 -- message_reactions ----------------------------------------------------------
 -- SECURITY (2026-08 audit): reactions were readable app-wide and insertable
@@ -652,12 +865,77 @@ create policy mr_insert_own on message_reactions
         and (private.is_active_member(m.group_1_id) or private.is_active_member(m.group_2_id))
     )
   );
+-- SECURITY (2026-08-29 audit): the with_check was user_id only, so your own
+-- reaction row could be re-pointed at any message id in the database.
 create policy mr_update_own on message_reactions
-  for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+  for update to authenticated
+  using (auth.uid() = user_id)
+  with check (
+    auth.uid() = user_id
+    and exists (
+      select 1 from messages m
+      where m.id = message_id
+        and (private.is_active_member(m.group_1_id) or private.is_active_member(m.group_2_id))
+    )
+  );
 create policy mr_delete_own on message_reactions
   for delete to authenticated using (auth.uid() = user_id);
 
--- chat_reads (own rows only — who has read what is private) -------------------
+-- discussion_messages --------------------------------------------------------
+-- Membership of the OWNING group and nothing else. sender_blocked_me mirrors
+-- the main thread: someone in your group who blocked you goes quiet for you.
+create policy dm_select on discussion_messages
+  for select to authenticated using (
+    private.is_active_member(group_id)
+    and not private.sender_blocked_me(sender_id)
+  );
+create policy dm_insert on discussion_messages
+  for insert to authenticated with check (
+    auth.uid() = sender_id
+    and private.is_active_member(group_id)
+  );
+-- Membership is checked on update as well as insert: a policy that looked only
+-- at sender_id would accept a PATCH that also moved group_id.
+create policy dm_update_own on discussion_messages
+  for update to authenticated
+  using (auth.uid() = sender_id and private.is_active_member(group_id))
+  with check (auth.uid() = sender_id and private.is_active_member(group_id));
+
+-- discussion_reactions -------------------------------------------------------
+create policy dr_select on discussion_reactions
+  for select to authenticated using (
+    not private.blocks_between(auth.uid(), user_id)
+    and exists (
+      select 1 from discussion_messages m
+      where m.id = message_id and private.is_active_member(m.group_id)
+    )
+  );
+create policy dr_insert_own on discussion_reactions
+  for insert to authenticated with check (
+    auth.uid() = user_id
+    and exists (
+      select 1 from discussion_messages m
+      where m.id = message_id and private.is_active_member(m.group_id)
+    )
+  );
+create policy dr_update_own on discussion_reactions
+  for update to authenticated
+  using (auth.uid() = user_id)
+  with check (
+    auth.uid() = user_id
+    and exists (
+      select 1 from discussion_messages m
+      where m.id = message_id and private.is_active_member(m.group_id)
+    )
+  );
+create policy dr_delete_own on discussion_reactions
+  for delete to authenticated using (auth.uid() = user_id);
+
+-- Per-user state: read markers, own blocks, own tokens, own reports. These
+-- carry no `to authenticated` clause in the live database, so they apply to
+-- PUBLIC — safe rather than sloppy only because auth.uid() is null for anon and
+-- `null = user_id` is null, never true. Worth tightening for consistency; not a
+-- hole.
 create policy chat_reads_select_own on chat_reads
   for select using (auth.uid() = user_id);
 create policy chat_reads_insert_own on chat_reads
@@ -665,11 +943,17 @@ create policy chat_reads_insert_own on chat_reads
 create policy chat_reads_update_own on chat_reads
   for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
--- blocked_people (own blocks only) -------------------------------------------
+create policy discussion_reads_select_own on discussion_reads
+  for select using (auth.uid() = user_id);
+create policy discussion_reads_insert_own on discussion_reads
+  for insert with check (auth.uid() = user_id);
+create policy discussion_reads_update_own on discussion_reads
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
 create policy blocked_people_own on blocked_people
   for all using (auth.uid() = blocker_id) with check (auth.uid() = blocker_id);
 
--- push_tokens (a token is a capability — own rows only; writes via RPC only) --
+-- A token is a capability — own rows only; writes go through register_push_token.
 create policy push_tokens_select_own on push_tokens
   for select using (auth.uid() = user_id);
 create policy push_tokens_delete_own on push_tokens
@@ -694,42 +978,59 @@ create policy reports_select_own on reports
 -- Grants
 -- Supabase's default privileges already grant anon + authenticated broad DML on
 -- public tables; RLS above is the gate. Only the deliberate deviations are
--- recorded here.
+-- recorded here. All verified live 2026-08-29.
 -- ===========================================================================
 
 -- invite_code is a key to a group's chats, and clients load other groups
 -- constantly, so it must never reach a client. A plain column revoke does not
 -- hold while a table-level SELECT grant is present (that implies every column),
 -- so SELECT is revoked at the table level and re-granted per column, omitting
--- invite_code.
+-- invite_code. The live column grants are exactly these twelve, and `groups` is
+-- the one table whose privilege list has no SELECT in it.
 revoke select on groups from anon, authenticated;
 grant select (id, name, qa, created_by, image_urls, status,
               image_aspect_ratio, card_order, age, gender, city, college)
   on groups to anon, authenticated;
 
--- Sensitive RPCs: lock execute to authenticated. (Supabase grants execute to
--- anon explicitly on new functions, and a revoke from PUBLIC does not remove a
--- role-specific grant — so anon must be named.)
-revoke all on function register_push_token(text) from public, anon;
+-- Every RPC is authenticated-only. Supabase grants EXECUTE to anon explicitly
+-- on new functions, and a revoke from PUBLIC does not remove a role-specific
+-- grant — so anon must be named. This also has to be re-run after any DROP and
+-- recreate of a function, which resets its ACL: get_chat_previews needed
+-- exactly that when its return type changed.
+--
+-- notify_webhook loses authenticated as well: it is a trigger function whose
+-- body carries the webhook secret, and no client has business calling it.
+-- Triggers fire without an EXECUTE check, so the four webhooks are unaffected.
+revoke all on function register_push_token(text)           from public, anon;
+revoke all on function join_group_by_code(text)            from public, anon;
+revoke all on function get_invite_code(text)               from public, anon;
+revoke all on function dissolve_group(text)                from anon;
+revoke all on function delete_my_account()                 from anon;
+revoke all on function get_chat_previews(text)             from anon;
+revoke all on function get_unread_chat_count(text)         from anon;
+revoke all on function get_discussion_unread_counts(text)  from anon;
+revoke all on function get_blocked_person_ids()            from anon;
+revoke all on function notify_webhook()                    from public, anon, authenticated;
+
 grant execute on function register_push_token(text) to authenticated;
-revoke all on function join_group_by_code(text) from public, anon;
-grant execute on function join_group_by_code(text) to authenticated;
-revoke all on function get_invite_code(text) from public, anon;
-grant execute on function get_invite_code(text) to authenticated;
+grant execute on function join_group_by_code(text)  to authenticated;
+grant execute on function get_invite_code(text)     to authenticated;
 
 -- ===========================================================================
 -- Storage
--- All three buckets are PRIVATE. Reads go through authenticated URLs
--- (lib/storageAuth.ts) gated by the policies below; the public URL path is dead.
+-- All four buckets are PRIVATE (verified live). Reads go through authenticated
+-- URLs (lib/storageAuth.ts) gated by the policies below; the public URL path is
+-- dead. RLS is on for storage.buckets with no policies at all, so clients
+-- cannot touch bucket rows despite holding DML grants — fail-closed.
 -- ===========================================================================
 
 insert into storage.buckets (id, name, public)
-values ('groups', 'groups', false), ('people', 'people', false), ('chat-media', 'chat-media', false)
+values ('groups', 'groups', false), ('people', 'people', false),
+       ('chat-media', 'chat-media', false), ('discussion-media', 'discussion-media', false)
 on conflict (id) do update set public = excluded.public;
 
 -- people/{userId}/... — your own folder is yours; others are visible per
--- can_see_person. (The live DB also has redundant "Users can upload/overwrite
--- own photos" insert/update policies subsumed by people_own; safe to drop.)
+-- can_see_person.
 create policy people_own on storage.objects
   for all to authenticated
   using (bucket_id = 'people' and (storage.foldername(name))[1] = auth.uid()::text)
@@ -739,15 +1040,25 @@ create policy people_select on storage.objects
   using (bucket_id = 'people' and private.can_see_person((storage.foldername(name))[1]));
 
 -- groups/{groupId}/... — leader-only writes, visible per can_see_group.
--- SECURITY (2026-08 audit): insert was bucket-only. It now requires leadership,
--- while still allowing the create flow, which uploads to a brand-new group's
--- folder BEFORE the row exists (hence the not-exists branch).
+--
+-- SECURITY (2026-08-29 audit): this policy previously inlined
+-- `not exists (select 1 from groups where id = (storage.foldername(name))[1])`.
+-- Inside that subquery the bare `name` bound to groups.name, not
+-- storage.objects.name, so the test asked whether a group's id matched its own
+-- display name — never true, making the branch always true and the whole check
+-- bucket-only. Any authenticated user could write into any group's folder. The
+-- existence test now goes through private.group_missing(), which takes the path
+-- segment as an argument and so cannot capture the wrong column.
+--
+-- The group_missing branch remains because the create flow uploads photos to a
+-- brand-new group's folder BEFORE inserting the row (groupPost.tsx). Reversing
+-- that order would let the branch go entirely.
 create policy groups_insert on storage.objects
   for insert to authenticated with check (
     bucket_id = 'groups'
     and (
       private.is_group_leader((storage.foldername(name))[1])
-      or not exists (select 1 from groups where id = (storage.foldername(name))[1])
+      or private.group_missing((storage.foldername(name))[1])
     )
   );
 create policy groups_select on storage.objects
@@ -762,7 +1073,13 @@ create policy groups_delete_leader on storage.objects
   using (bucket_id = 'groups' and private.is_group_leader((storage.foldername(name))[1]));
 
 -- chat-media/{g1}_{g2}/... — members of that chat only.
--- SECURITY (2026-08 audit): insert was bucket-only; it now requires membership.
+-- discussion-media/{groupId}_{aboutGroupId}/... — the OWNING group only, so the
+-- second path segment grants nothing. Both split on '_', which groups_id_format
+-- now guarantees no id contains.
+--
+-- Neither has an UPDATE or DELETE policy: sent media is immutable, and nothing
+-- in the app removes it. That also means account deletion leaves it behind —
+-- see the note on delete_my_account.
 create policy chat_media_insert on storage.objects
   for insert to authenticated with check (
     bucket_id = 'chat-media'
@@ -780,15 +1097,42 @@ create policy chat_media_select on storage.objects
     )
   );
 
+create policy discussion_media_insert on storage.objects
+  for insert to authenticated with check (
+    bucket_id = 'discussion-media'
+    and private.is_active_member(split_part((storage.foldername(name))[1], '_', 1))
+  );
+create policy discussion_media_select on storage.objects
+  for select to authenticated using (
+    bucket_id = 'discussion-media'
+    and private.is_active_member(split_part((storage.foldername(name))[1], '_', 1))
+  );
+
 -- ===========================================================================
 -- Triggers
 -- ===========================================================================
 
--- Rate limit (BEFORE INSERT): 30 messages per sender per minute.
+-- Rate limits (BEFORE INSERT): 30 messages per sender per minute, per table.
 drop trigger if exists messages_rate_limit on messages;
 create trigger messages_rate_limit
   before insert on messages
   for each row execute function private.check_message_rate();
+
+drop trigger if exists discussion_messages_rate_limit on discussion_messages;
+create trigger discussion_messages_rate_limit
+  before insert on discussion_messages
+  for each row execute function private.check_discussion_rate();
+
+-- Key freezing (BEFORE UPDATE): a row cannot change which conversation it is in.
+drop trigger if exists messages_keys_frozen on messages;
+create trigger messages_keys_frozen
+  before update on messages
+  for each row execute function private.message_keys_frozen();
+
+drop trigger if exists discussion_messages_keys_frozen on discussion_messages;
+create trigger discussion_messages_keys_frozen
+  before update on discussion_messages
+  for each row execute function private.discussion_message_keys_frozen();
 
 -- Push webhooks. Each posts the row change to the notify edge function
 -- (supabase/functions/notify), which works out recipients and calls Expo's push
@@ -832,19 +1176,37 @@ create trigger notify_memberships_webhook
   after insert or update on public.memberships
   for each row execute function public.notify_webhook();
 
+drop trigger if exists notify_discussion_webhook on public.discussion_messages;
+create trigger notify_discussion_webhook
+  after insert on public.discussion_messages
+  for each row execute function public.notify_webhook();
+
 -- ===========================================================================
--- Group discussions
---
--- PENDING: the definitive statements live in supabase/discussions.sql and are
--- reproduced there in full. Fold them into this mirror once they have actually
--- been run in the dashboard — until then this file describes the live database
--- and that one describes where it is going.
---
--- A discussion is one group's private back-room about ONE candidate group:
--- discussion_messages (group_id, about_group_id, ...), discussion_reactions and
--- discussion_reads, plus get_discussion_unread_counts(), a discussion-media
--- storage bucket, and a fourth notify webhook. Every policy gates on group_id
--- alone -- about_group_id names a subject, never a grant, which is what keeps
--- the group under discussion out of it. It cannot reuse `messages`: that
--- table's select policy admits active members of EITHER group in the pair.
+-- Known open items (2026-08-29) — none is an access-control hole
 -- ===========================================================================
+--
+-- 1. reply_to_id is unconstrained on messages and discussion_messages: it can
+--    point at a row in another thread. No read leak — RLS blocks the embedded
+--    row, so the quote renders empty — but nothing enforces that a reply and
+--    its parent share a conversation.
+--
+-- 2. chat-media and discussion-media objects survive account deletion (no
+--    DELETE policy, and deleteMyMedia only walks `people` and `groups`).
+--
+-- 3. The groups-bucket insert policy still allows uploads under a folder named
+--    for a group that does not exist yet, because the create flow uploads
+--    before inserting the row. Reversing that order in groupPost.tsx would let
+--    the branch go entirely.
+--
+-- 4. The per-user tables' policies apply to PUBLIC rather than `authenticated`
+--    (see the comment above chat_reads). Safe, inconsistent.
+--
+-- 5. rls_auto_enable() still carries EXECUTE for anon and authenticated. It
+--    returns event_trigger, so PostgREST cannot expose it and Postgres refuses
+--    to call it outside an event trigger — harmless, but it is the last
+--    function in public that either role can name.
+--
+-- Not covered by this file at all, and not coverable: Supabase Auth settings
+-- (phone provider, OTP and CAPTCHA config, JWT expiry, redirect URLs) live in
+-- the control plane, not in pg_catalog. The push recipient logic lives in
+-- supabase/functions/notify/index.ts — the triggers above only fire it.

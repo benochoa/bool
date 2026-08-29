@@ -200,12 +200,16 @@ export default function ChatsScreen() {
                       truncates; the age never does, so it stays readable however
                       long the message is. */}
                   <View style={styles.previewMessageRow}>
+                    {/* Sender and message share one Text so they truncate as a
+                        unit — split across two, a long name would push the
+                        message out entirely rather than both giving way. */}
                     <Text style={[styles.previewMessage, unread && styles.unread]} numberOfLines={1}>
+                      {preview.senderName ? `${preview.senderName}: ` : ''}
                       {preview.lastMessage ?? 'No messages yet'}
                     </Text>
                     {preview.lastMessageAt && (
                       <Text style={styles.previewAge} numberOfLines={1}>
-                        {' · '}{formatRelativeTime(preview.lastMessageAt)}
+                        {'· '}{formatRelativeTime(preview.lastMessageAt)}
                       </Text>
                     )}
                   </View>
@@ -276,16 +280,18 @@ const styles = StyleSheet.create({
   },
   // Taller than the two lines of text beside it, so the photo — not the text —
   // sets the row's height and fills most of it.
+  // Circular: half of the 52 above. The placeholder below has to match, or an
+  // image that hasn't loaded yet pops from square to round as it arrives.
   previewPhoto: {
     width: 52,
     height: 52,
-    borderRadius: 8,
+    borderRadius: 26,
     backgroundColor: '#eee',
   },
   previewPhotoPlaceholder: {
     width: 52,
     height: 52,
-    borderRadius: 8,
+    borderRadius: 26,
     backgroundColor: '#ddd',
   },
   // Name over message, both flush to the same left edge.
@@ -295,11 +301,15 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   previewName: {
+    // 16, matched by the message below so both lines share a size and only
+    // weight and colour separate them.
     ...Type.bodyBold,
     // Softer than black, but still clearly ahead of the #777 message and age
     // below it, so the name stays the row's first read.
     color: '#444',
-    marginBottom: 3,
+    // No gap: at this size the weight and colour separate the two lines well
+    // enough, and closing it keeps the pair reading as one block.
+    marginBottom: 0,
   },
   // Message beside its age. The row is what lets the message shrink around a
   // timestamp that keeps its full width.
@@ -308,17 +318,22 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     alignSelf: 'stretch',
   },
+  // Type.body rather than Type.label: same 16 as the name above, so the two
+  // lines share a size and only weight and colour separate them. It is already
+  // the regular face, which is why neither needs a fontFamily of its own.
   previewMessage: {
-    ...Type.label,
-    fontFamily: FontFamily.regular,
+    ...Type.body,
     color: '#777',
     flexShrink: 1,
   },
   previewAge: {
-    ...Type.label,
-    fontFamily: FontFamily.regular,
+    ...Type.body,
     color: '#777',
     flexShrink: 0,
+    // The gap lives here rather than in the ' · ' string, so it is one number
+    // to change. A long message shrinks to make room for it instead of the two
+    // running together.
+    marginLeft: 20,
   },
   // Overlaid on the name and message of an unseen chat — only weight and
   // colour, so each keeps the size it has when read. The age is left out: it's
