@@ -1,17 +1,18 @@
 -- bool — database schema (current-state mirror)
 --
 -- NOT a chronological migration log. A snapshot of the live Supabase database
--- (Postgres 17.6), captured 2026-08-29T03:52Z by running supabase/introspect.sql
+-- (Postgres 17.6), captured 2026-08-29T05:31Z by running supabase/introspect.sql
 -- in the dashboard and folding the result in here.
 --
 -- Every line below was read out of pg_catalog: column definitions, constraints,
 -- indexes, RLS policies, function bodies, triggers, grants, buckets, realtime
--- membership and event triggers. Nothing here is transcribed from intent, which
--- is the whole point — the previous copy had drifted three changes behind
--- without anything noticing, and one policy did not mean what it said.
+-- membership and event triggers. Nothing is transcribed from intent, which is
+-- the point — an earlier copy of this file had drifted three changes behind
+-- without anything noticing, and one storage policy did not mean what it said.
 --
 -- Regenerate after any dashboard change: run supabase/introspect.sql, paste the
--- JSON, fold it in. That loop is the only thing keeping this file honest.
+-- JSON, fold it in. Its output now exceeds a single paste, so it runs in two
+-- halves — function bodies, then everything else.
 --
 -- The <WEBHOOK_SECRET> below is a placeholder. The live notify_webhook() body
 -- carries the real value; introspect.sql redacts it on the way out so a capture
@@ -59,6 +60,35 @@ end;
 $$;
 
 -- ===========================================================================
+-- Stored-URL guards (defined before the tables: they are column checks)
+--
+-- SECURITY (2026-08-29 audit): every URL the app renders comes out of a column a
+-- client writes — profile_pic_url, image_urls, media_url — and lib/storageAuth
+-- attached the viewer's access token to whatever it was handed. Anyone could
+-- point their own profile picture at a server they controlled and collect the
+-- token of every person who rendered it. The client now only sends the header to
+-- this prefix; these constraints stop a foreign URL being stored at all, which
+-- also closes the lesser version — an external URL leaks every viewer's IP even
+-- without the header.
+--
+-- Neither is security definer and neither pins a search_path, deliberately:
+-- they read no tables, only their own argument, so there is nothing to capture.
+-- ===========================================================================
+
+create or replace function private.is_storage_url(u text)
+returns boolean language sql immutable as $$
+  select u is null
+      or u like 'https://vsgdhfwhpiucplkraizw.supabase.co/storage/v1/object/authenticated/%';
+$$;
+
+-- A CHECK cannot contain a subquery, so the all-elements test for a text[]
+-- column goes through a function taking the whole array.
+create or replace function private.all_storage_urls(us text[])
+returns boolean language sql immutable as $$
+  select coalesce(bool_and(private.is_storage_url(u)), true) from unnest(us) as u;
+$$;
+
+-- ===========================================================================
 -- Tables
 -- ===========================================================================
 
@@ -69,8 +99,9 @@ create table profiles (
   id                 uuid primary key default gen_random_uuid(),
   name               text not null default '' constraint profiles_name_len check (char_length(name) <= 60),
   qa                 jsonb not null default '[]' constraint profiles_qa_size check (char_length(qa::text) <= 8000),
-  image_urls         text[] not null default '{}',
-  profile_pic_url    text,
+  image_urls         text[] not null default '{}'
+                       constraint profiles_image_urls_storage check (private.all_storage_urls(image_urls)) not valid,
+  profile_pic_url    text constraint profiles_pic_url_storage check (private.is_storage_url(profile_pic_url)) not valid,
   image_aspect_ratio numeric,
   card_order         text[],
   -- Identifiers: all text. An individual's age is a year ('21'); '30+' and
@@ -98,7 +129,8 @@ create table groups (
   qa                 jsonb not null default '[]' constraint groups_qa_size check (char_length(qa::text) <= 8000),
   created_by         uuid references profiles (id),               -- the leader (nullable: legacy rows)
   invite_code        text unique default private.generate_invite_code(),
-  image_urls         text[] not null default '{}',
+  image_urls         text[] not null default '{}'
+                       constraint groups_image_urls_storage check (private.all_storage_urls(image_urls)) not valid,
   status             text not null default 'active' check (status in ('active', 'dissolved')),
   image_aspect_ratio numeric,
   card_order         text[],
@@ -142,6 +174,9 @@ create table group_suggestions (
 );
 
 create index group_suggestions_target_idx on group_suggestions (target_group_id);
+-- Read by check_suggestion_rate on every insert.
+create index group_suggestions_suggester_recent_idx
+  on group_suggestions (suggested_by, created_at desc);
 
 -- A conversation is an unordered pair of matched groups, always stored with
 -- group_1_id < group_2_id (check constraint) so a thread reads with two plain
@@ -155,8 +190,8 @@ create table messages (
   sender_id          uuid not null references profiles (id) on delete cascade,
   body               text not null constraint messages_body_len check (char_length(body) <= 4000),
   created_at         timestamptz not null default now(),
-  kind               text not null default 'text' check (kind in ('text', 'image', 'audio')),
-  media_url          text,
+  kind               text not null default 'text' check (kind in ('text', 'image', 'audio', 'video')),
+  media_url          text constraint messages_media_url_storage check (private.is_storage_url(media_url)) not valid,
   media_aspect_ratio numeric,
   deleted_at         timestamptz,
   reply_to_id        bigint references messages (id) on delete set null,
@@ -224,6 +259,8 @@ create table bug_reports (
   created_at  timestamptz not null default now()
 );
 
+create index bug_reports_reporter_recent_idx on bug_reports (reporter_id, created_at desc);
+
 -- Abuse reports. Only one target_* is set, per target_type. message_snapshot
 -- copies the body at report time because messages are soft-deletable — without
 -- it a sender could blank the evidence before anyone reads the report. The
@@ -242,6 +279,7 @@ create table reports (
 );
 
 create index reports_created_at_idx on reports (created_at desc);
+create index reports_reporter_recent_idx on reports (reporter_id, created_at desc);
 
 -- ---------------------------------------------------------------------------
 -- Group discussions
@@ -271,8 +309,10 @@ create table discussion_messages (
   sender_id          uuid not null references profiles (id) on delete cascade,
   body               text not null constraint discussion_messages_body_len check (char_length(body) <= 4000),
   created_at         timestamptz not null default now(),
-  kind               text not null default 'text' check (kind in ('text', 'image', 'audio')),
-  media_url          text,
+  kind               text not null default 'text' check (kind in ('text', 'image', 'audio', 'video')),
+  media_url          text
+                       constraint discussion_messages_media_url_storage
+                       check (private.is_storage_url(media_url)) not valid,
   media_aspect_ratio numeric,
   deleted_at         timestamptz,
   reply_to_id        bigint references discussion_messages (id) on delete set null,
@@ -440,8 +480,14 @@ returns boolean language sql stable security definer set search_path = public as
   select not exists (select 1 from groups where id = p_group_id);
 $$;
 
--- Rate limits (BEFORE INSERT triggers below): 30 per sender per minute each,
--- counted separately so a busy discussion can't starve the real chat.
+-- ---------------------------------------------------------------------------
+-- Rate limits (BEFORE INSERT triggers below)
+--
+-- One per table rather than one generic function: counted separately so a busy
+-- discussion can't starve the real chat, and each carries the message its own
+-- callers should see. All definer, so the count sees rows RLS would hide.
+-- ---------------------------------------------------------------------------
+
 create or replace function private.check_message_rate()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare recent int;
@@ -472,11 +518,69 @@ begin
 end;
 $$;
 
--- SECURITY (2026-08 audit): key-freezing triggers. The update policies check who
--- owns a row; these check that the row cannot move. Without them a policy that
--- passes on both the old and the new row still permits relocating a message
--- between two conversations the sender belongs to. Not definer — they only
--- compare NEW against OLD.
+-- The primary key already stops the same target being suggested twice, so the
+-- row count is bounded anyway — this is about the webhook. Every insert fires
+-- notify_suggestions_webhook, which posts to the edge function and pushes to the
+-- whole group, so an unthrottled loop is a push amplifier rather than noise.
+create or replace function private.check_suggestion_rate()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare recent int;
+begin
+  select count(*) into recent
+    from group_suggestions
+   where suggested_by = new.suggested_by
+     and created_at > now() - interval '1 minute';
+  if recent >= 30 then
+    raise exception 'Too many suggestions — slow down.';
+  end if;
+  return new;
+end;
+$$;
+
+-- Nothing constrains a report the way a primary key constrains a suggestion, so
+-- the same target can be reported endlessly. Ten an hour is far past what a
+-- person does and still leaves a flood visible as a flood rather than burying
+-- the queue.
+create or replace function private.check_report_rate()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare recent int;
+begin
+  select count(*) into recent
+    from reports
+   where reporter_id = new.reporter_id
+     and created_at > now() - interval '1 hour';
+  if recent >= 10 then
+    raise exception 'Too many reports — try again later.';
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function private.check_bug_report_rate()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare recent int;
+begin
+  select count(*) into recent
+    from bug_reports
+   where reporter_id = new.reporter_id
+     and created_at > now() - interval '1 hour';
+  if recent >= 10 then
+    raise exception 'Too many reports — try again later.';
+  end if;
+  return new;
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Key freezing (BEFORE UPDATE triggers below)
+--
+-- SECURITY (2026-08 audit): the update policies check who owns a row; these
+-- check that the row cannot move. Without them a policy that passes on both the
+-- old and the new row still permits relocating a message between two
+-- conversations the sender belongs to. Not definer — they only compare NEW
+-- against OLD.
+-- ---------------------------------------------------------------------------
+
 create or replace function private.message_keys_frozen()
 returns trigger language plpgsql as $$
 begin
@@ -501,6 +605,33 @@ begin
   end if;
   return new;
 end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Upload quota
+--
+-- SECURITY (2026-08-29 audit): every storage policy bounded a single object's
+-- size but nothing bounded how many. Two ceilings, because one alone leaves a
+-- hole: a count stops a flood of small files but not ten 50MB videos, and a byte
+-- budget stops the reverse.
+--
+-- Both `owner` and `owner_id` are read. Supabase populates the newer owner_id
+-- (text) and keeps the older owner (uuid) for compatibility; which one is set
+-- varies by version, and reading only one risks a quota that silently never
+-- matches anything. Both are populated today — checked.
+--
+-- Unindexed: storage.objects is owned by supabase_storage_admin, which a hosted
+-- project cannot CREATE INDEX on or SET ROLE to. The scan is trivial at present
+-- volume and would want revisiting in the six figures.
+-- ---------------------------------------------------------------------------
+
+create or replace function private.under_upload_quota()
+returns boolean language sql stable security definer set search_path = public as $$
+  select count(*) < 100
+     and coalesce(sum((metadata->>'size')::bigint), 0) < 524288000   -- 500 MB
+    from storage.objects
+   where (owner = auth.uid() or owner_id = auth.uid()::text)
+     and created_at > now() - interval '1 hour';
 $$;
 
 -- ===========================================================================
@@ -540,9 +671,6 @@ language sql stable as $$
   select
     g.id::text,
     g.name::text,
-    -- The row still shows that they said something, never what. Their side of
-    -- the block needs no case here: RLS withholds those rows entirely, so the
-    -- lateral below simply lands on the newest message this viewer can see.
     case
       when exists (select 1 from blocked_people bp
                    where bp.blocker_id = auth.uid() and bp.blocked_id = m.sender_id)
@@ -610,6 +738,19 @@ returns setof uuid language sql stable security definer set search_path = public
   select blocker_id from blocked_people where blocked_id = auth.uid();
 $$;
 
+-- Where a person's own storage objects are, for lib/deleteMyMedia. Chat and
+-- discussion media is filed under the conversation, so someone's files are
+-- spread across every thread they ever wrote in and no list() of a known folder
+-- would find them. security definer because storage.objects isn't readable by
+-- clients; the filter is auth.uid(), so it can only return the caller's own.
+create or replace function my_media_paths()
+returns table(bucket_id text, name text)
+language sql stable security definer set search_path = public as $$
+  select o.bucket_id::text, o.name::text
+    from storage.objects o
+   where o.owner = auth.uid() or o.owner_id = auth.uid()::text;
+$$;
+
 -- Redeem an invite code. security definer so it can read invite_code (revoked
 -- from clients) and insert the membership past RLS. Upserts, so redeeming a code
 -- for a group you left reactivates that row.
@@ -668,13 +809,9 @@ $$;
 -- Full account deletion. Storage objects are cleared client-side first
 -- (lib/deleteMyMedia.ts) because Postgres refuses direct deletes on
 -- storage.objects, and it must happen before the group rows go, or the leader
--- check in the storage policy has nothing to pass against.
---
--- KNOWN GAP: deleteMyMedia only clears the `people` and `groups` buckets.
--- chat-media and discussion-media have no DELETE policy at all, so a departing
--- user's sent photos and voice notes stay in storage. Not an access-control
--- hole — they remain readable only by that chat's members — but it is a
--- retention question that still wants an answer.
+-- check in the storage policy has nothing to pass against. That sweep now uses
+-- my_media_paths above, so chat and discussion media go with everything else —
+-- they used to survive, having no DELETE policy to reach them.
 create or replace function delete_my_account()
 returns void language plpgsql security definer set search_path = public as $$
 declare
@@ -1004,6 +1141,7 @@ grant select (id, name, qa, created_by, image_urls, status,
 revoke all on function register_push_token(text)           from public, anon;
 revoke all on function join_group_by_code(text)            from public, anon;
 revoke all on function get_invite_code(text)               from public, anon;
+revoke all on function my_media_paths()                    from public, anon;
 revoke all on function dissolve_group(text)                from anon;
 revoke all on function delete_my_account()                 from anon;
 revoke all on function get_chat_previews(text)             from anon;
@@ -1015,6 +1153,7 @@ revoke all on function notify_webhook()                    from public, anon, au
 grant execute on function register_push_token(text) to authenticated;
 grant execute on function join_group_by_code(text)  to authenticated;
 grant execute on function get_invite_code(text)     to authenticated;
+grant execute on function my_media_paths()          to authenticated;
 
 -- ===========================================================================
 -- Storage
@@ -1022,12 +1161,32 @@ grant execute on function get_invite_code(text)     to authenticated;
 -- URLs (lib/storageAuth.ts) gated by the policies below; the public URL path is
 -- dead. RLS is on for storage.buckets with no policies at all, so clients
 -- cannot touch bucket rows despite holding DML grants — fail-closed.
+--
+-- SECURITY (2026-08-29 audit): every bucket had file_size_limit null and no MIME
+-- restriction, so a client could store an object of any size and any type. The
+-- numbers below come from what the app actually writes: photos are resized to
+-- <=1080px and JPEG-compressed at 0.7, so 5MB is roughly a 10x margin; the chat
+-- buckets also take 30-second videos (capped by the picker's videoMaxDuration)
+-- at 8-15MB, and voice notes capped at five minutes in chatThread.
 -- ===========================================================================
 
-insert into storage.buckets (id, name, public)
-values ('groups', 'groups', false), ('people', 'people', false),
-       ('chat-media', 'chat-media', false), ('discussion-media', 'discussion-media', false)
-on conflict (id) do update set public = excluded.public;
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values
+  ('people',           'people',           false,  5242880, array['image/jpeg']),
+  ('groups',           'groups',           false,  5242880, array['image/jpeg']),
+  ('chat-media',       'chat-media',       false, 52428800, array['image/jpeg','audio/mp4','video/mp4','video/quicktime']),
+  ('discussion-media', 'discussion-media', false, 52428800, array['image/jpeg','audio/mp4','video/mp4','video/quicktime'])
+on conflict (id) do update
+  set public = excluded.public,
+      file_size_limit = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
+-- Applies to every bucket at once and ANDs with the permissive policies below
+-- rather than becoming another way in. INSERT only: reads, updates and deletes
+-- are untouched.
+create policy uploads_under_quota on storage.objects
+  as restrictive for insert to authenticated
+  with check (private.under_upload_quota());
 
 -- people/{userId}/... — your own folder is yours; others are visible per
 -- can_see_person.
@@ -1077,9 +1236,10 @@ create policy groups_delete_leader on storage.objects
 -- second path segment grants nothing. Both split on '_', which groups_id_format
 -- now guarantees no id contains.
 --
--- Neither has an UPDATE or DELETE policy: sent media is immutable, and nothing
--- in the app removes it. That also means account deletion leaves it behind —
--- see the note on delete_my_account.
+-- Neither has an UPDATE policy: sent media is immutable. Both gained a DELETE
+-- policy on 2026-08-29 — without one, a departing user's photos and videos had
+-- no way out of storage, since deleteMyMedia could not reach them. Ownership is
+-- the test: you may remove what you uploaded, and nothing else.
 create policy chat_media_insert on storage.objects
   for insert to authenticated with check (
     bucket_id = 'chat-media'
@@ -1096,6 +1256,11 @@ create policy chat_media_select on storage.objects
       or private.is_active_member(split_part((storage.foldername(name))[1], '_', 2))
     )
   );
+create policy chat_media_delete_own on storage.objects
+  for delete to authenticated using (
+    bucket_id = 'chat-media'
+    and (owner = auth.uid() or owner_id = auth.uid()::text)
+  );
 
 create policy discussion_media_insert on storage.objects
   for insert to authenticated with check (
@@ -1107,12 +1272,17 @@ create policy discussion_media_select on storage.objects
     bucket_id = 'discussion-media'
     and private.is_active_member(split_part((storage.foldername(name))[1], '_', 1))
   );
+create policy discussion_media_delete_own on storage.objects
+  for delete to authenticated using (
+    bucket_id = 'discussion-media'
+    and (owner = auth.uid() or owner_id = auth.uid()::text)
+  );
 
 -- ===========================================================================
 -- Triggers
 -- ===========================================================================
 
--- Rate limits (BEFORE INSERT): 30 messages per sender per minute, per table.
+-- Rate limits (BEFORE INSERT).
 drop trigger if exists messages_rate_limit on messages;
 create trigger messages_rate_limit
   before insert on messages
@@ -1122,6 +1292,21 @@ drop trigger if exists discussion_messages_rate_limit on discussion_messages;
 create trigger discussion_messages_rate_limit
   before insert on discussion_messages
   for each row execute function private.check_discussion_rate();
+
+drop trigger if exists group_suggestions_rate_limit on group_suggestions;
+create trigger group_suggestions_rate_limit
+  before insert on group_suggestions
+  for each row execute function private.check_suggestion_rate();
+
+drop trigger if exists reports_rate_limit on reports;
+create trigger reports_rate_limit
+  before insert on reports
+  for each row execute function private.check_report_rate();
+
+drop trigger if exists bug_reports_rate_limit on bug_reports;
+create trigger bug_reports_rate_limit
+  before insert on bug_reports
+  for each row execute function private.check_bug_report_rate();
 
 -- Key freezing (BEFORE UPDATE): a row cannot change which conversation it is in.
 drop trigger if exists messages_keys_frozen on messages;
@@ -1185,13 +1370,14 @@ create trigger notify_discussion_webhook
 -- Known open items (2026-08-29) — none is an access-control hole
 -- ===========================================================================
 --
--- 1. reply_to_id is unconstrained on messages and discussion_messages: it can
+-- 1. message_snapshot on reports is supplied by the client (lib/submitReport),
+--    so a malicious reporter can fabricate the quoted evidence. Capturing it
+--    server-side from the message id would fix it.
+--
+-- 2. reply_to_id is unconstrained on messages and discussion_messages: it can
 --    point at a row in another thread. No read leak — RLS blocks the embedded
 --    row, so the quote renders empty — but nothing enforces that a reply and
 --    its parent share a conversation.
---
--- 2. chat-media and discussion-media objects survive account deletion (no
---    DELETE policy, and deleteMyMedia only walks `people` and `groups`).
 --
 -- 3. The groups-bucket insert policy still allows uploads under a folder named
 --    for a group that does not exist yet, because the create flow uploads
@@ -1205,6 +1391,10 @@ create trigger notify_discussion_webhook
 --    returns event_trigger, so PostgREST cannot expose it and Postgres refuses
 --    to call it outside an event trigger — harmless, but it is the last
 --    function in public that either role can name.
+--
+-- 6. under_upload_quota() scans storage.objects unindexed. A hosted project
+--    cannot CREATE INDEX on it or SET ROLE to supabase_storage_admin, so the
+--    two supporting indexes could not be created. Fine at current volume.
 --
 -- Not covered by this file at all, and not coverable: Supabase Auth settings
 -- (phone provider, OTP and CAPTCHA config, JWT expiry, redirect URLs) live in

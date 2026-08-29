@@ -1,11 +1,14 @@
 import { supabase } from '@/supabaseClient';
 
-// What is being reported. A message carries its text along because messages are
-// soft deletable — the sender can blank it before anyone reads the report.
+// What is being reported. A message used to carry its text along, for
+// message_snapshot — messages are soft deletable, so the sender could blank the
+// evidence before anyone read the report. That copy is now taken server-side by
+// the reports_snapshot trigger, which reads the body from target_message_id: a
+// snapshot the reporter writes is a snapshot the reporter can invent.
 export type ReportTarget =
   | { type: 'group'; groupId: string }
   | { type: 'person'; personId: string }
-  | { type: 'message'; messageId: number; body: string };
+  | { type: 'message'; messageId: number };
 
 export async function submitReport(
   reporterId: string,
@@ -19,7 +22,8 @@ export async function submitReport(
     target_group_id: target.type === 'group' ? target.groupId : null,
     target_person_id: target.type === 'person' ? target.personId : null,
     target_message_id: target.type === 'message' ? target.messageId : null,
-    message_snapshot: target.type === 'message' ? target.body : null,
+    // message_snapshot is deliberately not sent: the trigger fills it from the
+    // message itself and would overwrite anything passed here anyway.
     reason,
     details: details || null,
   });

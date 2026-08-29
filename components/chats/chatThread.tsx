@@ -1059,7 +1059,6 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, di
             setReporting({
               type: 'message',
               messageId: actionTarget.message.id,
-              body: actionTarget.message.body,
             });
             setActionTarget(null);
           }}
