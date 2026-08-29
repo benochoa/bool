@@ -361,8 +361,27 @@ async function send(pushes: Push[]) {
   }
 }
 
+// Constant-time comparison. `!==` on strings returns as soon as two bytes
+// differ, so how long the rejection takes leaks how much of the secret was
+// right — an attacker can recover it byte by byte given enough samples. Network
+// jitter makes that impractical against a hosted function, but this endpoint
+// runs as service_role and reads every table in the database, so it is not the
+// place to rely on the attack being awkward.
+//
+// Lengths are compared first and separately: timingSafeEqual requires equal
+// lengths, and the length of a secret is not a secret.
+function secretMatches(provided: string | null, expected: string | undefined): boolean {
+  if (!provided || !expected) return false;
+  const a = new TextEncoder().encode(provided);
+  const b = new TextEncoder().encode(expected);
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
+}
+
 Deno.serve(async req => {
-  if (req.headers.get('x-webhook-secret') !== Deno.env.get('WEBHOOK_SECRET')) {
+  if (!secretMatches(req.headers.get('x-webhook-secret'), Deno.env.get('WEBHOOK_SECRET'))) {
     return new Response('forbidden', { status: 403 });
   }
 
