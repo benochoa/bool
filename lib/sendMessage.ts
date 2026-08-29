@@ -1,11 +1,11 @@
 import { supabase } from '@/supabaseClient';
 import { canonicalPair } from './canonicalPair';
 
-// A photo or voice note rides along with the row rather than replacing its
-// body: `body` stays the human-readable line ('Photo'), which is what the Chats
-// preview shows for a message it can't render.
+// A photo, video or voice note rides along with the row rather than replacing
+// its body: `body` stays the human-readable line ('Photo', 'Video'), which is
+// what the Chats preview and every push shows for a message it can't render.
 export interface MessageMedia {
-  kind: 'image' | 'audio';
+  kind: 'image' | 'audio' | 'video';
   url: string;
   aspectRatio: number | null;
   // Bar levels for a voice note, the audio counterpart to aspectRatio: both are

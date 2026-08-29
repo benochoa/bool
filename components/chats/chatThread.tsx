@@ -17,6 +17,7 @@ import ReactionRow from '@/components/chats/reactionRow';
 import ReactionsSheet from '@/components/chats/reactionsSheet';
 import RevealRow from '@/components/chats/revealRow';
 import SwipeToReply from '@/components/chats/swipeToReply';
+import VideoMessage from '@/components/chats/videoMessage';
 import VoiceMessage from '@/components/chats/voiceMessage';
 import PersonPanel from '@/components/posts/personPanel';
 import ReportSheet from '@/components/ui/reportSheet';
@@ -46,6 +47,8 @@ import { ReportTarget } from '@/lib/submitReport';
 import { buildWaveform } from '@/lib/waveform';
 import { uploadChatAudio } from '@/lib/uploadChatAudio';
 import { uploadChatPhoto } from '@/lib/uploadChatPhoto';
+import { uploadChatVideo } from '@/lib/uploadChatVideo';
+import { uploadDiscussionVideo } from '@/lib/uploadDiscussionVideo';
 import {
   AudioModule, RecordingPresets, setAudioModeAsync, useAudioRecorder, useAudioRecorderState,
 } from 'expo-audio';
@@ -71,6 +74,18 @@ const KEYBOARD_DISMISS_DRAG = 16;
 // How often the loudness is read while recording. Fast enough that a one-second
 // message still has ten bars' worth of shape to draw from.
 const METER_INTERVAL_MS = 100;
+// Longest a voice note may run before it stops itself and sends. The chat-media
+// and discussion-media buckets cap an object at 10MB, and HIGH_QUALITY m4a runs
+// near 1MB a minute — so without a ceiling a long enough hold uploads nothing
+// and fails silently, uploadChatAudio having only null to report. Five minutes
+// leaves that limit roughly half spare for a higher bitrate than expected.
+const MAX_RECORDING_MS = 5 * 60 * 1000;
+// Longest clip the picker will hand back. It enforces this itself — the camera
+// stops at the limit and a longer library pick is trimmed — so nothing here has
+// to police it afterwards. Thirty seconds transcoded lands around 8-15MB, which
+// the 50MB bucket limit covers several times over, and keeps a send finishing on
+// mobile data rather than stalling.
+const MAX_VIDEO_SECONDS = 30;
 
 // Dragging the thread left to read the times. The reveal has to carry each time
 // from off the screen to the list's own right margin, so it is the width of the
@@ -130,7 +145,7 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, di
   // A photo taken or picked but not sent yet — its presence is what puts the
   // confirm screen up.
   const [pending, setPending] = useState<ImagePicker.ImagePickerAsset | null>(null);
-  const [sendingPhoto, setSendingPhoto] = useState(false);
+  const [sendingMedia, setSendingMedia] = useState(false);
   const [sendingVoice, setSendingVoice] = useState(false);
   // The message whose actions are open, with where its bubble sat when pressed.
   const [actionTarget, setActionTarget] = useState<{ message: Message; rect: BubbleRect } | null>(null);
@@ -412,40 +427,56 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, di
       Alert.alert('Camera access needed', 'Allow camera access to take a photo.');
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({ quality: 1 });
-    if (!result.canceled) sendPhoto(result.assets[0]);
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images', 'videos'],
+      quality: 1,
+      videoMaxDuration: MAX_VIDEO_SECONDS,
+    });
+    if (!result.canceled) sendAsset(result.assets[0]);
   }
 
   async function handlePickPhoto() {
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images', 'videos'],
+      quality: 1,
+      videoMaxDuration: MAX_VIDEO_SECONDS,
+    });
     if (!result.canceled) setPending(result.assets[0]);
   }
 
-  async function sendPhoto(asset: ImagePicker.ImagePickerAsset) {
+  // Photos and videos come off the same picker and take the same route out, so
+  // they share a sender. Only the upload and the two labels differ.
+  async function sendAsset(asset: ImagePicker.ImagePickerAsset) {
     if (!session?.user) return;
-    setSendingPhoto(true);
+    const isVideo = asset.type === 'video';
+    setSendingMedia(true);
 
-    const url = await (discussion
-      ? uploadDiscussionPhoto(myGroupId, otherGroupId, asset.uri, asset.width)
-      : uploadChatPhoto(myGroupId, otherGroupId, asset.uri, asset.width));
+    const url = await (isVideo
+      ? (discussion
+          ? uploadDiscussionVideo(myGroupId, otherGroupId, asset.uri, asset.mimeType)
+          : uploadChatVideo(myGroupId, otherGroupId, asset.uri, asset.mimeType))
+      : (discussion
+          ? uploadDiscussionPhoto(myGroupId, otherGroupId, asset.uri, asset.width)
+          : uploadChatPhoto(myGroupId, otherGroupId, asset.uri, asset.width)));
     const ok = url && await postMessage(
       session.user.id,
-      // The body every count and preview reads, since neither can show a photo.
-      'Photo',
+      // The body every count, preview and push reads, since none can show media.
+      isVideo ? 'Video' : 'Photo',
       {
         media: {
-          kind: 'image',
+          kind: isVideo ? 'video' : 'image',
           url,
-          // Kept as the photo's real shape rather than snapped like the post
+          // Kept as the media's real shape rather than snapped like the post
           // cards: a message isn't sharing a carousel with anything, so nothing
-          // needs it to agree with a neighbour.
+          // needs it to agree with a neighbour. It also lets the bubble size
+          // itself before a video has loaded a single frame.
           aspectRatio: asset.width && asset.height ? asset.width / asset.height : null,
         },
         replyToId: replyTo?.id ?? null,
       }
     );
 
-    setSendingPhoto(false);
+    setSendingMedia(false);
     if (!ok) {
       Alert.alert('Send failed', 'Please try again.');
       return;
@@ -503,6 +534,11 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, di
       // Optional in RecorderState, and absent on the first tick or two while
       // the mic spins up.
       if (typeof status.metering === 'number') meterSamples.current.push(status.metering);
+      // At the ceiling the recording ends itself and sends what it has, exactly
+      // as a release would. handleRecordEnd clears this timer on its way in, so
+      // it cannot fire twice, and it flips holding.current — so the release that
+      // eventually comes falls straight out of it rather than sending again.
+      if (status.durationMillis >= MAX_RECORDING_MS) handleRecordEnd();
     }, METER_INTERVAL_MS);
   }
 
@@ -555,6 +591,7 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, di
     if (blockedIds.has(m.senderId)) return 'Message from blocked user';
     if (m.deletedAt) return 'Deleted message';
     if (m.kind === 'image') return 'Photo';
+    if (m.kind === 'video') return 'Video';
     if (m.kind === 'audio') return 'Voice message';
     return m.body;
   }
@@ -620,6 +657,8 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, di
             style={[styles.messagePhoto, { aspectRatio: m.mediaAspectRatio ?? 1 }]}
             contentFit="cover"
           />
+        ) : m.kind === 'video' && m.mediaUrl ? (
+          <VideoMessage url={m.mediaUrl} aspectRatio={m.mediaAspectRatio} />
         ) : m.kind === 'audio' && m.mediaUrl ? (
           <VoiceMessage url={m.mediaUrl} mine={isMine} waveform={m.waveform} />
         ) : (
@@ -924,9 +963,9 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, di
           <TouchableOpacity
             style={styles.mediaButton}
             onPress={handleTakePhoto}
-            disabled={sendingPhoto}
+            disabled={sendingMedia}
           >
-            {sendingPhoto ? (
+            {sendingMedia ? (
               <ActivityIndicator color={MEDIA_ICON_COLOR} />
             ) : (
               <Camera size={MEDIA_ICON_SIZE} color={MEDIA_ICON_COLOR} />
@@ -1040,18 +1079,32 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, di
         </MessageActions>
       )}
 
-      {/* Confirm screen for a photo that hasn't been sent yet. Over everything,
-          on black, so the photo is all there is to look at — and the only ways
-          out are Cancel and Send. */}
+      {/* Confirm screen for a photo or video that hasn't been sent yet. Over
+          everything, on black, so the media is all there is to look at — and the
+          only ways out are Cancel and Send. A video is playable here, which is
+          the point of the screen: it is the one chance to watch it back before
+          it goes. */}
       {pending && (
         <View style={styles.confirmOverlay}>
-          <Image source={authedSource(pending.uri)} style={styles.confirmPhoto} contentFit="contain" />
+          {pending.type === 'video' ? (
+            <VideoMessage
+              url={pending.uri}
+              aspectRatio={pending.width && pending.height ? pending.width / pending.height : null}
+              style={styles.confirmPhoto}
+              contentFit="contain"
+              // The one place the transport belongs: this screen exists so a
+              // clip can be watched back and scrubbed before it is sent.
+              controls
+            />
+          ) : (
+            <Image source={authedSource(pending.uri)} style={styles.confirmPhoto} contentFit="contain" />
+          )}
           <View style={styles.confirmRow}>
-            <TouchableOpacity onPress={() => setPending(null)} disabled={sendingPhoto}>
+            <TouchableOpacity onPress={() => setPending(null)} disabled={sendingMedia}>
               <Text style={styles.confirmCancel}>Cancel</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => sendPhoto(pending)} disabled={sendingPhoto}>
-              {sendingPhoto ? (
+            <TouchableOpacity onPress={() => sendAsset(pending)} disabled={sendingMedia}>
+              {sendingMedia ? (
                 <ActivityIndicator color="#fff" />
               ) : (
                 <Text style={styles.confirmSend}>Send</Text>

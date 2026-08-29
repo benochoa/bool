@@ -26,10 +26,23 @@ export function authenticatedStorageUrl(bucket: string, path: string): string {
   return `${supabaseUrl}/storage/v1/object/authenticated/${bucket}/${path}`;
 }
 
-// A source for expo-image or expo-audio. Local URIs (a photo just picked, not
-// yet uploaded) pass through harmlessly — headers mean nothing to file://.
+// Only ever sent to our own Storage. Every URL that reaches this function comes
+// out of a database column — profile_pic_url, image_urls, media_url — and every
+// one of those is written by a client with nothing validating it. Attaching the
+// token unconditionally meant anyone could point their own profile picture at a
+// server they control and collect the access token of every person who rendered
+// it: a full-privilege credential, for as long as it lives, from everyone who
+// can see them — which is everyone in their city.
+//
+// A prefix test is enough because every stored URL is built by
+// authenticatedStorageUrl above, and nothing else writes one. Anything else —
+// an external URL, or a local file:// for a photo not yet uploaded — goes
+// through bare, which is what it wanted anyway: headers mean nothing to file://.
+const STORAGE_PREFIX = `${supabaseUrl}/storage/v1/object/authenticated/`;
+
+// A source for expo-image or expo-audio.
 export function authedSource(uri: string) {
-  return accessToken
+  return accessToken && uri?.startsWith(STORAGE_PREFIX)
     ? { uri, headers: { Authorization: `Bearer ${accessToken}` } }
     : { uri };
 }

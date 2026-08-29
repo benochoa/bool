@@ -10,7 +10,7 @@ export interface Message {
   body: string;
   // 'text' for a typed message; the others carry mediaUrl and render that
   // instead, with body left as the label the Chats preview falls back on.
-  kind: 'text' | 'image' | 'audio';
+  kind: 'text' | 'image' | 'audio' | 'video';
   mediaUrl: string | null;
   mediaAspectRatio: number | null;
   // Bar levels for a voice note. Null on recordings made before the column
