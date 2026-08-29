@@ -1,12 +1,23 @@
 -- ===========================================================================
 -- bool — live database mirror
 --
--- Postgres 17.6. Captured from pg_catalog on 2026-08-29T20:08:37Z via
+-- Postgres 17.6. Captured from pg_catalog on 2026-08-29T20:25:49Z via
 -- introspect.sql, immediately after security_fixes.sql was applied.
 -- EVERYTHING BELOW IS OBSERVED, NOT TRANSCRIBED: column types, defaults,
 -- constraints and their validated state, indexes, policy bodies as Postgres
 -- resolved them, function definitions, triggers, table and column grants,
 -- buckets, realtime and event triggers all came out of the catalog.
+--
+-- The 20:25 capture widened introspect.sql to cover what the 20:08 one could
+-- not express, and the additions immediately paid for themselves: bucket MIME
+-- allowlists and constraint validity had been asserted here without ever being
+-- read, and PUBLIC was filtered out of both grant queries, which is what hid
+-- the ineffective function revokes described under "Grants" below.
+--
+-- Confirmed absent, having now actually been looked for: views, materialized
+-- views, custom types, domains, generated columns, object comments, triggers on
+-- auth.users, tables outside public, and pg_cron. Nothing in this file depends
+-- on their absence, but the mirror can now say so rather than stay silent.
 --
 -- This file is a MIRROR, not a migration. Running it will not build the
 -- database, and editing it changes nothing. To bring it back in line after a
@@ -301,8 +312,36 @@ alter publication supabase_realtime add table discussion_reactions;
 
 -- replica identity full: a change event otherwise carries only the primary key
 -- of the old row, but the client and the notify function need the *previous*
--- status to tell a join from a rejoin from a leave.
-alter table memberships replica identity full;
+-- status to tell a join from a rejoin from a leave. group_suggestions is full
+-- for the same reason one step along the funnel — old_record.status is what
+-- separates pending->sent from sent->matched, and notify_suggestions_webhook
+-- fires on UPDATE, so without it the push cannot tell which step just happened.
+--
+-- These two are the only ones. The other five realtime tables are 'default',
+-- where an UPDATE or DELETE event names the primary key and nothing else of the
+-- old row — fine for them, since nothing keys off a previous value.
+alter table memberships       replica identity full;
+alter table group_suggestions replica identity full;
+
+-- Supabase also owns a second publication, supabase_realtime_messages_publication,
+-- carrying its own realtime.messages table. Not ours; listed so a future capture
+-- showing two publications does not read as drift.
+
+
+-- ===========================================================================
+-- Extensions (live)
+--
+--   pg_net              0.20.3   schema public   -- net.http_post, used by
+--                                                   notify_webhook()
+--   pg_stat_statements  1.11     schema extensions
+--   pgcrypto            1.3      schema extensions
+--   plpgsql             1.0      schema pg_catalog
+--   supabase_vault      0.3.1    schema vault
+--   uuid-ossp           1.1      schema extensions
+--
+-- No pg_cron, so nothing runs on a schedule inside the database. gen_random_uuid()
+-- on profiles.id comes from pgcrypto. Everything else is Supabase's default set.
+-- ===========================================================================
 
 
 -- ===========================================================================
@@ -1020,6 +1059,16 @@ create policy questions_select on questions
 -- full DML on every public table EXCEPT groups, so RLS is carrying all of it —
 -- which is why the policies above matter as much as they do.
 --
+-- "Full DML" is literal: the live ACL on each of those fourteen tables is
+-- DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE, for
+-- anon and authenticated alike. TRUNCATE is the one that RLS does not gate at
+-- all — policies are not consulted for it — so the only thing standing between
+-- a client role and an empty table is that PostgREST never emits TRUNCATE and
+-- these roles have no direct Postgres connection. That is Supabase's default
+-- grant, not a choice made here, and removing it is not obviously safe: the
+-- REST layer depends on the rest of the set. Recorded because "RLS protects
+-- these tables" is true of the four DML verbs and of nothing else.
+--
 -- public.groups is the deliberate exception, and it is load-bearing in BOTH
 -- directions as of 2026-08-29:
 --
@@ -1053,17 +1102,46 @@ grant update (name, qa, created_by, image_urls, status,
 -- Function EXECUTE. The revokes matter as much as the grants: create or replace
 -- preserves an existing ACL, but a NEW function is granted to PUBLIC by default,
 -- which includes anon.
+--
+-- SEVEN OF THE ELEVEN REVOKES BELOW DO NOTHING, and the 20:25 capture is what
+-- showed it. `revoke ... from anon` removes only a grant held by anon by name.
+-- The default EXECUTE is a separate ACL entry whose grantee is PUBLIC, and a
+-- role's effective privilege is the union of its own grants, its inherited
+-- ones, and PUBLIC's. Revoking from anon leaves the PUBLIC entry standing, so
+-- anon keeps EXECUTE through it. Only `from public` removes it.
+--
+-- The live ACL splits exactly along that line, which is what proves the reading
+-- rather than merely suggesting it:
+--
+--   revoked `from public, anon`  ->  ACL shows {authenticated}          (4 fns)
+--   revoked `from anon` alone    ->  ACL shows {authenticated, PUBLIC}  (7 fns)
+--
+-- Nothing is currently reachable through the seven, and the reason is internal
+-- to each function rather than anything this section does. The three SECURITY
+-- DEFINER ones all key off auth.uid(): delete_my_account() raises 'Not
+-- authenticated' on null, dissolve_group() fails its leadership test, and
+-- get_blocked_person_ids() matches no rows. The four preview/count functions are
+-- not definer, so they run under the caller's own RLS and every policy above is
+-- `to authenticated` — anon gets empty results, not data. rls_auto_enable() has
+-- no pg_event_trigger_ddl_commands() context when called directly.
+--
+-- So this is a defence that is absent rather than a hole that is open, and the
+-- danger is entirely prospective: the next SECURITY DEFINER RPC added here, if
+-- it follows the `from anon` pattern on the seven lines below rather than the
+-- `from public, anon` pattern on the four above, ships callable by anon. The
+-- lines are left as written because this file mirrors the database as it is;
+-- the correction is tracked as open item 7.
 revoke all on function register_push_token(text)           from public, anon;
 revoke all on function join_group_by_code(text)            from public, anon;
 revoke all on function get_invite_code(text)               from public, anon;
 revoke all on function my_media_paths()                    from public, anon;
-revoke all on function dissolve_group(text)                from anon;
-revoke all on function delete_my_account()                 from anon;
-revoke all on function get_chat_previews(text)             from anon;
-revoke all on function get_unread_chat_count(text)         from anon;
-revoke all on function get_discussion_unread_counts(text)  from anon;
-revoke all on function get_group_chat_preview(text)        from anon;
-revoke all on function get_blocked_person_ids()            from anon;
+revoke all on function dissolve_group(text)                from anon;  -- ineffective
+revoke all on function delete_my_account()                 from anon;  -- ineffective
+revoke all on function get_chat_previews(text)             from anon;  -- ineffective
+revoke all on function get_unread_chat_count(text)         from anon;  -- ineffective
+revoke all on function get_discussion_unread_counts(text)  from anon;  -- ineffective
+revoke all on function get_group_chat_preview(text)        from anon;  -- ineffective
+revoke all on function get_blocked_person_ids()            from anon;  -- ineffective
 revoke all on function notify_webhook()                    from public, anon, authenticated;
 
 grant execute on function register_push_token(text) to authenticated;
@@ -1071,10 +1149,39 @@ grant execute on function join_group_by_code(text)  to authenticated;
 grant execute on function get_invite_code(text)     to authenticated;
 grant execute on function my_media_paths()          to authenticated;
 
--- Live check: every public.* RPC is granted to `authenticated` only. The one
--- exception is rls_auto_enable(), which anon and authenticated both hold
--- EXECUTE on — harmless, since an event-trigger function called directly has no
--- pg_event_trigger_ddl_commands() context to iterate.
+-- notify_webhook() is the one that had to work, and it did: it appears in no
+-- grant row at all, for any client role. Triggers fire without an EXECUTE
+-- check, so the four webhooks still run.
+
+-- All 24 private.* helpers are EXECUTE-to-PUBLIC — none was ever revoked. What
+-- contains them is one line up the stack: USAGE on schema `private` is granted
+-- to `authenticated` and to nobody else. anon cannot reach the schema, so the
+-- PUBLIC grants are unreachable for it; PostgREST exposes only public and
+-- graphql_public, so no client reaches them by URL either.
+--
+-- What that leaves is authenticated holding direct EXECUTE on every helper.
+-- They return booleans about the caller's own relationships, so the exposure is
+-- an oracle rather than a leak: private.group_missing('x') answers whether an
+-- arbitrary group id exists, and can_see_group / can_see_person answer whether
+-- one is visible. Nothing returns a row. Worth knowing before a future helper
+-- returns something richer than a boolean.
+
+-- Schema USAGE, live:
+--   public          anon, authenticated, PUBLIC
+--   private         authenticated only        <- the containment above
+--   storage, auth, extensions, graphql,
+--   graphql_public, realtime                  anon, authenticated
+--   net             anon, authenticated, PUBLIC
+
+-- Default privileges, which is why every table above is fully granted without
+-- anyone having written a GRANT. postgres and supabase_admin both carry default
+-- ACLs on schema public giving anon, authenticated and service_role arwdDxtm on
+-- new tables, X on new functions, and rwU on new sequences. A table created
+-- tomorrow is therefore world-granted the moment it exists, and the only thing
+-- between it and open access is the ensure_rls event trigger above turning RLS
+-- on — after which, with no policies written yet, it denies everything and
+-- fails closed. That pairing is the whole safety net, and it only holds while
+-- ensure_rls stays enabled.
 
 
 -- ===========================================================================
@@ -1329,9 +1436,18 @@ $$;
 
 -- ===========================================================================
 -- Storage
--- All four buckets PRIVATE with a size cap and a MIME allowlist (verified
--- live). Reads go through authenticated URLs (lib/storageAuth.ts); the public
--- URL path is dead.
+-- All four buckets PRIVATE with a size cap and a MIME allowlist — read from
+-- storage.buckets this time rather than asserted: the 20:08 capture selected
+-- three columns and allowed_mime_types was not among them, so the claim had
+-- never actually been checked. It holds. All four are also type STANDARD with
+-- versioning DISABLED. Reads go through authenticated URLs (lib/storageAuth.ts);
+-- the public URL path is dead.
+--
+-- storage also holds Supabase's own tables — buckets_analytics, buckets_vectors,
+-- vector_indexes, s3_multipart_uploads, s3_multipart_uploads_parts, migrations.
+-- All have RLS enabled and no policies, so they deny everything; the last four
+-- carry only SELECT for anon/authenticated rather than the full DML set. Not
+-- ours, listed so a capture showing eight storage tables does not read as drift.
 -- ===========================================================================
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -1484,6 +1600,53 @@ create policy discussion_media_delete_own on storage.objects
 --    cross-tenant isolation probe (scratchpad/cross-tenant-test.ps1), which is
 --    still blocked on having a discussion message to target.
 --
--- 7. Supabase Auth settings (JWT expiry, OTP rate limits) are dashboard config
---    and are NOT captured by introspect.sql. Review them separately.
+-- 7. SEVEN FUNCTION REVOKES ARE INEFFECTIVE. `revoke ... from anon` does not
+--    remove the default EXECUTE grant to PUBLIC, so the seven functions marked
+--    "ineffective" under "Grants" are still PUBLIC-executable, and anon reaches
+--    them through that. Nothing leaks today — each is either SECURITY DEFINER
+--    keyed to auth.uid(), or non-definer and therefore bound by policies that
+--    are all `to authenticated`. The fix is one line per function:
+--
+--      revoke all on function dissolve_group(text)               from public;
+--      revoke all on function delete_my_account()                from public;
+--      revoke all on function get_chat_previews(text)            from public;
+--      revoke all on function get_unread_chat_count(text)        from public;
+--      revoke all on function get_discussion_unread_counts(text) from public;
+--      revoke all on function get_group_chat_preview(text)       from public;
+--      revoke all on function get_blocked_person_ids()           from public;
+--      grant execute on function dissolve_group(text)               to authenticated;
+--      grant execute on function delete_my_account()                to authenticated;
+--      grant execute on function get_chat_previews(text)            to authenticated;
+--      grant execute on function get_unread_chat_count(text)        to authenticated;
+--      grant execute on function get_discussion_unread_counts(text) to authenticated;
+--      grant execute on function get_group_chat_preview(text)       to authenticated;
+--      grant execute on function get_blocked_person_ids()           to authenticated;
+--
+--    The grants are not optional: `revoke from public` strips the only entry
+--    those four non-definer functions have, and without re-granting, signed-in
+--    users lose the Chats tab. Worth doing for the next definer RPC's sake
+--    rather than this one's.
+--
+-- 8. net SCHEMA GRANTS ARE UNMEASURED. USAGE on `net` is held by anon,
+--    authenticated and PUBLIC, and Supabase's issue_pg_net_access event trigger
+--    is live, which by default also grants EXECUTE on net.http_post/http_get to
+--    those roles and marks them SECURITY DEFINER. If so, any role that can
+--    reach the schema can make the database issue arbitrary outbound HTTP —
+--    an SSRF primitive, and the same one notify_webhook() relies on. PostgREST
+--    exposes only public and graphql_public, so there is no URL that reaches
+--    net.* and no evidence of a live path. introspect.sql scopes its function
+--    grants to public and private, so this is unread rather than cleared:
+--
+--      select p.proname, p.prosecdef,
+--             case when a.grantee = 0 then 'PUBLIC'
+--                  else a.grantee::regrole::text end as grantee
+--        from pg_proc p
+--        join pg_namespace n on n.oid = p.pronamespace
+--        cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+--       where n.nspname = 'net' and a.privilege_type = 'EXECUTE'
+--         and (a.grantee = 0 or a.grantee::regrole::text in ('anon','authenticated'));
+--
+-- 9. Supabase Auth settings (JWT expiry, OTP rate limits, providers) and the
+--    notify edge function's deployed source are dashboard and deploy state, not
+--    Postgres. introspect.sql cannot see either. Review them separately.
 -- ===========================================================================
