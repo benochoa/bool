@@ -1,16 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { ChevronLeft } from '@/assets/symbols/ChevronLeft';
-import { ChevronRight } from '@/assets/symbols/ChevronRight';
 import ChatThread from '@/components/chats/chatThread';
 import { ViewerImage } from '@/components/chats/imageViewer';
-import GroupPost from '@/components/posts/groupPost';
 import SlideOver from '@/components/ui/slideOver';
 import { Palette, Type } from '@/constants/theme';
 import { useInAppNotifications } from '@/hooks/use-in-app-notifications';
 import { useSession } from '@/hooks/use-session';
 import { markDiscussionRead } from '@/lib/markDiscussionRead';
-import { HEADER_TOP, FLOATING_TOP } from '@/constants/layout';
+import { HEADER_TOP } from '@/constants/layout';
 
 // Your own group's private back-room about one candidate group — a full-screen
 // panel over whatever opened it, leaving by its back chevron or by a swipe to
@@ -32,19 +30,13 @@ interface Props {
   // panel's own swipe-to-dismiss, and closing the whole discussion out from
   // under the photo is not what a drag on a photo should do.
   onOpenImage: (image: ViewerImage) => void;
-  // Tapping a member of the group under discussion. Raised to the screen for
-  // the reason groupPost gives: the panel that shows a profile has to sit above
-  // the screen's own floating chrome, which one opened from in here would not.
-  onSelectMember: (personId: string) => void;
 }
 
 export default function DiscussionSheet({
-  aboutGroupId, aboutGroupName, myGroupId, onClose, onOpenImage, onSelectMember,
+  aboutGroupId, aboutGroupName, myGroupId, onClose, onOpenImage,
 }: Props) {
   const { session } = useSession();
   const { setOpenDiscussion } = useInAppNotifications();
-  // The candidate's full post, opened from the name in the header.
-  const [postOpen, setPostOpen] = useState(false);
 
   // Marked read on open rather than on close: the badge should clear the moment
   // you look, and closing is the one moment a crash or a force-quit can eat.
@@ -61,55 +53,38 @@ export default function DiscussionSheet({
   }, [aboutGroupId, setOpenDiscussion]);
 
   return (
-    <>
-      <SlideOver visible={aboutGroupId !== null} onRequestClose={onClose}>
-        <View style={styles.container}>
+    <SlideOver visible={aboutGroupId !== null} onRequestClose={onClose}>
+      <View style={styles.container}>
 
-          {/* The panel's own header rather than the thread's: the thread titles
-              itself with the group and offers a way into who's in the chat, and
-              neither reads right for a room the other group isn't in. */}
-          <View style={styles.header}>
-            <TouchableOpacity style={styles.backButton} onPress={onClose}>
-              <ChevronLeft size={28} color="#000" />
-            </TouchableOpacity>
-            {/* Name and chevron are one target — both open the group being
-                discussed, so you can check the post without losing the thread
-                you were reading it against. */}
-            <TouchableOpacity style={styles.titleRow} onPress={() => setPostOpen(true)}>
-              <Text style={styles.title} numberOfLines={1}>{aboutGroupName}</Text>
-              <ChevronRight />
-            </TouchableOpacity>
-          </View>
-
-          {aboutGroupId && (
-            <ChatThread
-              myGroupId={myGroupId}
-              otherGroupId={aboutGroupId}
-              otherGroupName={aboutGroupName}
-              discussion
-              hideHeader
-              onClose={onClose}
-              onOpenImage={onOpenImage}
-            />
-          )}
-
-        </View>
-      </SlideOver>
-
-      {/* A sibling of the discussion rather than a child, so it slides in over
-          it on its own rather than being carried along by it. Rendered after,
-          which is what puts it on top. */}
-      <SlideOver visible={postOpen} onRequestClose={() => setPostOpen(false)}>
-        <View style={styles.postPanel}>
-          <TouchableOpacity style={styles.postBack} onPress={() => setPostOpen(false)}>
+        {/* The panel's own header rather than the thread's: the thread titles
+            itself with the group and offers a way into who's in the chat, and
+            neither reads right for a room the other group isn't in. */}
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={onClose}>
             <ChevronLeft size={28} color="#000" />
           </TouchableOpacity>
-          {aboutGroupId && (
-            <GroupPost groupId={aboutGroupId} onSelectMember={onSelectMember} />
-          )}
+          {/* A label, not a link. You reached this room from the candidate's
+              post, so it is one back-swipe away; naming it here is to say
+              which room you are in, not to offer a second route to it. */}
+          <Text style={styles.title} numberOfLines={1}>
+            Discuss about {aboutGroupName}
+          </Text>
         </View>
-      </SlideOver>
-    </>
+
+        {aboutGroupId && (
+          <ChatThread
+            myGroupId={myGroupId}
+            otherGroupId={aboutGroupId}
+            otherGroupName={aboutGroupName}
+            discussion
+            hideHeader
+            onClose={onClose}
+            onOpenImage={onOpenImage}
+          />
+        )}
+
+      </View>
+    </SlideOver>
   );
 }
 
@@ -133,32 +108,9 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
 
-  // Name and chevron travel together, and shrink together on a long name.
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flexShrink: 1,
-  },
-
   title: {
     ...Type.header,
     color: '#000',
     flexShrink: 1,
-  },
-
-  // The candidate's post, laid out the way both tabs lay out their own detail
-  // panel: the chevron floats over the post rather than sitting above it.
-  postPanel: {
-    flex: 1,
-    backgroundColor: Palette.background,
-    paddingTop: FLOATING_TOP,
-  },
-
-  postBack: {
-    position: 'absolute',
-    top: HEADER_TOP,
-    left: 20,
-    zIndex: 10,
   },
 });

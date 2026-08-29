@@ -506,7 +506,6 @@ export default function ExploreScreen() {
             fetchDiscussionUnreadCounts(currentGroupId).then(setDiscussionUnread);
           }}
           onOpenImage={setViewerImage}
-          onSelectMember={setOpenPersonId}
         />
       )}
 

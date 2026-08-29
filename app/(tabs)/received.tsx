@@ -215,7 +215,6 @@ export default function ReceivedScreen() {
             fetchDiscussionUnreadCounts(currentGroupId).then(setUnread);
           }}
           onOpenImage={setViewerImage}
-          onSelectMember={setOpenPersonId}
         />
       )}
 

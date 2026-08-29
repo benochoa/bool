@@ -1,4 +1,5 @@
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { Pin } from '@/assets/symbols/Pin';
 import { authedSource } from '@/lib/storageAuth';
 import { Image } from 'expo-image';
 import { useState, useCallback, useEffect } from 'react';
@@ -6,14 +7,17 @@ import { useFocusEffect } from '@react-navigation/native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { supabase } from '@/supabaseClient';
 import ChatThread from '@/components/chats/chatThread';
+import GroupChatSheet from '@/components/chats/groupChatSheet';
 import ImageViewer, { ViewerImage } from '@/components/chats/imageViewer';
 import { ChatRowSkeleton, SkeletonList } from '@/components/ui/skeleton';
 import SlideOver from '@/components/ui/slideOver';
 import { FontFamily, Type } from '@/constants/theme';
 import { fetchChatPreviews, ChatPreview } from '@/lib/fetchChatPreviews';
 import { fetchChatReads, chatReadKey } from '@/lib/fetchChatReads';
+import { fetchGroupChatPreview, GroupChatPreview } from '@/lib/fetchGroupChatPreview';
 import { formatRelativeTime } from '@/lib/formatRelativeTime';
 import { markChatRead } from '@/lib/markChatRead';
+import { markDiscussionRead } from '@/lib/markDiscussionRead';
 import { useAppResume } from '@/hooks/use-app-resume';
 import { useCurrentGroup } from '@/hooks/use-current-group';
 import { useInAppNotifications } from '@/hooks/use-in-app-notifications';
@@ -38,6 +42,11 @@ export default function ChatsScreen() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<ChatPreview | null>(null);
   const [viewerImage, setViewerImage] = useState<ViewerImage | null>(null);
+  // Your own group's room, pinned above the matches. Its unread state comes
+  // from the RPC rather than the `reads` map above: it is keyed in
+  // discussion_reads, not chat_reads, so chatReadKey doesn't reach it.
+  const [groupChat, setGroupChat] = useState<GroupChatPreview | null>(null);
+  const [groupChatOpen, setGroupChatOpen] = useState(false);
 
   const userId = session?.user.id;
 
@@ -50,20 +59,25 @@ export default function ChatsScreen() {
     // Past that, no group really does mean no chats.
     if (!currentGroupId || !userId) {
       setPreviews([]);
+      setGroupChat(null);
       setPreviewsFor(null);
       setLoading(false);
       return;
     }
-    // Both together: a preview painted before its read timestamp lands would
-    // show every chat bold for a frame.
-    Promise.all([fetchChatPreviews(currentGroupId), fetchChatReads(userId)]).then(
-      ([rows, nextReads]) => {
-        setPreviews(rows);
-        setPreviewsFor(currentGroupId);
-        setReads(nextReads);
-        setLoading(false);
-      }
-    );
+    // All three together: a preview painted before its read timestamp lands
+    // would show every chat bold for a frame, and the pinned row appearing a
+    // beat after the list would shove the list down under your thumb.
+    Promise.all([
+      fetchChatPreviews(currentGroupId),
+      fetchChatReads(userId),
+      fetchGroupChatPreview(currentGroupId),
+    ]).then(([rows, nextReads, ownRoom]) => {
+      setPreviews(rows);
+      setGroupChat(ownRoom);
+      setPreviewsFor(currentGroupId);
+      setReads(nextReads);
+      setLoading(false);
+    });
   }, [currentGroupId, userId, sessionLoading, loadingGroups]);
 
   useFocusEffect(refresh);
@@ -109,6 +123,17 @@ export default function ChatsScreen() {
         { event: '*', schema: 'public', table: 'group_suggestions', filter: `suggesting_group_id=eq.${currentGroupId}` },
         refetch
       )
+      // Your own room. A filter takes one condition, so this catches every
+      // discussion your group owns and the payload check narrows it to the
+      // self-referencing one — the rest belong to the candidate tiles.
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'discussion_messages', filter: `group_id=eq.${currentGroupId}` },
+        payload => {
+          if ((payload.new as any)?.about_group_id !== currentGroupId) return;
+          fetchGroupChatPreview(currentGroupId).then(setGroupChat);
+        }
+      )
       .subscribe(status => console.log('[realtime] chat previews channel:', status));
 
     return () => { supabase.removeChannel(channel); };
@@ -152,6 +177,21 @@ export default function ChatsScreen() {
     refreshBadges();
   }
 
+  // The sheet marks itself read on open, so by the time it closes the count in
+  // hand is stale. Cleared locally rather than refetched: the row is on screen
+  // behind the closing panel, and a round trip would leave it bold meanwhile.
+  async function handleCloseGroupChat() {
+    setGroupChatOpen(false);
+    setGroupChat(prev => (prev ? { ...prev, unread: 0 } : prev));
+    // Marked again on the way out, not only on the way in: a message that
+    // arrived while you had it open is one you saw, and without this the row
+    // re-bolds on the next refresh for a message still on your screen.
+    if (userId && currentGroupId) {
+      await markDiscussionRead(userId, currentGroupId, currentGroupId);
+    }
+    refreshBadges();
+  }
+
   // Timestamps come from two places — Postgres for the message, the device for
   // the read — so they're parsed rather than compared as strings.
   function isUnread(preview: ChatPreview): boolean {
@@ -171,12 +211,60 @@ export default function ChatsScreen() {
         <View style={styles.content}>
           <SkeletonList count={4}>{i => <ChatRowSkeleton key={i} />}</SkeletonList>
         </View>
-      ) : previews.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>No matches yet.</Text>
-        </View>
       ) : (
         <ScrollView contentContainerStyle={styles.content}>
+
+          {/* Your own group's room, above everything. Shown even when empty:
+              it is the only way in, so hiding it until someone has already
+              posted would leave nobody able to post first. */}
+          {groupChat && (
+            <>
+              <Text style={styles.sectionHeader}>YOUR GROUP</Text>
+              <TouchableOpacity style={styles.previewRow} onPress={() => setGroupChatOpen(true)}>
+                {groupChat.imageUrl ? (
+                  <Image source={authedSource(groupChat.imageUrl)} style={styles.previewPhoto} contentFit="cover" />
+                ) : (
+                  <View style={styles.previewPhotoPlaceholder} />
+                )}
+                <View style={styles.previewText}>
+                  {/* Name and pin on one line. The name shrinks and truncates;
+                      the pin never does, so it stays put however long the group
+                      name is — the same arrangement as the message and its age
+                      on the line below. */}
+                  <View style={styles.nameRow}>
+                    <Text
+                      style={[styles.previewName, styles.groupName, groupChat.unread > 0 && styles.unread]}
+                      numberOfLines={1}
+                    >
+                      {groupChat.groupName}
+                    </Text>
+                    <Pin size={13} color="#888" />
+                  </View>
+                  <View style={styles.previewMessageRow}>
+                    <Text style={[styles.previewMessage, groupChat.unread > 0 && styles.unread]} numberOfLines={1}>
+                      {groupChat.senderName ? `${groupChat.senderName}: ` : ''}
+                      {groupChat.lastMessage ?? 'No messages yet'}
+                    </Text>
+                    {groupChat.lastMessageAt && (
+                      <Text style={styles.previewAge} numberOfLines={1}>
+                        {'· '}{formatRelativeTime(groupChat.lastMessageAt)}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              </TouchableOpacity>
+            </>
+          )}
+
+          {/* The gap above this is what separates the two parts now that the
+              rule between them is the same grey as every other row. */}
+          <Text style={[styles.sectionHeader, styles.matchesHeader]}>MATCHES</Text>
+          {previews.length === 0 && (
+            // Inline rather than taking over the screen: the room above is still
+            // here, so an empty match list is a section with nothing in it, not
+            // an empty tab.
+            <Text style={styles.emptyRow}>No matches yet.</Text>
+          )}
           {previews.map(preview => {
             // Unread collapses the row's three shades into one bold black, so
             // the whole row reads as new rather than just its name.
@@ -220,6 +308,13 @@ export default function ChatsScreen() {
         </ScrollView>
       )}
 
+      <GroupChatSheet
+        groupId={groupChatOpen && currentGroupId ? currentGroupId : null}
+        groupName={groupChat?.groupName ?? ''}
+        onClose={handleCloseGroupChat}
+        onOpenImage={setViewerImage}
+      />
+
       <SlideOver visible={selected !== null} onRequestClose={handleCloseThread}>
         {selected && currentGroupId && (
           <ChatThread
@@ -256,19 +351,53 @@ const styles = StyleSheet.create({
     color: '#000',
   },
   content: {
-    paddingTop: 26,
+    // Smaller than the 26 it was: the first section header now supplies most
+    // of the gap under the title band.
+    paddingTop: 8,
     paddingBottom: 40,
   },
-  emptyContainer: {
-    flex: 1,
+  // The group name beside its pin. Sized to the pair rather than stretched, so
+  // the pin sits against the end of the name instead of out at the row's right
+  // edge; the name still gives way first when it's too long to fit.
+  nameRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fff',
+    gap: 6,
+    maxWidth: '100%',
   },
-  emptyText: {
-    ...Type.header,
-    fontFamily: FontFamily.regular,
-    color: '#555',
+  // Only inside nameRow: shrinking is what keeps a long group name from pushing
+  // the pin off the end. Kept off previewName itself, which the match rows use
+  // as a direct child of a column — flexShrink there would apply to height.
+  groupName: {
+    flexShrink: 1,
+  },
+  // What labels each part. Small, spaced caps in grey — quiet enough that the
+  // rows stay the thing you read, explicit enough that the pinned row at top
+  // isn't mistaken for a match.
+  sectionHeader: {
+    fontFamily: FontFamily.bold,
+    fontSize: 12,
+    letterSpacing: 1,
+    color: '#999',
+    paddingHorizontal: 20,
+    // Generous above, tight below: the header belongs to the rows under it.
+    marginTop: 22,
+    marginBottom: 8,
+  },
+  // The second header carries the separation on its own. With the rule under
+  // your group back to the same grey as every other row, whitespace is the only
+  // thing left telling you the list has changed subject — so it needs to be
+  // wide enough that it can't be read as the gap between two rows.
+  matchesHeader: {
+    marginTop: 48,
+  },
+  // The MATCHES section standing empty. Indented to the same left edge as a
+  // row's text, so it reads as the section's contents rather than a caption.
+  emptyRow: {
+    ...Type.body,
+    color: '#777',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
   },
   previewRow: {
     flexDirection: 'row',
