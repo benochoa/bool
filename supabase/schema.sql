@@ -11,9 +11,8 @@
 -- resolved them, function definitions, triggers, table/column/schema grants,
 -- buckets, realtime, extensions and event triggers all came out of the catalog.
 --
--- ONE EXCEPTION, stated so it is not mistaken for verified: the replica identity
--- lines under "Realtime" come from the 2026-08-29T20:25Z capture. This capture's
--- output was truncated before that block. Nothing else here is second-hand.
+-- Nothing here is second-hand. The replica identity block was truncated out of
+-- the 03:09 capture and was re-queried on its own to close that gap.
 --
 -- Confirmed absent, having actually been looked for: views, materialized views,
 -- custom types, domains, generated columns, object comments, triggers on
@@ -357,9 +356,11 @@ alter publication supabase_realtime add table discussion_reactions;
 -- sent->matched. The other five realtime tables are on 'default', which is fine
 -- because nothing keys off a previous value there.
 --
--- PROVENANCE: these two lines come from the 2026-08-29T20:25Z capture. The
--- 03:09 capture truncated before its replica_identity block, so they are the
--- one thing in this file not re-verified. Confirm on the next regeneration.
+-- Verified live 2026-08-30: pg_class.relreplident is 'f' for exactly these two
+-- and 'd' for the other thirteen public tables. If either ever reverts to
+-- 'default' the failure is silent — notify_webhook still fires, but old_record
+-- carries only the primary key, so a rejoin reads as a join and a match reads
+-- as a send.
 alter table memberships       replica identity full;
 alter table group_suggestions replica identity full;
 
