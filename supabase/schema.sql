@@ -1,47 +1,51 @@
 -- ===========================================================================
 -- bool — live database mirror
 --
--- Postgres 17.6. Captured from pg_catalog on 2026-08-29T20:25:49Z via
--- introspect.sql, immediately after security_fixes.sql was applied.
--- EVERYTHING BELOW IS OBSERVED, NOT TRANSCRIBED: column types, defaults,
+-- Postgres 17.6. Captured from pg_catalog on 2026-08-30T03:09:00Z via
+-- introspect.sql, after security_fixes.sql (round 1) and security_fixes_2.sql
+-- (round 2) had both been applied and verified. Those two files are now
+-- deleted: everything they did is below, and re-running them would be a no-op.
+--
+-- EVERYTHING HERE IS OBSERVED, NOT TRANSCRIBED: column types, defaults,
 -- constraints and their validated state, indexes, policy bodies as Postgres
--- resolved them, function definitions, triggers, table and column grants,
--- buckets, realtime and event triggers all came out of the catalog.
+-- resolved them, function definitions, triggers, table/column/schema grants,
+-- buckets, realtime, extensions and event triggers all came out of the catalog.
 --
--- The 20:25 capture widened introspect.sql to cover what the 20:08 one could
--- not express, and the additions immediately paid for themselves: bucket MIME
--- allowlists and constraint validity had been asserted here without ever being
--- read, and PUBLIC was filtered out of both grant queries, which is what hid
--- the ineffective function revokes described under "Grants" below.
+-- ONE EXCEPTION, stated so it is not mistaken for verified: the replica identity
+-- lines under "Realtime" come from the 2026-08-29T20:25Z capture. This capture's
+-- output was truncated before that block. Nothing else here is second-hand.
 --
--- Confirmed absent, having now actually been looked for: views, materialized
--- views, custom types, domains, generated columns, object comments, triggers on
--- auth.users, tables outside public, and pg_cron. Nothing in this file depends
--- on their absence, but the mirror can now say so rather than stay silent.
+-- Confirmed absent, having actually been looked for: views, materialized views,
+-- custom types, domains, generated columns, object comments, triggers on
+-- auth.users, tables outside public/storage, and pg_cron. Nothing here depends
+-- on their absence, but the mirror can say so rather than stay silent.
 --
 -- This file is a MIRROR, not a migration. Running it will not build the
--- database, and editing it changes nothing. To bring it back in line after a
--- change in the dashboard, run introspect.sql and regenerate.
+-- database, and editing it changes nothing. After any dashboard change, run
+-- introspect.sql and regenerate.
 --
--- Why it is generated rather than hand-kept — three drifts found this way that
--- reading source could not have found:
+-- Why generated rather than hand-kept — five things found this way that reading
+-- the source could not have found:
 --
 --   * The groups-bucket insert policy read correctly as written, but Postgres
 --     had bound a bare `name` inside its subquery to groups.name rather than
---     storage.objects.name, making the check bucket-only. Only the deparse
---     showed it.
+--     storage.objects.name, making the check bucket-only.
 --   * discussion_messages carried a documented `discussion_not_self` check that
---     had never actually been created.
+--     had never been created.
 --   * private.discussion_reply_in_same_thread() existed and read as though it
---     were wired up, but no trigger called it. Now fixed.
+--     were wired up, but no trigger called it.
+--   * Seven `revoke ... from anon` lines were inert, because the grant they
+--     needed to remove belonged to PUBLIC. Only the ACL showed it — and only
+--     after introspect.sql stopped filtering grantee 0 out of the capture.
+--   * reports.message_snapshot was readable back by its own reporter, making a
+--     SECURITY DEFINER trigger into an oracle over every message in the app.
 -- ===========================================================================
 
 
 -- ===========================================================================
 -- Tables
--- Every check constraint below is VALIDATED as of this capture: enforced on new
--- writes AND true of every existing row. That was not the case before
--- 2026-08-29 — six were NOT VALID, meaning legacy rows had never been tested.
+-- Every constraint below is VALIDATED — enforced on new writes AND true of
+-- every existing row — with one deliberate exception noted on `reports`.
 -- ===========================================================================
 
 -- Everyone, one row per auth user. `id` carries a gen_random_uuid() default,
@@ -69,17 +73,15 @@ create table profiles (
 
 -- A group. `id` is a client-supplied slug, not a uuid — groups_id_format keeps
 -- it to [A-Za-z0-9-], which is what lets storage paths join two ids with '_'
--- and split them back apart unambiguously. That constraint is also the only
--- thing keeping a comma out of the PostgREST .or() filter strings the notify
--- edge function builds while running as service_role, which is why validating
--- it mattered.
+-- and split them back apart unambiguously. It is also the only thing keeping a
+-- comma out of the PostgREST .or() filter strings the notify edge function
+-- builds while running as service_role, which is why validating it mattered.
 --
 -- invite_code is the one column no client can touch in either direction: there
 -- is no table-level SELECT or UPDATE grant on this table, only per-column
 -- grants, and invite_code is in neither list. Reading it goes through
 -- get_invite_code(), which checks leadership; writing it is impossible, since
--- the generate_invite_code() default sets it once. See "Grants" — that
--- arrangement is load-bearing.
+-- the generate_invite_code() default sets it once. See "Grants".
 create table groups (
   id                 text primary key
                        constraint groups_id_format check (id ~ '^[A-Za-z0-9-]+$'),
@@ -117,7 +119,7 @@ create index memberships_person_idx on memberships (person_id, status);
 
 -- The matching funnel: pending -> sent -> matched. The primary key is the
 -- ordered pair, so a given direction exists at most once. The not-self check
--- closed the seed step of a match-forging attack — see the trigger below.
+-- closed the seed step of a match-forging attack — see suggestion_keys_frozen.
 create table group_suggestions (
   suggesting_group_id text not null references groups (id) on delete cascade,
   target_group_id     text not null references groups (id) on delete cascade,
@@ -137,6 +139,10 @@ create index group_suggestions_suggester_recent_idx
 -- A matched pair's chat. The pair is canonical — messages_group_order forces
 -- group_1_id < group_2_id — so one conversation has exactly one key, which is
 -- what lets chat_reads and the realtime filters address it.
+--
+-- id is `generated always as identity`, so message ids are sequential and
+-- guessable. Fine in itself, but it is what made the reports snapshot oracle
+-- cheap to walk: an attacker did not have to find ids, only count.
 create table messages (
   id                 bigint generated always as identity primary key,
   group_1_id         text not null references groups (id) on delete cascade,
@@ -168,10 +174,9 @@ create index messages_sender_recent_idx on messages (sender_id, created_at desc)
 --   about_group_id  = group_id  — the group's own chat, with no subject at all
 --
 -- The self-referencing form is what the pinned row at the top of the Chats tab
--- reads and writes. There is deliberately NO constraint forbidding it: an
--- earlier version of this file documented a `discussion_not_self` check, but
--- pg_constraint has never carried it. Its absence is now load-bearing — adding
--- it would break the group chat.
+-- reads and writes. There is deliberately NO constraint forbidding it — an
+-- earlier version of this file documented one that pg_constraint has never
+-- carried. Its absence is load-bearing: adding it would break the group chat.
 create table discussion_messages (
   id                 bigint generated always as identity primary key,
   group_id           text not null references groups (id) on delete cascade,
@@ -244,21 +249,46 @@ create table push_tokens (
 
 create index push_tokens_user_idx on push_tokens (user_id);
 
--- Moderation reports. message_snapshot is filled by the reports_snapshot
--- trigger, never by the client: messages are soft-deletable, so the sender
--- could blank the evidence before anyone read the report, and a snapshot the
--- reporter writes is a snapshot the reporter can invent.
+-- Moderation reports.
+--
+-- message_snapshot is filled by the reports_snapshot trigger, never by the
+-- client: messages are soft-deletable, so a sender could blank the evidence
+-- before anyone read the report, and a snapshot the reporter writes is one the
+-- reporter can invent. That trigger is SECURITY DEFINER, and until 2026-08-30
+-- it copied any message id it was handed — which turned this table into a read
+-- oracle over every message in the database. It is now membership-gated.
+--
+-- A message report names exactly one message from exactly one of two tables:
+-- target_message_id for a chat, target_discussion_message_id for a discussion.
+-- Before the second column existed, a discussion message's id was written into
+-- the first, whose FK points at `messages` — and since the two tables have
+-- independent identity sequences, that id usually existed over there, so the
+-- report silently attached to an unrelated stranger's message.
 create table reports (
-  id                bigint generated always as identity primary key,
-  reporter_id       uuid not null references profiles (id) on delete cascade,
-  target_type       text not null check (target_type in ('group', 'person', 'message')),
-  target_group_id   text references groups (id) on delete set null,
-  target_person_id  uuid references profiles (id) on delete set null,
-  target_message_id bigint references messages (id) on delete set null,
-  message_snapshot  text,
-  reason            text not null,
-  details           text,
-  created_at        timestamptz not null default now()
+  id                           bigint generated always as identity primary key,
+  reporter_id                  uuid not null references profiles (id) on delete cascade,
+  target_type                  text not null check (target_type in ('group', 'person', 'message')),
+  target_group_id              text references groups (id) on delete set null,
+  target_person_id             uuid references profiles (id) on delete set null,
+  target_message_id            bigint references messages (id) on delete set null,
+  target_discussion_message_id bigint references discussion_messages (id) on delete set null,
+  message_snapshot             text,
+  reason                       text not null,
+  details                      text,
+  created_at                   timestamptz not null default now(),
+  -- THE ONE NOT VALID CONSTRAINT IN THE SCHEMA (convalidated = false, verified
+  -- live). Enforced on every new row; existing rows were never tested, because
+  -- some may predate target_discussion_message_id and carry the mismatched id
+  -- described above. To finish the job:
+  --   select id, target_type, target_message_id, target_discussion_message_id
+  --     from reports where target_type = 'message';
+  --   alter table reports validate constraint reports_one_message_target;
+  constraint reports_one_message_target check (
+    case when target_type = 'message'
+         then (target_message_id is not null) <> (target_discussion_message_id is not null)
+         else target_message_id is null and target_discussion_message_id is null
+    end
+  ) not valid
 );
 
 create index reports_created_at_idx on reports (created_at desc);
@@ -293,13 +323,20 @@ create table questions (
   questions jsonb not null default '[]'
 );
 
+-- Four sequences, all owned by the identity columns above: bug_reports_id_seq,
+-- discussion_messages_id_seq, messages_id_seq, reports_id_seq. No standalone
+-- sequences, no generated columns, no views or materialized views (a view is
+-- NOT covered by its base table's RLS unless created with security_invoker, so
+-- one appearing later is worth noticing).
+
 
 -- ===========================================================================
 -- Realtime
 -- Streams nothing until a table is added to this publication (no error if
 -- forgotten, just silence). Realtime re-checks the SELECT policy per
 -- subscriber, so a table here is only as private as its select policy.
--- Seven tables, verified live.
+-- Seven tables, verified live; the publication carries insert, update, delete
+-- and truncate.
 -- ===========================================================================
 
 alter publication supabase_realtime add table messages;
@@ -310,42 +347,42 @@ alter publication supabase_realtime add table group_suggestions;
 alter publication supabase_realtime add table discussion_messages;
 alter publication supabase_realtime add table discussion_reactions;
 
+-- Supabase owns a second publication, supabase_realtime_messages_publication,
+-- carrying its own realtime.messages table. Not ours; listed so a future
+-- capture showing two publications does not read as drift.
+
 -- replica identity full: a change event otherwise carries only the primary key
--- of the old row, but the client and the notify function need the *previous*
--- status to tell a join from a rejoin from a leave. group_suggestions is full
--- for the same reason one step along the funnel — old_record.status is what
--- separates pending->sent from sent->matched, and notify_suggestions_webhook
--- fires on UPDATE, so without it the push cannot tell which step just happened.
+-- of the old row, but the client and notify_webhook need the PREVIOUS status —
+-- to tell a join from a rejoin from a leave, and pending->sent from
+-- sent->matched. The other five realtime tables are on 'default', which is fine
+-- because nothing keys off a previous value there.
 --
--- These two are the only ones. The other five realtime tables are 'default',
--- where an UPDATE or DELETE event names the primary key and nothing else of the
--- old row — fine for them, since nothing keys off a previous value.
+-- PROVENANCE: these two lines come from the 2026-08-29T20:25Z capture. The
+-- 03:09 capture truncated before its replica_identity block, so they are the
+-- one thing in this file not re-verified. Confirm on the next regeneration.
 alter table memberships       replica identity full;
 alter table group_suggestions replica identity full;
-
--- Supabase also owns a second publication, supabase_realtime_messages_publication,
--- carrying its own realtime.messages table. Not ours; listed so a future capture
--- showing two publications does not read as drift.
 
 
 -- ===========================================================================
 -- Extensions (live)
 --
---   pg_net              0.20.3   schema public   -- net.http_post, used by
---                                                   notify_webhook()
+--   pg_net              0.20.3   schema public       -- net.http_post, used by
+--                                                       notify_webhook()
 --   pg_stat_statements  1.11     schema extensions
---   pgcrypto            1.3      schema extensions
+--   pgcrypto            1.3      schema extensions   -- gen_random_uuid()
 --   plpgsql             1.0      schema pg_catalog
 --   supabase_vault      0.3.1    schema vault
 --   uuid-ossp           1.1      schema extensions
 --
--- No pg_cron, so nothing runs on a schedule inside the database. gen_random_uuid()
--- on profiles.id comes from pgcrypto. Everything else is Supabase's default set.
+-- No pg_cron, so nothing runs on a schedule inside the database. Schemas
+-- present: auth, extensions, graphql, graphql_public, net, pgbouncer, private,
+-- public, realtime, storage, vault — all Supabase's or ours, none unexpected.
 -- ===========================================================================
 
 
 -- ===========================================================================
--- Authorization helpers (private schema — never exposed as RPCs)
+-- Authorization helpers (private schema)
 -- All STABLE SECURITY DEFINER with a pinned search_path: they bypass RLS
 -- internally (so the policies calling them don't recurse), return only a
 -- boolean, and test only the caller's own relationships.
@@ -354,6 +391,15 @@ alter table group_suggestions replica identity full;
 -- subquery inside a policy is itself subject to RLS, which is what broke
 -- memberships_insert_self: it asked whether you owned a group you could not yet
 -- see, and the answer was always no.
+--
+-- REACHABILITY: 22 of these 24 helpers are EXECUTE-to-PUBLIC — none was ever
+-- revoked, and Postgres grants EXECUTE to PUBLIC by default. What contains them
+-- is one line up the stack: USAGE on schema `private` is granted to
+-- `authenticated` and to nobody else (verified live — anon holds USAGE on
+-- public, auth, extensions, graphql, graphql_public, net, realtime and storage,
+-- but not private). PostgREST exposes only public and graphql_public, so no
+-- client reaches them by URL either. The two helpers added on 2026-08-30 were
+-- revoked from PUBLIC anyway, as the pattern new work should follow.
 -- ===========================================================================
 
 create or replace function private.is_active_member(p_group_id text)
@@ -361,6 +407,16 @@ returns boolean language sql stable security definer set search_path = public as
   select exists (
     select 1 from memberships
      where group_id = p_group_id and person_id = auth.uid() and status = 'active'
+  );
+$$;
+
+-- The same question about somebody else. Added for groups_update_leader, which
+-- has to ask whether the person a leader is handing the group to is in it.
+create or replace function private.is_active_member_of(p_group_id text, p_person uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from memberships
+     where group_id = p_group_id and person_id = p_person and status = 'active'
   );
 $$;
 
@@ -382,10 +438,9 @@ $$;
 -- The visibility rule for a whole group. TWO THINGS TO KNOW:
 --
 -- 1. The first branch deliberately does NOT filter on status — History has to
---    show groups you have left. That makes the row's identity security-
---    relevant, which is why memberships_keys_frozen exists: without it, editing
---    your own membership row's group_id was a way to grant yourself sight of
---    any group in the database.
+--    show groups you have left. That makes a membership row's identity
+--    security-relevant, which is why memberships_keys_frozen exists: without
+--    it, re-pointing your own row's group_id granted sight of any group.
 --
 -- 2. The middle branch makes every active group in your city visible. That is
 --    the swipe deck, and it is deliberately wide — see "Known open items".
@@ -418,7 +473,12 @@ returns boolean language sql stable security definer set search_path = public as
 $$;
 
 -- A person is visible if they are you, if they are in a group you can see, or
--- if you have blocked them (so the block list can render who you blocked).
+-- if you have blocked them (so the block list can render who is on it).
+--
+-- That third branch used to be a read primitive: blocked_people accepted any
+-- profile id, so inserting a block made a stranger's profile and photos
+-- readable. blocked_people_own now requires shares_visible_group, which is what
+-- keeps the branch honest.
 create or replace function private.can_see_person(p_person text)
 returns boolean language sql stable security definer set search_path = public as $$
   select p_person = auth.uid()::text
@@ -430,6 +490,17 @@ returns boolean language sql stable security definer set search_path = public as
         select 1 from blocked_people
          where blocker_id = auth.uid() and blocked_id::text = p_person
       );
+$$;
+
+-- can_see_person's second branch, alone. Deliberately NOT the whole function:
+-- blocked_people_own calls this, and can_see_person's third branch reads
+-- blocked_people, so using it there would be circular.
+create or replace function private.shares_visible_group(p_person uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from memberships m
+     where m.person_id = p_person and private.can_see_group(m.group_id)
+  );
 $$;
 
 -- One-directional: has this sender blocked ME. Used by the message SELECT
@@ -558,6 +629,8 @@ begin
 end;
 $$;
 
+-- 10/hour. This was also the throttle on how fast anyone could have walked the
+-- old reports oracle, which is why it mattered more than it looked.
 create or replace function private.check_report_rate()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare recent int;
@@ -583,10 +656,10 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- Key freezing. Four tables, all for the same reason: an UPDATE policy checks
--- the NEW row, so unless a row's identity is pinned, an "edit" can silently
--- become a "move". Three of these four were added on 2026-08-29 after exactly
--- that turned out to be exploitable twice.
+-- Key freezing. Four tables, one reason: an UPDATE policy checks the NEW row,
+-- so unless a row's identity is pinned, an "edit" can silently become a "move".
+-- Three of these four were added on 2026-08-29 after exactly that turned out to
+-- be exploitable twice.
 -- ---------------------------------------------------------------------------
 
 create or replace function private.message_keys_frozen()
@@ -615,13 +688,12 @@ begin
 end;
 $$;
 
--- CRITICAL FIX (2026-08-29). gs_update validates leadership against the NEW
--- row's group ids, but nothing stopped the UPDATE from rewriting them. A leader
--- could seed a self-suggestion, then rewrite the other side and set 'matched' —
--- the WITH CHECK still passed, because they led the new row's target. That
--- produced a match with a group that never suggested anything, and through
--- groups_matched() a live chat. This trigger, plus group_suggestions_not_self,
--- closes it.
+-- CRITICAL FIX. gs_update validates leadership against the NEW row's group ids,
+-- but nothing stopped the UPDATE from rewriting them. A leader could seed a
+-- self-suggestion, then rewrite the other side and set 'matched' — the WITH
+-- CHECK still passed, because they led the new row's target. That produced a
+-- match with a group that never suggested anything, and through
+-- groups_matched() a live chat. This plus group_suggestions_not_self closes it.
 create or replace function private.suggestion_keys_frozen()
 returns trigger language plpgsql as $$
 begin
@@ -633,13 +705,13 @@ begin
 end;
 $$;
 
--- HIGH FIX (2026-08-29). memberships_update lets you set your own row to
--- 'left', and nothing froze the keys — so re-pointing group_id at any group in
--- the database left a row saying "I was once in that group", which
--- can_see_group's unfiltered first branch accepts. That one row exposed the
--- target's roster, every member's profile, and its bucket photos, bypassing
--- city scoping entirely. Safe against join_group_by_code: its upsert conflicts
--- on (group_id, person_id) and its DO UPDATE touches only status/status_at.
+-- HIGH FIX. memberships_update lets you set your own row to 'left', and nothing
+-- froze the keys — so re-pointing group_id at any group left a row saying "I was
+-- once in that group", which can_see_group's status-blind first branch accepts.
+-- That one row exposed the target's roster, every member's profile, and its
+-- bucket photos, bypassing city scoping entirely. Safe against
+-- join_group_by_code: its upsert conflicts on (group_id, person_id) and its DO
+-- UPDATE touches only status/status_at.
 create or replace function private.membership_keys_frozen()
 returns trigger language plpgsql as $$
 begin
@@ -669,7 +741,7 @@ $$;
 
 -- The discussion equivalent. Existed unattached for some time — it read as
 -- though it were wired up, and only a live trigger capture showed that nothing
--- called it. Attached 2026-08-29.
+-- called it.
 create or replace function private.discussion_reply_in_same_thread()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
@@ -685,17 +757,39 @@ begin
 end;
 $$;
 
--- Takes the evidence copy server-side, and nulls it for non-message reports so
--- a client cannot smuggle text into the column by mislabelling the target.
+-- HIGH FIX. Takes the evidence copy server-side so a reporter cannot invent it,
+-- and — since 2026-08-30 — only for a message the reporter can actually see.
+--
+-- Without that gate this function was an oracle: SECURITY DEFINER reads
+-- `messages` with RLS bypassed, reports_insert_own accepts any target id, and
+-- reports_select_own hands the row back. With sequential message ids that meant
+-- ~240 arbitrary message bodies a day, indefinitely.
+--
+-- The sender_blocked_me half of messages_select is deliberately NOT applied:
+-- being blocked by someone is not a reason to be unable to report them.
 create or replace function private.snapshot_reported_message()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
-  if new.target_type = 'message' and new.target_message_id is not null then
-    select body into new.message_snapshot
-      from messages where id = new.target_message_id;
+  if new.target_type <> 'message' then
+    new.message_snapshot := null;
+    return new;
+  end if;
+
+  if new.target_discussion_message_id is not null then
+    select d.body into new.message_snapshot
+      from discussion_messages d
+     where d.id = new.target_discussion_message_id
+       and private.is_active_member(d.group_id);
+  elsif new.target_message_id is not null then
+    select m.body into new.message_snapshot
+      from messages m
+     where m.id = new.target_message_id
+       and (private.is_active_member(m.group_1_id)
+         or private.is_active_member(m.group_2_id));
   else
     new.message_snapshot := null;
   end if;
+
   return new;
 end;
 $$;
@@ -769,16 +863,17 @@ create trigger reports_snapshot before insert on reports
 create trigger bug_reports_rate_limit before insert on bug_reports
   for each row execute function private.check_bug_report_rate();
 
--- storage.* also carries Supabase's own: enforce_bucket_name_length_trigger and
+-- Not ours, listed for completeness: enforce_bucket_name_length_trigger and
 -- protect_buckets_delete on storage.buckets; protect_objects_delete and
--- update_objects_updated_at on storage.objects. Not ours, listed for
--- completeness.
+-- update_objects_updated_at on storage.objects; tr_check_filters on
+-- realtime.subscription. Nothing on auth.users — worth knowing, since a trigger
+-- there is the usual place new-user setup hides, and no policy would govern it.
 
 
 -- ===========================================================================
 -- Row Level Security
 -- Every table in public has RLS enabled, none FORCED (forced only matters for
--- the table owner, which no client role is).
+-- the table owner, which no client role is; all tables are owned by postgres).
 -- ===========================================================================
 
 alter table profiles             enable row level security;
@@ -829,10 +924,8 @@ create event trigger ensure_rls on ddl_command_end execute function rls_auto_ena
 -- ===========================================================================
 -- Policies (bodies exactly as Postgres deparses them)
 --
--- ALL 53 POLICIES ARE `to authenticated`. Verified live: pg_policies returns no
--- row with roles = {public}. Nine were `to public` before 2026-08-29 — harmless
--- in themselves, since each tested auth.uid(), but they meant anon was
--- evaluated rather than refused at the door.
+-- ALL 53 ARE `to authenticated`. Verified live: pg_policies returns no row with
+-- roles = {public}.
 -- ===========================================================================
 
 -- profiles -------------------------------------------------------------------
@@ -849,15 +942,19 @@ create policy groups_select on groups
   for select to authenticated using (private.can_see_group(id));
 create policy groups_insert on groups
   for insert to authenticated with check (auth.uid() = created_by);
--- The WITH CHECK mirrors the USING as of 2026-08-29. It used to be `true`,
--- which constrained which rows a leader could touch but not what those rows
--- became: created_by could be reassigned, and invite_code overwritten — and
--- since invite_code is UNIQUE, a failed write was an oracle telling you whether
--- a guessed code belonged to some other group. Column grants now close that
--- second path independently.
+-- The WITH CHECK has been three different things. `true` let a leader reassign
+-- created_by to any user id and rewrite invite_code (a UNIQUE column, so a
+-- failed write was an oracle for other groups' codes). Mirroring the USING
+-- clause closed that but broke lib/makeGroupLeader.ts, which is precisely an
+-- update setting created_by to someone else. This is the rule actually wanted:
+-- a leader may hand the group to an ACTIVE MEMBER, and to nobody else. The
+-- invite_code half is closed independently, at the grant level.
 create policy groups_update_leader on groups
   for update to authenticated
-  using (auth.uid() = created_by) with check (auth.uid() = created_by);
+  using (auth.uid() = created_by)
+  with check (
+    auth.uid() = created_by or private.is_active_member_of(id, created_by)
+  );
 -- No DELETE policy: groups are dissolved via dissolve_group(), not removed.
 
 -- memberships ----------------------------------------------------------------
@@ -870,10 +967,9 @@ create policy memberships_insert_self on memberships
   with check (auth.uid() = person_id and private.is_group_leader(group_id));
 create policy memberships_select on memberships
   for select to authenticated using (private.can_see_group(group_id));
--- You may leave; the leader may set any status (kick, dissolve). This policy is
--- only safe because memberships_keys_frozen pins group_id and person_id — the
--- WITH CHECK below constrains the status but says nothing about which row it
--- applies to.
+-- You may leave; the leader may set any status. Only safe because
+-- memberships_keys_frozen pins group_id and person_id — the WITH CHECK
+-- constrains the status but says nothing about which row it applies to.
 create policy memberships_update on memberships
   for update to authenticated
   using (auth.uid() = person_id or private.is_group_leader(group_id))
@@ -894,9 +990,8 @@ create policy gs_insert on group_suggestions
     and status = 'pending'
   );
 -- Each side may only advance its own step: the suggester sends, the target
--- matches. Like memberships_update, this is only safe with its keys-frozen
--- trigger — the branches below name group ids that the UPDATE itself could
--- otherwise have rewritten.
+-- matches. Like memberships_update, only safe with its keys-frozen trigger —
+-- the branches below name group ids the UPDATE could otherwise have rewritten.
 create policy gs_update on group_suggestions
   for update to authenticated
   using (private.is_group_leader(suggesting_group_id) or private.is_group_leader(target_group_id))
@@ -1028,9 +1123,15 @@ create policy discussion_reads_update_own on discussion_reads
   for update to authenticated
   using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+-- The WITH CHECK is what stops "block anyone to read them": can_see_person's
+-- third branch makes a blocked person visible, and without shares_visible_group
+-- any profile id could be inserted here. USING stays broad on purpose, so an
+-- existing block remains visible and removable even if the other person later
+-- leaves every group you can see.
 create policy blocked_people_own on blocked_people
   for all to authenticated
-  using (auth.uid() = blocker_id) with check (auth.uid() = blocker_id);
+  using (auth.uid() = blocker_id)
+  with check (auth.uid() = blocker_id and private.shares_visible_group(blocked_id));
 
 -- SELECT and DELETE only. Writes go through register_push_token(), so a client
 -- cannot point someone else's token row at itself.
@@ -1056,36 +1157,30 @@ create policy questions_select on questions
 -- Grants
 --
 -- RLS gates rows; grants gate reachability. anon and authenticated both hold
--- full DML on every public table EXCEPT groups, so RLS is carrying all of it —
--- which is why the policies above matter as much as they do.
+-- DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE and UPDATE on
+-- every public table except groups. RLS is carrying all of it.
 --
--- "Full DML" is literal: the live ACL on each of those fourteen tables is
--- DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE, for
--- anon and authenticated alike. TRUNCATE is the one that RLS does not gate at
--- all — policies are not consulted for it — so the only thing standing between
--- a client role and an empty table is that PostgREST never emits TRUNCATE and
--- these roles have no direct Postgres connection. That is Supabase's default
--- grant, not a choice made here, and removing it is not obviously safe: the
--- REST layer depends on the rest of the set. Recorded because "RLS protects
--- these tables" is true of the four DML verbs and of nothing else.
+-- TRUNCATE IS THE ONE RLS DOES NOT GATE — policies are not consulted for it. The
+-- only thing between a client role and an empty table is that PostgREST never
+-- emits TRUNCATE and these roles have no direct Postgres connection. That is
+-- Supabase's default grant, not a choice made here, and removing it is not
+-- obviously safe because the REST layer depends on the rest of the set.
+-- Recorded because "RLS protects these tables" is true of the four DML verbs
+-- and of nothing else.
 --
--- public.groups is the deliberate exception, and it is load-bearing in BOTH
--- directions as of 2026-08-29:
+-- public.groups is the deliberate exception, load-bearing in BOTH directions:
 --
---   * No table-level SELECT. Twelve columns are granted individually; the
---     thirteenth, invite_code, is not — so no client can read it. get_invite_code()
---     hands it to the leader only.
---
---   * No table-level UPDATE. Eleven columns are granted individually; neither
+--   * No table-level SELECT. Twelve columns granted individually; invite_code
+--     is not among them, so no client can read it.
+--   * No table-level UPDATE. Eleven columns granted individually; neither
 --     invite_code nor id is among them. That kills the unique-violation oracle
 --     that let a leader probe for other groups' invite codes, and pins the
---     primary key that every storage path and foreign key in the schema hangs
---     off.
+--     primary key every storage path and foreign key hangs off.
 --
 -- Live ACL confirms it: `authenticated=rw` on the eleven, `authenticated=r` on
--- id alone, and no ACL entry at all for invite_code. If a table-level SELECT or
--- UPDATE grant on groups is ever re-added, it silently re-exposes invite_code
--- and every one of these column grants stops meaning anything.
+-- id alone, and no ACL entry at all for invite_code. Re-adding a table-level
+-- SELECT or UPDATE grant on groups silently re-exposes invite_code and makes
+-- every column grant here meaningless.
 -- ===========================================================================
 
 revoke select, update on groups from anon, authenticated;
@@ -1099,89 +1194,46 @@ grant update (name, qa, created_by, image_urls, status,
   on groups to authenticated;
 -- and NOT invite_code, in either list. And NOT id, in the update list.
 
--- Function EXECUTE. The revokes matter as much as the grants: create or replace
--- preserves an existing ACL, but a NEW function is granted to PUBLIC by default,
--- which includes anon.
+-- Function EXECUTE.
 --
--- SEVEN OF THE ELEVEN REVOKES BELOW DO NOTHING, and the 20:25 capture is what
--- showed it. `revoke ... from anon` removes only a grant held by anon by name.
--- The default EXECUTE is a separate ACL entry whose grantee is PUBLIC, and a
--- role's effective privilege is the union of its own grants, its inherited
--- ones, and PUBLIC's. Revoking from anon leaves the PUBLIC entry standing, so
--- anon keeps EXECUTE through it. Only `from public` removes it.
---
--- The live ACL splits exactly along that line, which is what proves the reading
--- rather than merely suggesting it:
---
---   revoked `from public, anon`  ->  ACL shows {authenticated}          (4 fns)
---   revoked `from anon` alone    ->  ACL shows {authenticated, PUBLIC}  (7 fns)
---
--- Nothing is currently reachable through the seven, and the reason is internal
--- to each function rather than anything this section does. The three SECURITY
--- DEFINER ones all key off auth.uid(): delete_my_account() raises 'Not
--- authenticated' on null, dissolve_group() fails its leadership test, and
--- get_blocked_person_ids() matches no rows. The four preview/count functions are
--- not definer, so they run under the caller's own RLS and every policy above is
--- `to authenticated` — anon gets empty results, not data. rls_auto_enable() has
--- no pg_event_trigger_ddl_commands() context when called directly.
---
--- So this is a defence that is absent rather than a hole that is open, and the
--- danger is entirely prospective: the next SECURITY DEFINER RPC added here, if
--- it follows the `from anon` pattern on the seven lines below rather than the
--- `from public, anon` pattern on the four above, ships callable by anon. The
--- lines are left as written because this file mirrors the database as it is;
--- the correction is tracked as open item 7.
+-- EVERY REVOKE BELOW NAMES `public` AS WELL AS `anon`, AND THAT IS THE POINT.
+-- `revoke ... from anon` alone does nothing: Postgres grants EXECUTE to PUBLIC
+-- by default, a role's effective privilege is the union of its own grants and
+-- PUBLIC's, and removing anon's named grant leaves the PUBLIC entry standing.
+-- Seven of these lines were written that way and were inert for as long as they
+-- existed. Verified live after correction: the only function in `public` still
+-- carrying an EXECUTE grant to PUBLIC is rls_auto_enable(), an event-trigger
+-- function with no ddl-command context when called directly.
 revoke all on function register_push_token(text)           from public, anon;
 revoke all on function join_group_by_code(text)            from public, anon;
 revoke all on function get_invite_code(text)               from public, anon;
 revoke all on function my_media_paths()                    from public, anon;
-revoke all on function dissolve_group(text)                from anon;  -- ineffective
-revoke all on function delete_my_account()                 from anon;  -- ineffective
-revoke all on function get_chat_previews(text)             from anon;  -- ineffective
-revoke all on function get_unread_chat_count(text)         from anon;  -- ineffective
-revoke all on function get_discussion_unread_counts(text)  from anon;  -- ineffective
-revoke all on function get_group_chat_preview(text)        from anon;  -- ineffective
-revoke all on function get_blocked_person_ids()            from anon;  -- ineffective
+revoke all on function dissolve_group(text)                from public, anon;
+revoke all on function delete_my_account()                 from public, anon;
+revoke all on function get_chat_previews(text)             from public, anon;
+revoke all on function get_unread_chat_count(text)         from public, anon;
+revoke all on function get_discussion_unread_counts(text)  from public, anon;
+revoke all on function get_group_chat_preview(text)        from public, anon;
+revoke all on function get_blocked_person_ids()            from public, anon;
 revoke all on function notify_webhook()                    from public, anon, authenticated;
 
-grant execute on function register_push_token(text) to authenticated;
-grant execute on function join_group_by_code(text)  to authenticated;
-grant execute on function get_invite_code(text)     to authenticated;
-grant execute on function my_media_paths()          to authenticated;
+grant execute on function register_push_token(text)           to authenticated;
+grant execute on function join_group_by_code(text)            to authenticated;
+grant execute on function get_invite_code(text)               to authenticated;
+grant execute on function my_media_paths()                    to authenticated;
+grant execute on function dissolve_group(text)                to authenticated;
+grant execute on function delete_my_account()                 to authenticated;
+grant execute on function get_chat_previews(text)             to authenticated;
+grant execute on function get_unread_chat_count(text)         to authenticated;
+grant execute on function get_discussion_unread_counts(text)  to authenticated;
+grant execute on function get_group_chat_preview(text)        to authenticated;
+grant execute on function get_blocked_person_ids()            to authenticated;
 
--- notify_webhook() is the one that had to work, and it did: it appears in no
--- grant row at all, for any client role. Triggers fire without an EXECUTE
--- check, so the four webhooks still run.
-
--- All 24 private.* helpers are EXECUTE-to-PUBLIC — none was ever revoked. What
--- contains them is one line up the stack: USAGE on schema `private` is granted
--- to `authenticated` and to nobody else. anon cannot reach the schema, so the
--- PUBLIC grants are unreachable for it; PostgREST exposes only public and
--- graphql_public, so no client reaches them by URL either.
---
--- What that leaves is authenticated holding direct EXECUTE on every helper.
--- They return booleans about the caller's own relationships, so the exposure is
--- an oracle rather than a leak: private.group_missing('x') answers whether an
--- arbitrary group id exists, and can_see_group / can_see_person answer whether
--- one is visible. Nothing returns a row. Worth knowing before a future helper
--- returns something richer than a boolean.
-
--- Schema USAGE, live:
---   public          anon, authenticated, PUBLIC
---   private         authenticated only        <- the containment above
---   storage, auth, extensions, graphql,
---   graphql_public, realtime                  anon, authenticated
---   net             anon, authenticated, PUBLIC
-
--- Default privileges, which is why every table above is fully granted without
--- anyone having written a GRANT. postgres and supabase_admin both carry default
--- ACLs on schema public giving anon, authenticated and service_role arwdDxtm on
--- new tables, X on new functions, and rwU on new sequences. A table created
--- tomorrow is therefore world-granted the moment it exists, and the only thing
--- between it and open access is the ensure_rls event trigger above turning RLS
--- on — after which, with no policies written yet, it denies everything and
--- fails closed. That pairing is the whole safety net, and it only holds while
--- ensure_rls stays enabled.
+-- The two helpers added 2026-08-30 follow the same rule from the start. The
+-- other 22 private.* helpers remain EXECUTE-to-PUBLIC and are contained by
+-- schema USAGE instead — see the note above the helpers section.
+revoke all on function private.is_active_member_of(text, uuid) from public, anon;
+revoke all on function private.shares_visible_group(uuid)      from public, anon;
 
 
 -- ===========================================================================
@@ -1220,11 +1272,15 @@ language sql stable as $$
                 else gs.suggesting_group_id end as other_id
   ) x
   join groups g on g.id = x.other_id
+  -- deleted_at filtered: the thread renders a soft-deleted message as "Message
+  -- deleted", so printing its body out here would undo the deletion in the one
+  -- place the sender cannot see it.
   left join lateral (
     select body, created_at, sender_id
     from messages
     where group_1_id = least(my_group_id, x.other_id)
       and group_2_id = greatest(my_group_id, x.other_id)
+      and deleted_at is null
     order by created_at desc
     limit 1
   ) m on true
@@ -1270,8 +1326,6 @@ language sql stable as $$
         and u.deleted_at is null
         and (r.last_read_at is null or u.created_at > r.last_read_at))
   from groups g
-  -- deleted_at filtered here, unlike get_chat_previews above — see "Known
-  -- open items", the two disagree.
   left join lateral (
     select body, created_at, sender_id
       from discussion_messages
@@ -1436,18 +1490,9 @@ $$;
 
 -- ===========================================================================
 -- Storage
--- All four buckets PRIVATE with a size cap and a MIME allowlist — read from
--- storage.buckets this time rather than asserted: the 20:08 capture selected
--- three columns and allowed_mime_types was not among them, so the claim had
--- never actually been checked. It holds. All four are also type STANDARD with
--- versioning DISABLED. Reads go through authenticated URLs (lib/storageAuth.ts);
--- the public URL path is dead.
---
--- storage also holds Supabase's own tables — buckets_analytics, buckets_vectors,
--- vector_indexes, s3_multipart_uploads, s3_multipart_uploads_parts, migrations.
--- All have RLS enabled and no policies, so they deny everything; the last four
--- carry only SELECT for anon/authenticated rather than the full DML set. Not
--- ours, listed so a capture showing eight storage tables does not read as drift.
+-- All four buckets PRIVATE, type STANDARD, versioning DISABLED, each with a
+-- size cap and a MIME allowlist (verified live). Reads go through authenticated
+-- URLs (lib/storageAuth.ts); the public URL path is dead.
 -- ===========================================================================
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -1539,30 +1584,48 @@ create policy discussion_media_delete_own on storage.objects
 
 
 -- ===========================================================================
--- Closed on 2026-08-29 (security_fixes.sql) — verified live in this capture
+-- Closed on 2026-08-29 / 30 — all verified live in this capture
 --
---   CRITICAL  Any group leader could forge a match with any group, by seeding a
---             self-suggestion and rewriting the other side to 'matched'. The
---             WITH CHECK passed because they still led the new row's target.
---             Closed by group_suggestions_keys_frozen + not-self constraint.
+--  CRITICAL  Any group leader could forge a match with any group: seed a
+--            self-suggestion, rewrite the other side, set 'matched'. The WITH
+--            CHECK passed because they still led the new row's target.
+--            -> group_suggestions_keys_frozen + group_suggestions_not_self
 --
---   HIGH      Any user could read any group in any city, by re-pointing their
---             own membership row's group_id and setting status='left' — which
---             can_see_group's status-blind first branch then accepted. Closed
---             by memberships_keys_frozen.
+--  HIGH      reports.message_snapshot was an oracle over every message in the
+--            database. SECURITY DEFINER read with RLS off, any target id
+--            accepted, own rows readable back, sequential ids. ~240 bodies/day.
+--            -> snapshot_reported_message() is membership-gated
 --
---   MEDIUM    groups_update_leader had `with check (true)`, allowing created_by
---             reassignment and invite_code overwrites; the UNIQUE index on
---             invite_code turned the latter into a code-guessing oracle. Closed
---             by mirroring the check and by removing table-level UPDATE in
---             favour of column grants.
+--  HIGH      Any user could read any group in any city by re-pointing their own
+--            membership row's group_id and setting status='left', which
+--            can_see_group's status-blind first branch accepted.
+--            -> memberships_keys_frozen
 --
---   MEDIUM    discussion_reply_in_same_thread() was orphaned. Now attached.
+--  HIGH      Leadership transfer was broken by the first attempt at the fix
+--            below — a regression, not an attack.
+--            -> groups_update_leader allows transfer to an active member
 --
---   LOW       Nine policies were `to public`. All now `to authenticated`.
---   LOW       Six constraints were NOT VALID. All now validated.
---   LOW       The notify edge function compared its webhook secret with `!==`,
---             leaking match length through timing. Now constant-time.
+--  MEDIUM    groups_update_leader had `with check (true)`: created_by
+--            reassignment, and invite_code overwrites that the UNIQUE index
+--            turned into a code-guessing oracle.
+--            -> check mirrors using; UPDATE moved to column grants
+--
+--  MEDIUM    Blocking any profile id made it readable via can_see_person.
+--            -> blocked_people_own requires shares_visible_group
+--
+--  MEDIUM    Reporting a discussion message attached the report to an unrelated
+--            chat message, because both ids went into one column FK'd to
+--            `messages` and the two sequences overlap.
+--            -> reports.target_discussion_message_id + one-target constraint
+--
+--  MEDIUM    discussion_reply_in_same_thread() was orphaned.  -> attached
+--  MEDIUM    Seven revokes were inert (`from anon` not `from public, anon`).
+--                                                              -> corrected
+--  LOW       Nine policies were `to public`.        -> all `to authenticated`
+--  LOW       Six constraints were NOT VALID.        -> all validated
+--  LOW       get_chat_previews printed deleted bodies.        -> filtered
+--  LOW       The notify edge function compared its webhook secret with `!==`,
+--            leaking match length through timing.  -> constant-time
 -- ===========================================================================
 
 
@@ -1571,82 +1634,44 @@ create policy discussion_media_delete_own on storage.objects
 --
 -- 1. CITY-WIDE PROFILE VISIBILITY. can_see_group's middle branch makes every
 --    active group in your city visible, and can_see_person extends that to
---    their members' full profiles and photos. That is the swipe deck working as
---    designed, and it is the app's largest remaining data exposure: anyone who
---    joins any group in a city can enumerate every profile there. A product
---    decision to make consciously — and one Google Play's Data Safety form will
---    ask you to declare.
+--    their members' full profiles and photos. This is the app's largest
+--    remaining data exposure: anyone who joins any group in a city can
+--    enumerate every profile there. A product decision, not a bug — and one
+--    Google Play's Data Safety form will ask you to declare.
 --
--- 2. get_chat_previews DOES NOT FILTER deleted_at; get_group_chat_preview does.
---    A soft-deleted message still shows its body in the matched-chat preview
---    rows even though the thread renders it as deleted. The two should agree.
+-- 2. TRUNCATE is granted to anon and authenticated on every public table and is
+--    not gated by RLS. Unreachable through PostgREST, which never emits it.
+--    See the note in "Grants".
 --
--- 3. storage groups_insert accepts uploads to any path whose group row does not
---    exist yet (private.group_missing). That is needed because photos are
---    uploaded before the group row is created, but it also lets an authenticated
---    user write objects under an arbitrary unused group id. Bounded by the
---    uploads_under_quota ceiling (100 objects / 500 MB per hour), so it is a
---    minor storage-cost vector rather than an access issue.
+-- 3. reports_one_message_target is NOT VALID: enforced on new rows, untested on
+--    old ones. The query to check and validate is on the constraint itself.
 --
--- 4. chat_media_insert checks membership of one side of the path pair but not
+-- 4. storage groups_insert accepts uploads to any path whose group row does not
+--    exist yet (private.group_missing), needed because photos are uploaded
+--    before the group row is created. Bounded by the uploads_under_quota
+--    ceiling, so it is a storage-cost vector rather than an access issue.
+--
+-- 5. chat_media_insert checks membership of one side of the path pair but not
 --    that the two groups are matched. Writing an object there is possible
 --    without a matching chat; referencing it from a message still is not.
 --
--- 5. register_push_token() upserts on the token, so a caller who somehow learns
+-- 6. register_push_token() upserts on the token, so a caller who somehow learns
 --    another device's Expo push token can re-point it at themselves. Tokens are
 --    not readable (push_tokens_select_own), so this needs an out-of-band leak.
 --
--- 6. UNTESTED END TO END: account deletion on a throwaway account, and the
---    cross-tenant isolation probe (scratchpad/cross-tenant-test.ps1), which is
---    still blocked on having a discussion message to target.
+-- 7. 22 of the 24 private.* helpers are EXECUTE-to-PUBLIC, contained only by
+--    USAGE on schema `private` being limited to `authenticated`. That is a real
+--    gate, but it is one line — and `authenticated` does hold direct EXECUTE on
+--    every helper, which is an oracle rather than a leak (they return booleans
+--    about the caller's own relationships).
 --
--- 7. SEVEN FUNCTION REVOKES ARE INEFFECTIVE. `revoke ... from anon` does not
---    remove the default EXECUTE grant to PUBLIC, so the seven functions marked
---    "ineffective" under "Grants" are still PUBLIC-executable, and anon reaches
---    them through that. Nothing leaks today — each is either SECURITY DEFINER
---    keyed to auth.uid(), or non-definer and therefore bound by policies that
---    are all `to authenticated`. The fix is one line per function:
+-- 8. NEVER EMPIRICALLY TESTED: account deletion end to end on a throwaway
+--    account, and the cross-tenant isolation probe
+--    (scratchpad/cross-tenant-test.ps1), which authenticates as one user and
+--    attempts the reads and writes against another's data through PostgREST.
+--    Every finding in this file came from reading. That probe is the only check
+--    that does not share the reader's blind spots, and it has not been run.
 --
---      revoke all on function dissolve_group(text)               from public;
---      revoke all on function delete_my_account()                from public;
---      revoke all on function get_chat_previews(text)            from public;
---      revoke all on function get_unread_chat_count(text)        from public;
---      revoke all on function get_discussion_unread_counts(text) from public;
---      revoke all on function get_group_chat_preview(text)       from public;
---      revoke all on function get_blocked_person_ids()           from public;
---      grant execute on function dissolve_group(text)               to authenticated;
---      grant execute on function delete_my_account()                to authenticated;
---      grant execute on function get_chat_previews(text)            to authenticated;
---      grant execute on function get_unread_chat_count(text)        to authenticated;
---      grant execute on function get_discussion_unread_counts(text) to authenticated;
---      grant execute on function get_group_chat_preview(text)       to authenticated;
---      grant execute on function get_blocked_person_ids()           to authenticated;
---
---    The grants are not optional: `revoke from public` strips the only entry
---    those four non-definer functions have, and without re-granting, signed-in
---    users lose the Chats tab. Worth doing for the next definer RPC's sake
---    rather than this one's.
---
--- 8. net SCHEMA GRANTS ARE UNMEASURED. USAGE on `net` is held by anon,
---    authenticated and PUBLIC, and Supabase's issue_pg_net_access event trigger
---    is live, which by default also grants EXECUTE on net.http_post/http_get to
---    those roles and marks them SECURITY DEFINER. If so, any role that can
---    reach the schema can make the database issue arbitrary outbound HTTP —
---    an SSRF primitive, and the same one notify_webhook() relies on. PostgREST
---    exposes only public and graphql_public, so there is no URL that reaches
---    net.* and no evidence of a live path. introspect.sql scopes its function
---    grants to public and private, so this is unread rather than cleared:
---
---      select p.proname, p.prosecdef,
---             case when a.grantee = 0 then 'PUBLIC'
---                  else a.grantee::regrole::text end as grantee
---        from pg_proc p
---        join pg_namespace n on n.oid = p.pronamespace
---        cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
---       where n.nspname = 'net' and a.privilege_type = 'EXECUTE'
---         and (a.grantee = 0 or a.grantee::regrole::text in ('anon','authenticated'));
---
--- 9. Supabase Auth settings (JWT expiry, OTP rate limits, providers) and the
---    notify edge function's deployed source are dashboard and deploy state, not
---    Postgres. introspect.sql cannot see either. Review them separately.
+-- 9. Supabase Auth settings (JWT expiry, OTP rate limits, providers) are
+--    dashboard config and are NOT captured by introspect.sql. Review separately.
 -- ===========================================================================
