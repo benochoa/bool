@@ -1053,12 +1053,15 @@ export default function ChatThread({ myGroupId, otherGroupId, otherGroupName, di
           onCopy={handleCopy}
           onDelete={handleDelete}
           onReport={() => {
-            // The body is captured now rather than looked up on submit: the
-            // sender can delete it while the sheet is open, and the report
-            // would then carry nothing.
+            // `discussion` says which table the id belongs to. The same thread
+            // renders both kinds, and their ids come from independent
+            // sequences, so an id alone is ambiguous — sent without this flag a
+            // discussion message's id landed in the column FK'd to messages and
+            // attached the report to an unrelated chat.
             setReporting({
               type: 'message',
               messageId: actionTarget.message.id,
+              discussion,
             });
             setActionTarget(null);
           }}
