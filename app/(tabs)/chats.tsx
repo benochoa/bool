@@ -142,13 +142,22 @@ export default function ChatsScreen() {
   // A notification tap: the chat to open rides in as a param, consumed only
   // once the list belongs to the acting-as group. If the pair isn't there
   // (stale tap), the param is still cleared and the list is where you land.
-  const { openChat } = useLocalSearchParams<{ openChat?: string }>();
+  const { openChat, openGroupChat } = useLocalSearchParams<{ openChat?: string; openGroupChat?: string }>();
   useEffect(() => {
     if (!openChat || previewsFor !== currentGroupId) return;
     const preview = previews.find(p => p.otherGroupId === openChat);
     if (preview) setSelected(preview);
     router.setParams({ openChat: undefined });
   }, [openChat, previews, previewsFor, currentGroupId]);
+
+  // The same for your own group's room. There is no row to look up — the pinned
+  // row is always there — so the wait is only for the name its header shows,
+  // which lands with the preview.
+  useEffect(() => {
+    if (!openGroupChat || previewsFor !== currentGroupId) return;
+    if (openGroupChat === currentGroupId) setGroupChatOpen(true);
+    router.setParams({ openGroupChat: undefined });
+  }, [openGroupChat, previewsFor, currentGroupId]);
 
   // While a thread is open its own messages shouldn't banner over it —
   // they're already on screen.

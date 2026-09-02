@@ -78,7 +78,13 @@ export function routeToNotification(router: Router, data: NotificationData) {
     // So the tap lands on the tab that tile is on, carrying the group as a
     // param the screen consumes to open the panel once its list has loaded.
     case 'discussion':
-      if (data.surface === 'received') {
+      // Except your own group's room, which is stored as a discussion about
+      // itself. No candidate tile exists for your own group, so neither tab
+      // below has anything to open — the room is pinned at the top of Chats,
+      // and that is where this tap belongs.
+      if (data.otherGroupId === data.groupId) {
+        router.navigate({ pathname: '/chats', params: { openGroupChat: data.groupId } });
+      } else if (data.surface === 'received') {
         router.navigate({
           pathname: '/received',
           params: { openDiscussion: data.otherGroupId },
